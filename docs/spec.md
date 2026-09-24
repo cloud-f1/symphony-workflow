@@ -51,6 +51,21 @@ register via the `@tool` decorator + `create_sdk_mcp_server(...)` (in-process MC
 server) — deferred for this POC; the orchestrator fetches the issue and injects it into
 the prompt instead, which is simpler and enough for Phase 2/3.
 
+**Implement-phase permission gap — found live, 2026-09-24 (`ADLC-17`,
+[review](runs/ADLC-17/review.md)):** `permission_mode="acceptEdits"` allows
+Write/Edit tool calls but **not** Bash. The Implement phase can write a correct diff
+but cannot run tests/lint/the Jira CLI itself to verify it — it can only report
+honestly that it didn't. This POC's human-review step covers that gap manually; a
+non-POC version needs either a narrow `can_use_tool` Bash allowlist (`pytest`,
+`ruff check`) or a separate verification pass after Implement, not an assumption
+that `acceptEdits` implies "can finish the job."
+
+**Host environment inheritance — also found live:** a Claude Agent SDK session
+inherits the full host Claude Code environment (skills, configured MCP servers)
+unless explicitly restricted via `mcp_servers`/`setting_sources`. Fine for this POC
+(same trust boundary as the operator); would need locking down before running
+anywhere less trusted.
+
 ## The two-phase interface
 
 ```
