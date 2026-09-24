@@ -8,7 +8,65 @@
 
 ---
 
-## Latest session — 2026-09-25 (Epic 1 closed, Epic 2 scoped)
+## Latest session — 2026-09-24 (Epic 2 mid-flight: ops hardening, CLI control plane, parallel dev pipeline)
+
+**GitHub-for-Jira app connected** (`ADLC-30`, Done) — `repository.byInstanceType` now populated
+(previously `{}` for every data type). Branch-level linking itself still unverified — nothing has
+pushed a correctly-named branch to GitHub since the app connected; next real test is doing that.
+
+**Multi-repo policy decided and documented** (`docs/PORTABILITY.md`'s new section): dedicated
+Jira project per repo, one jira-agent-cli instance per repo (own port/`.env`) — not Epic/tag
+routing or a shared multi-tenant poller. Interim exception (reusing `ADLC` before a dedicated
+project exists) requires `JIRA_AGENT_CLI_POLL_ENABLED=false` on the non-owning instance +
+tracking tickets created as Subtasks (invisible to the owning poller's `READY_JQL`).
+
+**Real bugs found and fixed, live-verified against `cloud-f1.atlassian.net`:**
+- Jira comments were garbled (raw GFM `#`/`##`/`###` collide with Jira wiki-markup's nested
+  numbered-list syntax) — `orchestrator.jira_safe_comment_body()` now sanitizes before posting.
+- `create_issue`'s `epic` param silently doesn't work against `ADLC` (a team-managed project) —
+  added `parent` param (`client.py`), which is what team-managed epic-linking and all
+  Subtask→Story linking actually use. See `CLAUDE.md`'s new "Jira API gotchas" section.
+- No `update_issue` tool existed at all — added (needed to retitle `ADLC-28`).
+
+**CLI-native control plane landed** (`ADLC-45`, Done): `jira-agent plan <key>` /
+`jira-agent implement <key>` call `orchestrator.py` in-process, no server/HTTP needed. Run state
+persists to `docs/runs/<key>/run.json` so `implement` can resume across separate CLI invocations
+despite `RunStore` being in-memory/process-scoped (`RunStore.load()` added for this).
+
+**Symphony spec re-checked directly against `SPEC.md`'s §18.1 conformance checklist** (not just
+the existing alignment matrix) — found two real untracked gaps: workspace lifecycle hooks (§9.4)
+and startup/terminal workspace cleanup (§8.6). Logged `ADLC-49`. Also researched packaging the ops
+skill + `SessionStart` hook as a Claude Code plugin — verdict: hybrid only, the actual
+CLI/server/poller can't be plugin-installed (no Python dependency auto-install in the plugin
+system). Logged `ADLC-50`.
+
+**`ADLC-28` retitled and reset to To Do** — original title assumed the wrong SDK field name
+(`output_config`, corrected to `output_format`); now explicitly scoped as the structured-output
+foundation `ADLC-46` (under the new `ADLC-44` Story: CLI control + Epic/Story/Task decomposition
+with DoD/Acceptance Criteria) will build on.
+
+**Parallel worktree-subagent pipeline dispatched** (in flight at end of session): `ADLC-49`,
+`ADLC-50`, `ADLC-28` — three independent tickets, each a fresh Claude Code agent in an isolated
+git worktree (`Agent` tool, `isolation: "worktree"`), implementing + testing + opening a PR each.
+**Human (or this session) reviews and merges — not auto-merged.** Max 4 concurrent subagents (a
+hard user-set cap, see auto-memory). Check `gh pr list` for what landed; these may still be open
+if resuming shortly after this was written.
+
+**`SessionStart` hook now surfaces ready tickets, not just server health**
+(`.claude/hooks/session-start-check-api.sh`) — queries `ADLC` for `status = "To Do"` (excluding
+Epic/Subtask) via the v3 search endpoint and injects the list as session-start context. Fires once
+per session start, not a recurring loop — `/loop` or a scheduled cloud agent would be needed for
+genuine periodic autonomous pulling, not yet set up.
+
+**Pick up here next**: check whether the three dispatched subagents' PRs are ready
+(`gh pr list --state open`), review + merge them, run the full suite on `main` after each merge
+("make main branch perfect" per the user's own framing). Still waiting on the user for `ADLC-40`
+(dedicated Jira project for `ai-coding-nexjs-template`) and confirmation before starting the
+`ai-rc-engineer-pm` integration (no ticket exists for it yet).
+
+---
+
+## Earlier session — 2026-09-25 (Epic 1 closed, Epic 2 scoped)
 
 **Epic 1** (`ADLC-2`, the Symphony-inspired POC — Phases 0–5) is **Done**. Full
 history: `docs/intent.md` (DoD review, all clauses ✅), `docs/spec.md` (design +
@@ -43,11 +101,15 @@ from these docs alone, not something left unfinished by accident.
 
 ### Findings worth remembering (don't rediscover)
 
-- **Branch naming was broken, now fixed, but insufficient alone.** Branches now
-  correctly start with the issue key (`workspace.py`'s `branch_name()`) — but
-  `cloud-f1.atlassian.net` has **no GitHub-for-Jira app connected at all**
-  (`GET /rest/dev-status/1.0/issue/summary` → `byInstanceType: {}` for every data
-  type). `ADLC-30` tracks getting that installed; nothing in code can fix it.
+- **Branch naming was broken, now fixed; the GitHub-for-Jira app is now
+  connected too (`ADLC-30`, Done, 2026-09-24).** Branches correctly start with
+  the issue key (`workspace.py`'s `branch_name()`), and `repository.byInstanceType`
+  is now populated (was `{}` for every data type before). **Branch-level linking
+  itself is still unverified** — no correctly-named branch has actually been
+  pushed to GitHub since the app connected (Plan-phase worktrees never commit;
+  this repo's history is direct-to-main, not pushed feature branches), so
+  `branch.byInstanceType` hasn't been exercised end-to-end yet. Next real test:
+  push one correctly-named branch and re-check.
 - **`RunStore`'s in-memory design matches Symphony's own §14.3 intentional
   design**, not a corner we cut — reframed in `docs/spec.md` after re-reading the
   spec post-hoc. Restart recovery = re-poll, not resume in-flight sessions, on

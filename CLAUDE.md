@@ -57,11 +57,15 @@ before this was fixed, when the branch was `jira-agent-cli/ADLC-17`). A human do
 work on a ticket outside the Plan/Implement path should use the same pattern by hand:
 `git checkout -b ADLC-24-poller-live-verify-add-a-version-constant`.
 
-**This alone is not sufficient for auto-linking to actually show up in Jira** — confirmed
-2026-09-25 that `cloud-f1.atlassian.net` has no GitHub-for-Jira app connected at all (`GET
-/rest/dev-status/1.0/issue/summary` returns `byInstanceType: {}` for branch/PR/build/review,
-not just branch). The naming convention is still correct and necessary; get the app installed
-and authorized for the `cloud-f1` GitHub org before expecting the Development panel to populate.
+**Branch naming alone was not sufficient — a connected app was also required, and now is.**
+Confirmed 2026-09-24: the GitHub-for-Jira app is installed and connected (`ADLC-30`, Done) —
+`GET /rest/dev-status/1.0/issue/summary` now shows `repository.byInstanceType` populated
+(previously `{}` for every data type, confirmed missing as of 2026-09-25 before this was fixed).
+**Still unverified**: `branch.byInstanceType` — no correctly-named branch has actually been
+*pushed* to GitHub since the app connected (Plan-phase worktrees never commit, and this repo's
+history is direct-to-main commits, not pushed feature branches), so full end-to-end
+Development-panel linking hasn't been exercised yet. Don't assume it works until a real pushed
+branch confirms it.
 
 ## The three non-negotiables
 
@@ -76,6 +80,27 @@ and authorized for the `cloud-f1` GitHub org before expecting the Development pa
 3. **Unit tests are required, not optional.** No PR-worthy change ships without tests. HTTP
    calls are mocked with `respx` — nothing in this repo talks to a live Jira instance. If you
    add a client method, add a `respx`-mocked test for it in the same change.
+
+## Jira API gotchas — confirmed against live `cloud-f1.atlassian.net`, don't relearn these
+
+- **`epic` vs `parent` on `create_issue` are two different linking mechanisms, not
+  interchangeable.** `ADLC` is a **team-managed** project (`"simplified": true`) — Story→Epic and
+  Subtask→Story linking both use the standard `parent` field (`{"key": "ADLC-27"}`).
+  `CF1` is classic/company-managed and uses the "Epic Link" custom field instead
+  (`epic_link_field`, e.g. `customfield_10014` — confirmed correct for `CF1` only). Passing
+  `epic="ADLC-27"` against `ADLC` fails with `"cannot be set. It is not on the appropriate
+  screen"`; use `parent="ADLC-27"` there instead. `client.py`'s `create_issue` docstring has the
+  full explanation.
+- **Jira's `add_comment` body renders through wiki markup, not GitHub Markdown.** A leading
+  `#`/`##`/`###` there means nested *numbered-list depth* (1 / a / i), not a heading — GFM ATX
+  headers collide and render as a garbled outline (confirmed live on `ADLC-28`/`ADLC-30`'s plan
+  comments before the fix). `orchestrator.py`'s `jira_safe_comment_body()` converts them to bold
+  lines before posting; route any new comment-posting code through it too, don't post agent/plan
+  text to a comment verbatim.
+- **`/rest/api/2/search` is retired; use `/rest/api/3/search/jql` (POST, JSON body, not GET+query
+  params).** `client.py`'s `search_issues` already does this correctly — but anything posting
+  JQL queries *outside* the Python client (e.g. a shell hook) has to get this right independently;
+  re-discovered the hard way writing `.claude/hooks/session-start-check-api.sh`.
 
 ## Architecture
 

@@ -43,6 +43,66 @@ own setup changes unless you explicitly override them.
 That's the whole adoption path — no code fork needed for a different target repo or
 Jira project.
 
+## Multi-repo policy (decided 2026-09-24, don't re-litigate without updating this section)
+
+As more repos adopt this, two questions come up. Both are settled — the reasoning
+is in `docs/context/session-summary.md`'s handoff notes if you want the full
+back-and-forth.
+
+**1. Dedicated Jira project per repo, not Epic/tag inside one shared project.**
+`poller.py`'s `READY_JQL` already hardcodes single-project polling
+(`project = {JIRA_PROJECT} AND status = "To Do" ...`) and `orchestrator.py` takes
+one `TARGET_REPO` per process — there's no per-issue repo routing anywhere.
+Project-per-repo costs nothing (it's what already exists); routing by
+Epic/label inside one shared project would need real new engineering (JQL by
+label instead of project, per-issue repo resolution) and overloads "Epic" —
+this repo already uses Epic to mean *phase of work*, not *which repo*.
+
+**2. One jira-agent-cli instance per repo (own port, own `.env`), not one shared
+multi-tenant poller.** `WorkspaceManager` validates one workspace root per
+instance, `RunStore` is in-memory per-process, `TARGET_REPO`/`JIRA_PROJECT` are
+both single env vars. Running N repos today already means N processes — that's
+this doc's own adoption path, not a limitation to fix. A shared multi-tenant
+poller would need the poller to sweep multiple JQLs and route each issue to the
+right `TARGET_REPO`/workspace — real rearchitecture, and it raises blast radius
+(one shared loop's bug now affects every repo at once). Don't build it
+preemptively; revisit only if running several small processes becomes the
+actual operational pain.
+
+**Instance registry** (repo → Jira project → port → poller):
+
+| Repo | Jira project | Port | Poller enabled? |
+|---|---|---|---|
+| `jira-agent-cli` (this repo, self-referential) | `ADLC` | 8811 | Yes — the owning instance for `ADLC` |
+| `ai-coding-nexjs-template` | `ADLC` (interim — see below; dedicated project TBD, `ADLC-40`) | 8812 (planned) | **No** — manual-only, see below |
+| `ai-rc-engineer-pm` | TBD | TBD | TBD |
+
+### Sharing one Jira project across repos (interim/exception case)
+
+The default is a dedicated project per repo (`ADLC-40` tracks creating one for
+`ai-coding-nexjs-template`). Until that exists, a portability test may
+temporarily reuse `ADLC` as `JIRA_AGENT_CLI_JIRA_PROJECT` for a *second*
+instance pointed at a different `TARGET_REPO`. That's safe only with both of
+these, because exactly one poller may ever run against a given Jira project:
+
+1. **The non-owning instance must start with `JIRA_AGENT_CLI_POLL_ENABLED=false`**
+   (confirmed real, `api.py:43`, `os.environ.get("JIRA_AGENT_CLI_POLL_ENABLED",
+   "true")`). Without this, its poller auto-discovers *any* "To Do" ticket in
+   the shared project — including the owning repo's own real backlog — and
+   wrongly Plans it against the wrong `TARGET_REPO`. Drive it only through the
+   manual flow: `POST /runs {issue_key}` → `POST /runs/{id}/plan`.
+2. **Any tracking ticket created for the non-owning repo's test should be a
+   Subtask.** `poller.py`'s `READY_JQL` already excludes
+   `issuetype not in (Epic, Subtask)` — a Subtask is invisible to the owning
+   instance's poller by construction, so the owning instance (which keeps
+   running, poller on) never picks it up and tries to Plan it against its own
+   `TARGET_REPO` by mistake. Zero code change; this is an existing exclusion,
+   repurposed.
+
+This interim arrangement should be short-lived per repo — once a dedicated
+project exists, point that repo's instance at it and this workaround no longer
+applies to it.
+
 ## What is NOT generalized yet (deferred, not silently skipped)
 
 The Plan/Implement **prompt templates** (`prompts.py`) are still jira-agent-cli's
@@ -65,8 +125,11 @@ repo's differences from this one's conventions make it worth the cost.
   inherits that limitation, not just this POC's.
 - Branch names are `{ISSUE-KEY}-{slug}` (see `CLAUDE.md`'s Branch naming rule) —
   this only gets you Jira auto-linking if the target GitHub org/repo has the
-  GitHub-for-Jira app installed and connected. Confirmed on `cloud-f1.atlassian.net`
-  as of 2026-09-25 that it is **not** currently connected — `GET
-  /rest/dev-status/1.0/issue/summary` returns `byInstanceType: {}` for every data
-  type, not just branches. The naming convention is correct and necessary but not
-  sufficient by itself; check the target Jira site's app connections too.
+  GitHub-for-Jira app installed and connected. On `cloud-f1.atlassian.net` this
+  is now true as of 2026-09-24 (`ADLC-30`, Done) — `repository.byInstanceType`
+  is populated where it used to be `{}` for every data type. **Branch-level
+  linking specifically is still unverified**: nothing has pushed a
+  correctly-named branch to GitHub since the app connected, so
+  `branch.byInstanceType` hasn't been exercised end-to-end. On a different
+  Jira site, check its app connection the same way before assuming a
+  correctly-named branch alone is enough.

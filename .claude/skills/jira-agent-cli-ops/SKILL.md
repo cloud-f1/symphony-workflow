@@ -17,15 +17,28 @@ description: >
 `docs/{intent,spec,plan}.md` — this file stays short on purpose and doesn't
 duplicate them.
 
+## Session start — check before you start a server
+
+Before assuming the API server is down (and definitely before launching a new
+one), check first: `curl -s http://127.0.0.1:8811/health`. A prior session may
+have left it running in the background; starting a second instance on the same
+port just errors, and starting one against a different `.env`/target repo while
+another is already polling is a real way to get two pollers double-dispatching
+Plans. If `/health` doesn't respond, then start it as below.
+
 ## Quick start
 
 ```bash
 uv sync --extra dev
 cp .env.example .env   # fill in JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN
-uv run uvicorn jira_agent_cli.api:app --port 8811
+uv run --env-file .env uvicorn jira_agent_cli.api:app --port 8811
 ```
 
 `GET /health` reports Jira connectivity and whether the poller is running.
+Note: `config.py` reads `os.environ` directly, no `python-dotenv` — plain `uv
+run jira-agent ...` will NOT pick up `.env` and fails with "Missing required
+env var(s)". Either pass `--env-file .env` to `uv run` (confirmed working,
+uv 0.12.3+) or export the three `JIRA_*` vars into the shell yourself.
 
 ## The three ways to drive a ticket
 
@@ -53,11 +66,13 @@ path, use the same pattern by hand:
 ```bash
 git checkout -b ADLC-24-poller-live-verify-add-a-version-constant
 ```
-Confirmed this convention is correct but not sufficient on `cloud-f1.atlassian.net`
-as of 2026-09-25 — no GitHub-for-Jira app is connected to that site at all
-(`GET /rest/dev-status/1.0/issue/summary` returns `byInstanceType: {}` for
-every data type). Get the app installed and connected before expecting
-auto-linking to actually show up in Jira, even with a correctly-named branch.
+Confirmed 2026-09-24: the GitHub-for-Jira app is now installed and connected
+(`ADLC-30`, Done) — `repository.byInstanceType` is populated where it used to be
+`{}`. **Branch-level linking is still unverified**, though: nothing has actually
+pushed a correctly-named branch to GitHub since the app connected (Plan-phase
+worktrees never commit), so `branch.byInstanceType` hasn't been exercised
+end-to-end yet. Don't assume the Development panel populates until a real push
+confirms it.
 
 ## Safety invariants — don't "helpfully" remove these
 

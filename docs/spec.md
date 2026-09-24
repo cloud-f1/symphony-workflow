@@ -152,6 +152,8 @@ sections turned out to already agree with what we'd built for other reasons).
 | §5 `WORKFLOW.md` policy file | Deferred | `prompts.py` is still jira-agent-cli's own hardcoded templates, not a per-repo policy file — see `docs/PORTABILITY.md` |
 | §7 Orchestration State Machine | Adopted (5-state subset) | `RunState` — just enough to gate Implement, not Symphony's full 11-state lifecycle |
 | §8 Polling, Scheduling, Reconciliation | Adopted (poll only) | `poller.py` — no concurrency control (§8.3), no retry/backoff (§8.4), no reconciliation (§8.5); one ticket, one Run, no re-check loop |
+| §8.6 Startup Terminal Workspace Cleanup | **Missing, untracked** | No sweep of terminal-state workspaces at startup or on active->terminal transition anywhere in `workspace.py`/`poller.py`. Not previously in this matrix — found 2026-09-24 re-checking `SPEC.md` §18.1's conformance checklist directly. See `ADLC-49`. |
+| §9.4 Workspace Hooks | **Missing, untracked** | `after_create`/`before_run`/`after_run`/`before_remove` + `hooks.timeout_ms` don't exist. Only prior mention is a one-line code comment in `workspace.py` pointing at `docs/plan.md`, which doesn't actually track it as work. Not previously in this matrix. See `ADLC-49`. |
 | §9.5 Workspace Safety Invariants | **Adopted as-is** | `workspace.py`'s `_validate` — cwd-inside-root + sanitized keys, taken directly |
 | §10 Agent Runner Protocol (Codex app-server) | **Not applicable** | We use the Claude Agent SDK, a different protocol entirely — `agent_runner.py` is our own contract, not §10's |
 | §11 Issue Tracker Integration Contract | Adopted (Jira only) | `tools.py`'s registry plays the adapter role; no multi-tracker abstraction |
