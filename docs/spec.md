@@ -1,0 +1,67 @@
+# Spec — design & approach
+
+See [`intent.md`](intent.md) for why this exists.
+
+## Component mapping (Symphony → this POC)
+
+| Symphony component | This POC | Status |
+|---|---|---|
+| Issue Tracker Adapter | `jira_agent_cli.tools` / `.client` | ✅ already built, live-verified |
+| `WORKFLOW.md` (policy-as-code) | new `docs/WORKFLOW.md` | new, small |
+| Agent Runner (Codex app-server) | Claude Agent SDK session, not `claude -p` | new |
+| Orchestrator (poll/dispatch/retry) | **out of scope** — a human calls the API once per ticket | intentionally cut |
+| Workspace Manager + §9.5 safety invariants | per-issue git worktree under `.worktrees/<key>/`, cwd validated | new, adopted as-is (cheap, high value) |
+| §13.7 OPTIONAL HTTP Server Extension | new FastAPI app | new — this *is* the "API server" ask |
+| Human Review gate (Step 3 in Symphony's example workflow) | a hard state-machine gate between `/plan` and `/implement` | new — this *is* the "interface" ask |
+
+## Why Claude Agent SDK, not `claude -p`
+
+Symphony's Agent Runner (§10) assumes a persistent app-server subprocess with
+thread/turn semantics it can stream and supervise turn-by-turn. `claude -p` is the
+closest single-shot analog, but this org's own memory already recorded the failure mode:
+headless Claude spawned without supervision (war-room's "Execute Next") ran unattended
+and had to be de-clawed. The **Claude Agent SDK** (`claude-agent-sdk` on PyPI) gives the
+same turn-by-turn control Symphony wants from an app-server — streamed messages, a
+resumable session/thread, custom tool registration — while keeping every session start
+bound to an explicit API call this spec defines, never a background poll. Same
+capability Symphony asks for, applied only where a human already said "go."
+
+## The two-phase interface
+
+```
+POST /runs                {issue_key}         → creates a Run (state: created)
+POST /runs/{id}/plan                          → state: planning → plan_ready
+                                                 (read-only tools only; writes a plan to
+                                                  a Jira comment + docs/runs/<key>/plan.md;
+                                                  touches NO repo files)
+[ human reads the plan, approves out-of-band ]
+POST /runs/{id}/implement                     → REQUIRES state == plan_ready (hard gate)
+                                                 state: implementing → completed|failed
+                                                 (full tool budget, scoped to
+                                                  .worktrees/<key>/; writes code+tests)
+GET  /runs/{id}                               → current state + artifacts produced
+GET  /tools                                   → jira-agent-cli's existing TOOLS registry
+POST /tools/{name}/call                       → direct tool-call passthrough (agent-callable)
+```
+
+Run states are a 5-value subset of Symphony's 11-state lifecycle (§7.2) — just enough to
+enforce the human gate, not a full retry/reconciliation model.
+
+## Workspace safety (adopted from §9.5 as-is)
+
+- Workspace root: `.worktrees/` (gitignored, same convention this org's `task-workflow.md`
+  already uses).
+- Per-issue path: `.worktrees/<sanitized-key>/`, created via `git worktree add`.
+- Before any agent dispatch: validate `cwd == workspace_path` and `workspace_path` is
+  inside the workspace root — Symphony's Invariant 1/2, directly portable, cheap insurance.
+
+## What's reused vs new
+
+- **Reused unchanged:** `client.py`, `tools.py`, `config.py`, `models.py`, `cli.py` — the
+  whole existing tracker-adapter layer.
+- **New:** `src/jira_agent_cli/api.py` (FastAPI), `src/jira_agent_cli/agent_runner.py`
+  (Claude Agent SDK wrapper + workspace manager), `src/jira_agent_cli/runs.py` (the small
+  state machine, in-memory store — no DB for a POC), `docs/WORKFLOW.md` (prompt template
+  + phase policy, Symphony-style but simplified).
+
+See [`plan.md`](plan.md) for the phased build order.
