@@ -30,6 +30,18 @@ RUNS_DOCS_ROOT = Path(os.environ.get("JIRA_AGENT_CLI_RUNS_DOCS_ROOT", REPO_ROOT 
 WORKSPACE_ROOT = Path(os.environ.get("JIRA_AGENT_CLI_WORKSPACE_ROOT", REPO_ROOT / ".worktrees"))
 
 
+def render_run_doc(client: JiraClient, issue_key: str, body: str) -> str:
+    """Prepends a `jira_url` frontmatter line — the local-md-to-Jira half of
+    linking (see CLAUDE.md's "Local md <-> Jira" section). The other half
+    (Jira -> local, a remotelink pointing back at the merged GitHub file) can't
+    happen here: the file doesn't exist on GitHub until it's committed and
+    pushed, well after this function returns — see the `create_remote_link`
+    tool, called separately once that's true.
+    """
+    jira_url = f"{client.base_url}/browse/{issue_key}"
+    return f"---\njira_url: {jira_url}\n---\n\n{body}"
+
+
 async def execute_plan(
     run: Run, *, runs: RunStore, client: JiraClient, workspaces: WorkspaceManager
 ) -> Run:
@@ -61,7 +73,9 @@ async def execute_plan(
 
     plan_dir = RUNS_DOCS_ROOT / run.issue_key
     plan_dir.mkdir(parents=True, exist_ok=True)
-    (plan_dir / "plan.md").write_text(result.text, encoding="utf-8")
+    (plan_dir / "plan.md").write_text(
+        render_run_doc(client, run.issue_key, result.text), encoding="utf-8"
+    )
 
     client.add_comment(run.issue_key, f"[jira-agent-cli plan]\n\n{result.text}")
 

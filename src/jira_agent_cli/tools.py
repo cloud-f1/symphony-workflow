@@ -52,6 +52,12 @@ class GetMyselfArgs(BaseModel):
     """No arguments — returns the user the configured API token authenticates as."""
 
 
+class CreateRemoteLinkArgs(BaseModel):
+    key: str
+    url: str
+    title: str
+
+
 @dataclass(frozen=True)
 class Tool:
     name: str
@@ -104,6 +110,11 @@ def _get_myself(client: JiraClient, args: GetMyselfArgs) -> dict[str, Any]:
     return client.get_myself().model_dump()
 
 
+def _create_remote_link(client: JiraClient, args: CreateRemoteLinkArgs) -> dict[str, Any]:
+    client.create_remote_link(args.key, url=args.url, title=args.title)
+    return {"ok": True, "key": args.key, "url": args.url}
+
+
 TOOLS: dict[str, Tool] = {
     tool.name: tool
     for tool in (
@@ -127,6 +138,14 @@ TOOLS: dict[str, Tool] = {
             "Return the Jira user the configured API token authenticates as.",
             GetMyselfArgs,
             _get_myself,
+        ),
+        Tool(
+            "create_remote_link",
+            "Add a Jira 'web link' (Links section, distinct from a comment) pointing an "
+            "issue at an external URL — e.g. a merged docs/runs/<key>/plan.md on GitHub. "
+            "Only call this once the target URL actually resolves.",
+            CreateRemoteLinkArgs,
+            _create_remote_link,
         ),
     )
 }

@@ -222,6 +222,31 @@ def test_add_comment_posts_plain_body(config: JiraConfig) -> None:
 
 
 @respx.mock
+def test_create_remote_link_posts_the_web_link_object(config: JiraConfig) -> None:
+    route = respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-17/remotelink").mock(
+        return_value=httpx.Response(201, json={"id": 1})
+    )
+    with JiraClient(config) as client:
+        client.create_remote_link(
+            "ADLC-17",
+            url="https://github.com/x/y/blob/main/docs/runs/ADLC-17/review.md",
+            title="review.md",
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {
+        "object": {
+            "url": "https://github.com/x/y/blob/main/docs/runs/ADLC-17/review.md",
+            "title": "review.md",
+        }
+    }
+
+
+def test_base_url_property_exposes_config_value(config: JiraConfig) -> None:
+    with JiraClient(config) as client:
+        assert client.base_url == BASE_URL
+
+
+@respx.mock
 def test_transition_issue_matches_by_name_case_insensitively(config: JiraConfig) -> None:
     respx.get(f"{BASE_URL}/rest/api/2/issue/CF1-1/transitions").mock(
         return_value=httpx.Response(

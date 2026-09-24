@@ -19,6 +19,7 @@ def test_tools_registry_has_expected_names() -> None:
         "add_comment",
         "transition_issue",
         "get_myself",
+        "create_remote_link",
     }
 
 
@@ -76,6 +77,29 @@ def test_call_tool_dispatches_transition_issue() -> None:
     result = call_tool(client, "transition_issue", {"key": "CF1-1", "transition_name": "Done"})
     client.transition_issue.assert_called_once_with("CF1-1", "Done")
     assert result == {"ok": True, "key": "CF1-1", "transition": "Done"}
+
+
+def test_call_tool_dispatches_create_remote_link() -> None:
+    client = MagicMock()
+    result = call_tool(
+        client,
+        "create_remote_link",
+        {
+            "key": "ADLC-17",
+            "url": "https://github.com/x/y/blob/main/docs/runs/ADLC-17/review.md",
+            "title": "review.md",
+        },
+    )
+    client.create_remote_link.assert_called_once_with(
+        "ADLC-17",
+        url="https://github.com/x/y/blob/main/docs/runs/ADLC-17/review.md",
+        title="review.md",
+    )
+    assert result == {
+        "ok": True,
+        "key": "ADLC-17",
+        "url": "https://github.com/x/y/blob/main/docs/runs/ADLC-17/review.md",
+    }
 
 
 def test_call_tool_raises_on_unknown_tool_name() -> None:

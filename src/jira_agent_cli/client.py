@@ -46,6 +46,10 @@ class JiraClient:
             timeout=30.0,
         )
 
+    @property
+    def base_url(self) -> str:
+        return self._config.base_url
+
     def close(self) -> None:
         self._client.close()
 
@@ -128,6 +132,18 @@ class JiraClient:
 
     def add_comment(self, key: str, body: str) -> None:
         response = self._client.post(f"/rest/api/2/issue/{key}/comment", json={"body": body})
+        self._raise_for_status(response)
+
+    def create_remote_link(self, key: str, *, url: str, title: str) -> None:
+        """A Jira "web link" (`/remotelink`), distinct from a comment — shows up
+        in the issue's Links section. Call this only once the target `url`
+        actually resolves (e.g. after a commit pointing at it is merged) —
+        there's nothing stopping you from linking a URL that 404s, so don't.
+        """
+        response = self._client.post(
+            f"/rest/api/2/issue/{key}/remotelink",
+            json={"object": {"url": url, "title": title}},
+        )
         self._raise_for_status(response)
 
     def list_transitions(self, key: str) -> list[Transition]:
