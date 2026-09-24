@@ -1,7 +1,7 @@
 {
   "name": "jira-agent-cli-ops",
   "description": "Operational skill + SessionStart hook for jira-agent-cli's Plan/Implement loop (starts/health-checks its FastAPI server automatically). Does NOT install the CLI/server itself -- clone https://github.com/cloud-f1/jira-agent-cli and run `uv sync --extra dev` separately; see that repo's docs/PORTABILITY.md.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "cloud-f1"
   },
