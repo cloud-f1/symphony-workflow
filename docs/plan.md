@@ -2,13 +2,13 @@
 
 See [`intent.md`](intent.md) for why, [`spec.md`](spec.md) for the design this follows.
 
-**Phase 0 — Pick the real ticket**
+**Phase 0 — Pick the real ticket** (`ADLC-3`, Done)
 Use `jira_agent_cli.tools.search_issues` / `get_issue` (already fixed to the live v3
 endpoint) to pick one small, real CF1 ticket as the POC's driving example — or create a
 purpose-made throwaway CF1 ticket if nothing suitable exists. This grounds every later
 phase in a real payload instead of fixtures.
 
-**Phase 1 — API server**
+**Phase 1 — API server** (`ADLC-4`, Done)
 - `src/jira_agent_cli/api.py`: `GET /tools`, `POST /tools/{name}/call`, `GET
   /issues/{key}`, `POST /runs`, `GET /runs/{id}` — everything except the two run-phase
   endpoints is a thin FastAPI wrapper over the existing `tools.py`.
@@ -16,24 +16,24 @@ phase in a real payload instead of fixtures.
   tests" rule the existing suite already follows.
 - Add `fastapi` + `uvicorn` to `pyproject.toml` deps.
 
-**Phase 2 — Plan/Implement interface**
-- `runs.py`: the 5-state Run model (`created → planning → plan_ready → implementing →
+**Phase 2 — Plan/Implement interface** (`ADLC-1`, In Progress)
+- (`ADLC-5`) `runs.py`: the 5-state Run model (`created → planning → plan_ready → implementing →
   completed|failed`), in-memory dict store.
-- `POST /runs/{id}/plan`: renders `docs/WORKFLOW.md`'s prompt template with the issue's
+- (`ADLC-6`) `POST /runs/{id}/plan`: renders `docs/WORKFLOW.md`'s prompt template with the issue's
   fields, runs one bounded Agent SDK turn scoped to **read-only** tools, posts the
   resulting plan via `add_comment` (existing tool, unchanged) and saves
   `docs/runs/<key>/plan.md` locally.
-- `POST /runs/{id}/implement`: hard-gated on `state == plan_ready`; runs a second bounded
+- (`ADLC-7`) `POST /runs/{id}/implement`: hard-gated on `state == plan_ready`; runs a second bounded
   session inside `.worktrees/<key>/` with the approved plan as context, full tool budget,
   writes code + tests; ends with a summary (files changed, test result) — stops there,
   no auto-PR.
 
-**Phase 3 — Claude Code session runner**
-- `agent_runner.py`: wraps `claude-agent-sdk`'s `ClaudeSDKClient` (not `claude -p`);
+**Phase 3 — Claude Code session runner** (`ADLC-8`)
+- (`ADLC-9` verified, `ADLC-10`/`ADLC-11`/`ADLC-12` pending) `agent_runner.py`: wraps `claude_agent_sdk.query()` (not `claude -p`);
   owns workspace create/validate (the §9.5 invariants) and the tool-budget split between
   Plan (read-only) and Implement (full) phases.
 
-**Phase 4 — End-to-end run against the real ticket**
+**Phase 4 — End-to-end run against the real ticket** (`ADLC-13`, with `ADLC-14`/`ADLC-15`/`ADLC-16`)
 Run `plan` then `implement` against the Phase-0 ticket, watch it, and capture the
 resulting artifacts as `docs/runs/<key>/{plan,review}.md` — the last two links in the
 ADLC chain (code+tests and review record already exist as the PR itself; add a one-line

@@ -20,24 +20,51 @@ Symphony's Agent Runner (§10) assumes a persistent app-server subprocess with
 thread/turn semantics it can stream and supervise turn-by-turn. `claude -p` is the
 closest single-shot analog, but this org's own memory already recorded the failure mode:
 headless Claude spawned without supervision (war-room's "Execute Next") ran unattended
-and had to be de-clawed. The **Claude Agent SDK** (`claude-agent-sdk` on PyPI) gives the
-same turn-by-turn control Symphony wants from an app-server — streamed messages, a
-resumable session/thread, custom tool registration — while keeping every session start
-bound to an explicit API call this spec defines, never a background poll. Same
-capability Symphony asks for, applied only where a human already said "go."
+and had to be de-clawed. The **Claude Agent SDK** (`claude-agent-sdk` on PyPI, confirmed
+installed — v0.2.159, `pip install claude-agent-sdk`) gives the same turn-by-turn control
+Symphony wants from an app-server, while keeping every session start bound to an
+explicit API call this spec defines, never a background poll.
+
+**Confirmed API surface** (verified live against `code.claude.com/docs/en/agent-sdk`,
+2026-09-24 — this section replaces earlier speculation):
+
+```python
+async def query(
+    *, prompt: str, options: ClaudeAgentOptions | None = None
+) -> AsyncIterator[Message]
+```
+
+`ClaudeAgentOptions` fields this POC uses: `model`, `cwd` (the per-issue worktree),
+`permission_mode`, `max_turns`, `resume` (session id, for Implement to continue the
+Plan phase's thread), `can_use_tool` (a permission callback for finer control than
+`permission_mode` alone gives).
+
+**The key find:** `permission_mode="plan"` is a **built-in** SDK mode — "explore
+without editing" — that maps directly onto the read-only Plan-phase requirement below,
+better than the custom tool-budget split this spec originally proposed. Implement uses
+`permission_mode="acceptEdits"` (or `"default"`) instead. The five modes:
+`default` / `acceptEdits` / `plan` / `dontAsk` / `bypassPermissions` / `auto`
+(model-classifier-approved).
+
+Custom tools (e.g. exposing `jira_agent_cli.tools`'s registry to the agent directly)
+register via the `@tool` decorator + `create_sdk_mcp_server(...)` (in-process MCP
+server) — deferred for this POC; the orchestrator fetches the issue and injects it into
+the prompt instead, which is simpler and enough for Phase 2/3.
 
 ## The two-phase interface
 
 ```
 POST /runs                {issue_key}         → creates a Run (state: created)
 POST /runs/{id}/plan                          → state: planning → plan_ready
-                                                 (read-only tools only; writes a plan to
-                                                  a Jira comment + docs/runs/<key>/plan.md;
-                                                  touches NO repo files)
+                                                 (permission_mode="plan" — read-only;
+                                                  writes plan to a Jira comment +
+                                                  docs/runs/<key>/plan.md; touches NO
+                                                  repo files; records the SDK session_id)
 [ human reads the plan, approves out-of-band ]
 POST /runs/{id}/implement                     → REQUIRES state == plan_ready (hard gate)
                                                  state: implementing → completed|failed
-                                                 (full tool budget, scoped to
+                                                 (permission_mode="acceptEdits", resumes
+                                                  the plan phase's session_id, scoped to
                                                   .worktrees/<key>/; writes code+tests)
 GET  /runs/{id}                               → current state + artifacts produced
 GET  /tools                                   → jira-agent-cli's existing TOOLS registry

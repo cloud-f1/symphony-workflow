@@ -6,12 +6,39 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 **jira-agent-cli** — a Python CLI for the Jira Cloud REST API where every operation is also
 exposed as a schema-described tool call, so an AI agent can invoke it by name the same way it
-would call a function. See [README.md](README.md) for the full pitch, background, and
-confirmed CF1 field IDs.
+would call a function. It's also the substrate for a Symphony-inspired POC: an API server +
+a Plan/Implement Jira agent loop driven by the Claude Agent SDK. See
+[README.md](README.md) for the CLI pitch and confirmed CF1 field IDs, and
+[docs/intent.md](docs/intent.md) / [docs/spec.md](docs/spec.md) / [docs/plan.md](docs/plan.md)
+for the POC's why/design/roadmap — read those three before touching `api.py`, `runs.py`, or
+`agent_runner.py`.
 
 This is a standalone package under `~/Documents/git_saas/`, a private repo in the `cloud-f1`
 GitHub org. It is not part of `content-asset-system` — don't assume its rules apply here beyond
 what this file states.
+
+## Jira tracking for this repo's own work
+
+Work on this repo is tracked in Jira project **ADLC** (`cloud-f1.atlassian.net`, Kanban board
+74), not CF1 — CF1 is content/marketing work, ADLC is agent-driven dev work. Structure:
+**Epic `ADLC-2`** → one **Story per POC phase** → **Subtasks** per concrete work item. When
+you pick up a subtask, transition it as you go (`jira-agent transition <key> "In Progress"` /
+`"Done"`) — this repo's own agent-tool CLI is the thing doing the tracking, so use it. See
+[docs/intent.md](docs/intent.md)'s Tracking table for the current phase → ticket mapping.
+
+## Claude Agent SDK usage (agent_runner.py)
+
+Confirmed 2026-09-24 against `code.claude.com/docs/en/agent-sdk` — `pip install
+claude-agent-sdk` (installed, v0.2.159+). Entry point: `async def query(*, prompt,
+options: ClaudeAgentOptions) -> AsyncIterator[Message]`. Two settled decisions, don't
+re-litigate without updating docs/spec.md first:
+
+- **Plan phase uses `permission_mode="plan"`** (a built-in SDK mode — explore without
+  editing), not a hand-rolled read-only tool allowlist. This is simpler and safer than
+  what was originally speculated.
+- **Implement resumes the Plan phase's session** via `options.resume=<session_id>`
+  rather than starting fresh — the agent keeps the context of the plan it already wrote.
+- Never `claude -p`. See the "Why Claude Agent SDK" section of `docs/spec.md`.
 
 ## The three non-negotiables
 

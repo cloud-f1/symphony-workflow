@@ -44,11 +44,21 @@ See [`spec.md`](spec.md) for why this points at the Claude Agent SDK instead.
 
 This POC is tracked in a dedicated Jira project — **ADLC** ("Agentic Dev Lifecycle"),
 team-managed Kanban board, separate from CF1's content/marketing backlog:
-https://cloud-f1.atlassian.net/jira/software/projects/ADLC/boards/74. Phase 1 was built
-and closed under `CF1-286` before ADLC existed; `ADLC-1` (Phase 2) is the first ticket on
-the new board. Continuous polling (`/loop`) was considered and explicitly deferred —
-Phase 2 gets driven by hand a few times first so we can see real plan quality before
-automating ticket discovery.
+https://cloud-f1.atlassian.net/jira/software/projects/ADLC/boards/74. Structure:
+**Epic `ADLC-2`** ("jira-agent-cli POC — Symphony-inspired Jira agent orchestration") →
+one **Story per phase** → **Subtasks** per concrete work item underneath each Story.
+
+| Phase | Story | Subtasks | Status |
+|---|---|---|---|
+| 0 — pick the real ticket + live-verify | `ADLC-3` | — | Done |
+| 1 — API server | `ADLC-4` | — | Done (built under `CF1-286` before ADLC existed) |
+| 2 — Plan/Implement interface | `ADLC-1` | `ADLC-5`/`6`/`7` | In Progress |
+| 3 — Claude Code session runner | `ADLC-8` | `ADLC-9`/`10`/`11`/`12` | To Do (`ADLC-9` research done) |
+| 4 — end-to-end run | `ADLC-13` | `ADLC-14`/`15`/`16` | To Do |
+
+Continuous polling (`/loop`) was considered and explicitly deferred — Phase 2 gets
+driven by hand a few times first so we can see real plan quality before automating
+ticket discovery.
 
 ## Definition of done
 
