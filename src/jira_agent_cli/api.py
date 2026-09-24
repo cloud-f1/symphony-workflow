@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import httpx
@@ -31,7 +32,7 @@ from jira_agent_cli.client import JiraClient, JiraError
 from jira_agent_cli.config import ConfigError, JiraConfig
 from jira_agent_cli.orchestrator import TARGET_REPO, WORKSPACE_ROOT, execute_implement, execute_plan
 from jira_agent_cli.poller import Poller
-from jira_agent_cli.runs import Run, RunStore, RunTransitionError
+from jira_agent_cli.runs import Run, RunState, RunStore, RunTransitionError
 from jira_agent_cli.tools import TOOLS, call_tool
 from jira_agent_cli.workspace import WorkspaceError, WorkspaceManager
 
@@ -209,3 +210,91 @@ async def implement_run(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AgentRunError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+# --- Symphony §13.7.2 JSON REST API (GET /api/v1/*) -----------------------
+#
+# An observability/control surface distinct from /runs/*: /runs/* is the
+# thing that DOES Plan/Implement, /api/v1/* is a read-only view over
+# RunStore matching Symphony's suggested shape (adapted to our 5-state Run
+# model — no retry queue yet, so `retrying` stays empty but is kept in the
+# shape for forward compatibility per §13.7.2's "MAY add fields" allowance).
+# POST /api/v1/refresh is intentionally not implemented — no value without
+# the poller's tick being externally triggerable (see docs/spec.md).
+
+RUNNING_STATES = (RunState.PLANNING, RunState.IMPLEMENTING)
+
+
+class RunCounts(BaseModel):
+    running: int
+    retrying: int
+    by_state: dict[str, int]
+
+
+class StateResponse(BaseModel):
+    generated_at: datetime
+    counts: RunCounts
+    running: list[Run]
+    retrying: list[Run] = []
+    poller_running: bool
+
+
+class WorkspaceInfo(BaseModel):
+    path: str | None = None
+
+
+class IssueDetailResponse(BaseModel):
+    issue_identifier: str
+    run_id: str | None = None
+    status: str | None = None
+    workspace: WorkspaceInfo
+    session_id: str | None = None
+    plan: str | None = None
+    result: str | None = None
+    last_error: str | None = None
+    created_at: datetime | None = None
+
+
+@app.get("/api/v1/state")
+def api_state(request: Request, runs: RunStore = Depends(get_run_store)) -> StateResponse:
+    """Symphony §13.7.2's `GET /api/v1/state` — a summary view of current runtime
+    state, distinct from `GET /health` (liveness) and `GET /runs/{id}` (one run).
+    """
+    all_runs = runs.all()
+    running = [r for r in all_runs if r.state in RUNNING_STATES]
+    by_state: dict[str, int] = {}
+    for run in all_runs:
+        by_state[run.state.value] = by_state.get(run.state.value, 0) + 1
+    poller: Poller = request.app.state.poller
+    return StateResponse(
+        generated_at=datetime.now(UTC),
+        counts=RunCounts(running=len(running), retrying=0, by_state=by_state),
+        running=running,
+        retrying=[],
+        poller_running=poller.is_running,
+    )
+
+
+@app.get("/api/v1/issues/{key}")
+def api_issue_detail(key: str, runs: RunStore = Depends(get_run_store)) -> IssueDetailResponse:
+    """Symphony §13.7.2's `GET /api/v1/<issue_identifier>` — per-ticket runtime
+    detail for debugging. Distinct from the plain `GET /issues/{key}/run`: this
+    nests fields to match Symphony's suggested shape (`workspace.path`, ...)
+    rather than returning the flat `Run` model. 404 if no Run exists for the
+    key yet, matching Symphony's suggested "issue unknown to in-memory state"
+    behavior — not a Jira-side 404 (this never calls Jira).
+    """
+    run = runs.get_by_issue_key(key)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"No run found for issue {key!r}")
+    return IssueDetailResponse(
+        issue_identifier=key,
+        run_id=run.id,
+        status=run.state.value,
+        workspace=WorkspaceInfo(path=run.workspace_path),
+        session_id=run.session_id,
+        plan=run.plan,
+        result=run.result,
+        last_error=run.error,
+        created_at=run.created_at,
+    )

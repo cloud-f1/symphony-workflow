@@ -365,3 +365,89 @@ def test_implement_endpoint_cannot_run_twice(
 
     second = api_client.post(f"/runs/{run_id}/implement")
     assert second.status_code == 409
+
+
+def test_api_v1_state_empty_when_no_runs(api_client: TestClient) -> None:
+    response = api_client.get("/api/v1/state")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["counts"] == {"running": 0, "retrying": 0, "by_state": {}}
+    assert body["running"] == []
+    assert body["retrying"] == []
+    assert body["poller_running"] is False  # disabled for this fixture
+
+
+@respx.mock
+def test_api_v1_state_counts_running_and_by_state(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "X", "status": {"name": "To Do"}},
+            },
+        )
+    )
+
+    async def stuck_in_planning(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        raise AgentRunError("still working")
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", stuck_in_planning)
+
+    created = api_client.post("/runs", json={"issue_key": "ADLC-1"})
+    run_id = created.json()["id"]
+    api_client.post(f"/runs/{run_id}/plan")  # fails -> state becomes "failed"
+
+    # Create a second run that stays "created" (never planned) to exercise by_state.
+    api_client.post("/runs", json={"issue_key": "ADLC-2"})
+
+    response = api_client.get("/api/v1/state")
+    body = response.json()
+    assert body["counts"]["running"] == 0  # "failed" and "created" aren't "running"
+    assert body["counts"]["by_state"] == {"failed": 1, "created": 1}
+
+
+def test_api_v1_issue_detail_404_when_no_run_exists(api_client: TestClient) -> None:
+    response = api_client.get("/api/v1/issues/ADLC-999")
+    assert response.status_code == 404
+
+
+@respx.mock
+def test_api_v1_issue_detail_matches_the_run(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "X", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-1", "In Review")
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        return AgentRunResult(text="the plan", session_id="sess-7", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+
+    created = api_client.post("/runs", json={"issue_key": "ADLC-1"})
+    run_id = created.json()["id"]
+    api_client.post(f"/runs/{run_id}/plan")
+
+    response = api_client.get("/api/v1/issues/ADLC-1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["issue_identifier"] == "ADLC-1"
+    assert body["run_id"] == run_id
+    assert body["status"] == "plan_ready"
+    assert body["session_id"] == "sess-7"
+    assert body["workspace"]["path"] == "/tmp/fake-workspace/ADLC-1"

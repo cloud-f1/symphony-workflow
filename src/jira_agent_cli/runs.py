@@ -68,6 +68,10 @@ class RunStore:
         """
         return next((r for r in self._runs.values() if r.issue_key == issue_key), None)
 
+    def all(self) -> list[Run]:
+        """Used by the Symphony §13.7-style interface API (`GET /api/v1/state`)."""
+        return list(self._runs.values())
+
     def mark_planning(self, run_id: str) -> Run:
         run = self._require(run_id)
         self._require_state(run, RunState.CREATED)
