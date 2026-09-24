@@ -4,14 +4,18 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 ## Project Overview
 
-**jira-agent-cli** — a Python CLI for the Jira Cloud REST API where every operation is also
-exposed as a schema-described tool call, so an AI agent can invoke it by name the same way it
-would call a function. It's also the substrate for a Symphony-inspired POC: an API server +
-a Plan/Implement Jira agent loop driven by the Claude Agent SDK. See
-[README.md](README.md) for the CLI pitch and confirmed CF1 field IDs, and
+**jira-agent-cli** is now two things, not one: a Python CLI for the Jira Cloud REST API where
+every operation is also a schema-described tool call, **and** a Symphony-inspired orchestration
+service (FastAPI server + background poller) that drives a Jira ticket through a Plan/Implement
+loop via the Claude Agent SDK. Both are first-class — the CLI didn't stay "just a CLI." See
+[README.md](README.md) for the CLI pitch and confirmed CF1 field IDs; see
 [docs/intent.md](docs/intent.md) / [docs/spec.md](docs/spec.md) / [docs/plan.md](docs/plan.md)
-for the POC's why/design/roadmap — read those three before touching `api.py`, `runs.py`, or
-`agent_runner.py`.
+for the orchestration service's why/design/roadmap (read those three before touching `api.py`,
+`orchestrator.py`, `poller.py`, `runs.py`, or `agent_runner.py`); see
+[docs/PORTABILITY.md](docs/PORTABILITY.md) for running this against a *different* repo/Jira
+project. **New to this repo? Load the `jira-agent-cli-ops` skill first**
+(`.claude/skills/jira-agent-cli-ops/SKILL.md`) — the short operational reference this file's
+sibling docs don't repeat.
 
 This is a standalone package under `~/Documents/git_saas/`, a private repo in the `cloud-f1`
 GitHub org. It is not part of `content-asset-system` — don't assume its rules apply here beyond
@@ -40,6 +44,21 @@ re-litigate without updating docs/spec.md first:
   rather than starting fresh — the agent keeps the context of the plan it already wrote.
 - Never `claude -p`. See the "Why Claude Agent SDK" section of `docs/spec.md`.
 
+## Branch naming — required, not optional
+
+Every workspace's branch is `{ISSUE-KEY}-{slug-of-summary}` (`workspace.py`'s `branch_name()`),
+e.g. `ADLC-24-poller-live-verify-add-a-version-constant`. **Must start with the issue key** —
+that's what Jira's Development-panel auto-linking depends on (confirmed missing on `ADLC-17`
+before this was fixed, when the branch was `jira-agent-cli/ADLC-17`). A human doing manual dev
+work on a ticket outside the Plan/Implement path should use the same pattern by hand:
+`git checkout -b ADLC-24-poller-live-verify-add-a-version-constant`.
+
+**This alone is not sufficient for auto-linking to actually show up in Jira** — confirmed
+2026-09-25 that `cloud-f1.atlassian.net` has no GitHub-for-Jira app connected at all (`GET
+/rest/dev-status/1.0/issue/summary` returns `byInstanceType: {}` for branch/PR/build/review,
+not just branch). The naming convention is still correct and necessary; get the app installed
+and authorized for the `cloud-f1` GitHub org before expecting the Development panel to populate.
+
 ## The three non-negotiables
 
 1. **Python codebase, CLI type.** The public interface is the `jira-agent` console script
@@ -58,17 +77,26 @@ re-litigate without updating docs/spec.md first:
 
 ```
 src/jira_agent_cli/
-  config.py   # JiraConfig.from_env() — required: JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN
-              # optional: JIRA_FIELD_EPIC_LINK / JIRA_FIELD_SPRINT / JIRA_FIELD_STORY_POINTS
-  models.py   # pydantic response models (Issue, SearchResult, IssueCreateResult, Transition)
-  client.py   # JiraClient — typed HTTP wrapper over Jira REST API v2, raises JiraError
-  tools.py    # Tool dataclass + TOOLS registry + call_tool() — the agent-facing surface
-  cli.py      # Typer app — human subcommands (get/search/comment/transition) + list-tools/call
-tests/        # pytest + respx, one file per module (test_client / test_tools / test_cli)
+  config.py       # JiraConfig.from_env() — required: JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN
+                  # optional: JIRA_FIELD_EPIC_LINK / JIRA_FIELD_SPRINT / JIRA_FIELD_STORY_POINTS
+  models.py       # pydantic response models (Issue, SearchResult, IssueCreateResult, Transition)
+  client.py       # JiraClient — typed HTTP wrapper over Jira REST API v2, raises JiraError
+  tools.py        # Tool dataclass + TOOLS registry + call_tool() — the agent-facing surface
+  cli.py          # Typer app — human subcommands (get/search/...) + list-tools/call
+  workspace.py    # WorkspaceManager — per-issue git worktree, §9.5 safety invariants, branch_name()
+  agent_runner.py # wraps claude_agent_sdk.query() — the Plan/Implement session runner
+  prompts.py      # Plan/Implement prompt templates (docs/WORKFLOW.md is the policy summary)
+  runs.py         # Run/RunState/RunStore — the Plan/Implement human-gate state machine
+  orchestrator.py # execute_plan/execute_implement — shared by api.py AND poller.py
+  poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements
+  api.py          # FastAPI app — HTTP surface over tools.py + orchestrator.py
+tests/            # pytest + respx, one file per module above
 ```
 
-Data flows one direction: `cli.py` → `tools.py` → `client.py` → Jira REST API v2. Never call
-`httpx` directly from `cli.py` or `tools.py` — go through `JiraClient`.
+Two entry points, one shared core: `cli.py` and `api.py` both go through `tools.py` →
+`client.py` → Jira REST API v2; `api.py`'s `/plan`/`/implement` and `poller.py` both go through
+`orchestrator.py` so they can't drift on what "running a plan" means. Never call `httpx`
+directly from `cli.py`, `tools.py`, or `api.py` — go through `JiraClient`.
 
 **Why API v2, not v3:** v2 takes plain-text `description`/comment bodies; v3 requires the
 Atlassian Document Format (nested `content`/`paragraph` JSON). This org's other Jira tooling
@@ -123,12 +151,21 @@ commit a token, and never let a test read `.env` — `test_cli.py`'s
 
 ## What NOT to do here
 
-- Don't add a web server, database, or queue — this is a CLI, not a service. If a long-running
-  daemon that polls Jira and dispatches agents is ever wanted, that's a different project (see
-  [openai/symphony](https://github.com/openai/symphony) for that shape of problem — this repo
-  intentionally stays at "one command, one Jira call").
-- Don't hardcode `cloud-f1.atlassian.net` or CF1's custom field IDs into `client.py` — they
-  belong in `.env` / `JiraConfig`, because this client is meant to work against any Jira Cloud
-  project, not just CF1.
+- **Don't wire Implement into the poller.** `poller.py` auto-discovers and auto-Plans on
+  purpose, never auto-Implements — that split is the load-bearing safety property of Phase 5
+  (see `docs/spec.md`), not a missing feature. `acceptEdits` can't self-verify (documented
+  finding, `docs/runs/ADLC-17/review.md`); an unattended Plan→Implement chain would ship
+  unreviewed code with nobody watching.
+- **Don't add a database or persistent queue casually.** `RunStore` being in-memory-only is a
+  known, documented POC limitation (`docs/spec.md`, confirmed in practice on `ADLC-24`) — fixing
+  it is real scope (Symphony §7.4-style recovery), not a quick add. If it's ever tackled, update
+  `docs/spec.md` first.
+- Don't hardcode `cloud-f1.atlassian.net`, CF1's custom field IDs, `ADLC`, or a specific target
+  repo path into `client.py`/`orchestrator.py`/`poller.py` — they belong in `.env` / env vars
+  (`JIRA_AGENT_CLI_TARGET_REPO`, `JIRA_AGENT_CLI_JIRA_PROJECT`, ...), because this is meant to
+  work against any Jira Cloud project and any target repo — see `docs/PORTABILITY.md`.
 - Don't reach for the v3 API / ADF format without a documented reason — it changes every model
   and client method to be structured instead of plain text.
+- Don't assume a correctly-named branch alone gets Jira auto-linking — it also needs the
+  GitHub-for-Jira app connected on the target Jira site (not currently true for
+  `cloud-f1.atlassian.net`, confirmed 2026-09-25 — see the Branch naming section above).

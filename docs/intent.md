@@ -68,4 +68,20 @@ Run `plan` then `implement` against one real CF1 ticket, get a plan a human appr
 get code+tests a human can review, and end up with a working example of every link in
 the ADLC chain — including this intent/spec/plan trio itself.
 
-See [`spec.md`](spec.md) for the design, [`plan.md`](plan.md) for the phased roadmap.
+### Reviewed 2026-09-25 — all clauses satisfied
+
+| Clause | Status | Evidence |
+|---|---|---|
+| Plan run against a real ticket | ✅ | `ADLC-17`, `ADLC-24` |
+| Human approves the plan before Implement | ✅ | Enforced in code (`RunTransitionError`), exercised for real on `ADLC-17` |
+| Code+tests a human can review | ✅ | jira-agent-cli PR #1, merged, 64→77 tests over the POC |
+| Working ADLC artifact chain | ✅ | this trio + `docs/runs/{ADLC-17,ADLC-24}/{plan,review}.md` |
+| intent/spec/plan trio itself | ✅ | kept current through every phase |
+
+**The POC is done relative to its own stated DoD.** Two things stay explicitly *not*
+done, by design rather than oversight — both already documented as findings in
+`docs/spec.md`, not new news: a persistent `RunStore` (Symphony §7.4-style restart
+recovery) and a Bash-capable Implement phase that can self-verify its own output.
+
+See [`spec.md`](spec.md) for the design, [`plan.md`](plan.md) for the phased roadmap,
+[`PORTABILITY.md`](PORTABILITY.md) for using this outside jira-agent-cli itself.
