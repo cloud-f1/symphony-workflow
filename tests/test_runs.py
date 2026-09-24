@@ -50,6 +50,31 @@ def test_full_happy_path_transition_sequence() -> None:
     assert final.result == "done"
 
 
+def test_set_plan_ready_defaults_plan_structured_to_none() -> None:
+    store = RunStore()
+    run = store.create("ADLC-1")
+    store.mark_planning(run.id)
+    updated = store.set_plan_ready(
+        run.id, plan="do the thing", session_id="sess-1", workspace_path="/tmp/x"
+    )
+    assert updated.plan_structured is None
+
+
+def test_set_plan_ready_stores_plan_structured_when_given() -> None:
+    store = RunStore()
+    run = store.create("ADLC-1")
+    store.mark_planning(run.id)
+    structured = {"summary": "do the thing", "files_changed": ["a.py"], "risks": []}
+    updated = store.set_plan_ready(
+        run.id,
+        plan="do the thing",
+        session_id="sess-1",
+        workspace_path="/tmp/x",
+        plan_structured=structured,
+    )
+    assert updated.plan_structured == structured
+
+
 def test_implement_cannot_skip_the_plan_gate() -> None:
     store = RunStore()
     run = store.create("ADLC-1")

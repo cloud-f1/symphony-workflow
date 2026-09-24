@@ -38,7 +38,7 @@ you pick up a subtask, transition it as you go (`jira-agent transition <key> "In
 
 Confirmed 2026-09-24 against `code.claude.com/docs/en/agent-sdk` — `pip install
 claude-agent-sdk` (installed, v0.2.159+). Entry point: `async def query(*, prompt,
-options: ClaudeAgentOptions) -> AsyncIterator[Message]`. Two settled decisions, don't
+options: ClaudeAgentOptions) -> AsyncIterator[Message]`. Three settled decisions, don't
 re-litigate without updating docs/spec.md first:
 
 - **Plan phase uses `permission_mode="plan"`** (a built-in SDK mode — explore without
@@ -46,6 +46,14 @@ re-litigate without updating docs/spec.md first:
   what was originally speculated.
 - **Implement resumes the Plan phase's session** via `options.resume=<session_id>`
   rather than starting fresh — the agent keeps the context of the plan it already wrote.
+- **Plan phase also sets `ClaudeAgentOptions.output_format={"type": "json_schema",
+  "schema": PLAN_OUTPUT_SCHEMA}`** (ADLC-28) — structured output lands on
+  `ResultMessage.structured_output` and is captured as `AgentRunResult.structured` /
+  `Run.plan_structured`, alongside (not instead of) the existing free-text `result.text`
+  / `Run.plan`. Confirmed by a throwaway spike that this survives plan-mode's
+  exploratory multi-turn tool-use loop cleanly — see docs/spec.md. Implement phase
+  stays free-text (no `output_format`); this is the minimal foundation ADLC-46's
+  Epic/Story/Task decomposition schema builds on, not that feature itself.
 - Never `claude -p`. See the "Why Claude Agent SDK" section of `docs/spec.md`.
 
 ## Branch naming — required, not optional

@@ -103,6 +103,7 @@ async def execute_plan(
         plan=result.text,
         session_id=result.session_id,
         workspace_path=str(workspace_path),
+        plan_structured=result.structured,
     )
 
     # Best-effort — a failed status transition shouldn't undo a successful plan.

@@ -16,7 +16,12 @@ from jira_agent_cli.agent_runner import AgentRunError, run_implement, run_plan
 
 
 def _fake_stream(
-    *, text: str, session_id: str = "sess-123", is_error: bool = False, cost: float = 0.01
+    *,
+    text: str,
+    session_id: str = "sess-123",
+    is_error: bool = False,
+    cost: float = 0.01,
+    structured_output: dict | None = None,
 ) -> AsyncIterator[Message]:
     async def gen() -> AsyncIterator[Message]:
         yield AssistantMessage(
@@ -33,6 +38,7 @@ def _fake_stream(
             session_id=session_id,
             total_cost_usd=cost,
             result="ok" if not is_error else "agent failed",
+            structured_output=structured_output,
         )
 
     return gen()
@@ -63,6 +69,56 @@ async def test_run_plan_uses_permission_mode_plan(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(agent_runner, "query", fake_query)
     await run_plan("plan this", cwd="/tmp/workspace")
     assert captured["options"].permission_mode == "plan"
+
+
+@pytest.mark.asyncio
+async def test_run_plan_captures_structured_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    structured = {"summary": "do the thing", "files_changed": ["a.py"], "risks": []}
+    monkeypatch.setattr(
+        agent_runner,
+        "query",
+        lambda prompt, options: _fake_stream(text="plan text", structured_output=structured),
+    )
+    result = await run_plan("plan this", cwd="/tmp/workspace")
+    assert result.structured == structured
+
+
+@pytest.mark.asyncio
+async def test_run_plan_structured_defaults_to_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        agent_runner, "query", lambda prompt, options: _fake_stream(text="plan text")
+    )
+    result = await run_plan("plan this", cwd="/tmp/workspace")
+    assert result.structured is None
+
+
+@pytest.mark.asyncio
+async def test_run_plan_passes_output_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_query(prompt: str, options: object) -> AsyncIterator[Message]:
+        captured["options"] = options
+        return _fake_stream(text="plan")
+
+    monkeypatch.setattr(agent_runner, "query", fake_query)
+    await run_plan("plan this", cwd="/tmp/workspace")
+    assert captured["options"].output_format == {
+        "type": "json_schema",
+        "schema": agent_runner.PLAN_OUTPUT_SCHEMA,
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_implement_does_not_set_output_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_query(prompt: str, options: object) -> AsyncIterator[Message]:
+        captured["options"] = options
+        return _fake_stream(text="implemented")
+
+    monkeypatch.setattr(agent_runner, "query", fake_query)
+    await run_implement("implement it", cwd="/tmp/workspace", resume_session_id="sess-abc")
+    assert captured["options"].output_format is None
 
 
 @pytest.mark.asyncio
