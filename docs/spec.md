@@ -130,9 +130,34 @@ warns about, and `ADLC-17` proved why (`acceptEdits` can't self-verify).
   ticket was auto-discovered, auto-planned, and transitioned to "In Review" with
   zero manual API calls — confirmed against real Jira state directly, not just the
   app's own response.
-- **Finding**: `RunStore`'s in-memory-only limitation (already documented as a POC
-  non-goal) was hit in practice — restarting the server lost the `session_id` a
-  poller-created Run needed for `/implement`. Real constraint for any non-POC
-  version, not hypothetical.
+- **Finding**: `RunStore`'s in-memory-only design was hit in practice — restarting
+  the server lost the `session_id` a poller-created Run needed for `/implement`.
+  **Reframed 2026-09-25**: this isn't a gap to close. Symphony §14.3 states the
+  same in-memory design is *intentional*: *"restart recovery means the service
+  can resume useful operation by polling tracker state and reusing preserved
+  workspaces... It does not mean retry timers, running sessions, or live worker
+  state survive process restart."* Our finding confirms Symphony's own spec is
+  right about what breaks on restart, not that our POC cut a corner Symphony
+  would have avoided. See the alignment matrix below.
+
+## Symphony alignment matrix (2026-09-25)
+
+What we adopted vs. deferred from `SPEC.md`, and where re-reading it after
+building something ourselves changed how we'd frame it (not just "gaps" — some
+sections turned out to already agree with what we'd built for other reasons).
+
+| Symphony section | Status | Note |
+|---|---|---|
+| §4 Core Domain Model | Adopted (subset) | `Issue`/`SearchResult` models; no `blockers`/labels normalization yet |
+| §5 `WORKFLOW.md` policy file | Deferred | `prompts.py` is still jira-agent-cli's own hardcoded templates, not a per-repo policy file — see `docs/PORTABILITY.md` |
+| §7 Orchestration State Machine | Adopted (5-state subset) | `RunState` — just enough to gate Implement, not Symphony's full 11-state lifecycle |
+| §8 Polling, Scheduling, Reconciliation | Adopted (poll only) | `poller.py` — no concurrency control (§8.3), no retry/backoff (§8.4), no reconciliation (§8.5); one ticket, one Run, no re-check loop |
+| §9.5 Workspace Safety Invariants | **Adopted as-is** | `workspace.py`'s `_validate` — cwd-inside-root + sanitized keys, taken directly |
+| §10 Agent Runner Protocol (Codex app-server) | **Not applicable** | We use the Claude Agent SDK, a different protocol entirely — `agent_runner.py` is our own contract, not §10's |
+| §11 Issue Tracker Integration Contract | Adopted (Jira only) | `tools.py`'s registry plays the adapter role; no multi-tracker abstraction |
+| §13.3/13.7 Runtime Snapshot / HTTP API | Partially adopted | `GET /health` exists; `GET /api/v1/state` / `GET /api/v1/issues/{key}` are Epic 2's first wave (`ADLC-32`) |
+| §14.1–14.2 Failure Model | Adopted (partial) | Per-run failure → `mark_failed`; no exponential backoff/retry queue (§14.2's "Worker failures: convert to retries") |
+| §14.3 Partial State Recovery | **Already agreed** | See the Finding above — same intentional in-memory design, discovered independently before re-reading this section |
+| §15 Security and Operational Safety | Adopted (partial) | Workspace safety yes; no documented sandbox/approval posture beyond `permission_mode` |
 
 See [`plan.md`](plan.md) for the phased build order.

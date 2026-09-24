@@ -2,6 +2,10 @@
 
 Guidance for Claude Code (claude.ai/code) working in this repository.
 
+> **Auto-loaded every session. Keep concise — essential rules only.**
+> Ticket status → the `ADLC` Jira board | Last state → [docs/context/session-summary.md](docs/context/session-summary.md)
+> (pattern borrowed from `ai-coding-nexjs-template`'s own proven session-handover convention)
+
 ## Project Overview
 
 **jira-agent-cli** is now two things, not one: a Python CLI for the Jira Cloud REST API where
