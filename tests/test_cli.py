@@ -16,6 +16,7 @@ import respx
 from typer.testing import CliRunner
 
 import jira_agent_cli.cli as cli_module
+import jira_agent_cli.decompose as decompose_module
 import jira_agent_cli.orchestrator as orchestrator_module
 from jira_agent_cli.agent_runner import AgentRunResult
 from jira_agent_cli.cli import app
@@ -169,3 +170,78 @@ def test_implement_command_without_saved_run_exits_with_helpful_message(
     assert result.exit_code == 1
     assert "No saved run for ADLC-99" in result.output
     assert "jira-agent plan ADLC-99" in result.output
+
+
+@respx.mock
+def test_decompose_command_renders_decomposition_for_review(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(cli_module, "WorkspaceManager", _FakeWorkspaceManager)
+
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-27").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-27",
+                "id": "1",
+                "fields": {
+                    "summary": "Symphony POC",
+                    "status": {"name": "In Progress"},
+                    "description": "Build the whole thing.",
+                },
+            },
+        )
+    )
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        return AgentRunResult(
+            text="decomposed",
+            session_id="sess-1",
+            cost_usd=0.02,
+            num_turns=2,
+            structured={
+                "stories": [
+                    {
+                        "title": "Story A",
+                        "user_story": "As a user, I want A.",
+                        "acceptance_criteria": ["A works"],
+                        "tasks": [{"title": "Build A", "description": "Do it"}],
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(decompose_module, "run_plan", fake_run_plan)
+
+    result = runner.invoke(app, ["decompose", "ADLC-27"])
+
+    assert result.exit_code == 0, result.output
+    assert "Decomposition ready for ADLC-27: 1 stories" in result.output
+
+    md_path = tmp_path / "ADLC-27" / "decomposition.md"
+    assert md_path.exists()
+    assert "## Story 1: Story A" in md_path.read_text()
+    assert (tmp_path / "ADLC-27" / "decomposition.json").exists()
+
+    # No Jira writes -- only the GET above should have been called.
+    assert len(respx.calls) == 1
+
+
+def test_decompose_command_reports_jira_error_and_exits_nonzero(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(cli_module, "WorkspaceManager", _FakeWorkspaceManager)
+
+    with respx.mock:
+        respx.get(f"{BASE_URL}/rest/api/2/issue/NOPE-1").mock(
+            return_value=httpx.Response(404, json={"errorMessages": ["not found"]})
+        )
+        result = runner.invoke(app, ["decompose", "NOPE-1"])
+
+    assert result.exit_code == 1

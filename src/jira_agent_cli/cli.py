@@ -8,6 +8,9 @@ Three ways to drive it:
   - `plan` / `implement` for driving the Plan/Implement loop without a running server:
     calls orchestrator.py in-process, the same shared logic api.py/poller.py use, just
     from a terminal instead of over HTTP. See ADLC-45.
+  - `decompose` for breaking a Jira Epic into Stories/Tasks for human review: calls
+    decompose.py in-process, reusing the Plan phase's agent wiring with a different
+    structured-output schema. Read-only, no Jira writes — see ADLC-46.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ import typer
 from jira_agent_cli.agent_runner import AgentRunError
 from jira_agent_cli.client import JiraClient, JiraError
 from jira_agent_cli.config import ConfigError, JiraConfig
+from jira_agent_cli.decompose import DecomposeError, execute_decompose
 from jira_agent_cli.orchestrator import (
     RUNS_DOCS_ROOT,
     TARGET_REPO,
@@ -189,6 +193,31 @@ def implement(key: str) -> None:
             raise typer.Exit(code=1) from exc
     _save_run(updated)
     typer.echo(f"Implement finished for {key} — state: {updated.state.value}")
+
+
+@app.command("decompose")
+def decompose(key: str) -> None:
+    """Break a Jira Epic into Stories/Tasks for human review -- read-only, no
+    Jira writes. Renders docs/runs/<key>/decomposition.md; turning a reviewed
+    decomposition into real Jira Stories/Subtasks is ADLC-47, not this command.
+    """
+    with _client() as client:
+        workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=TARGET_REPO)
+        try:
+            decomposition, md_path = asyncio.run(
+                execute_decompose(
+                    key,
+                    client=client,
+                    workspaces=workspaces,
+                    runs_docs_root=RUNS_DOCS_ROOT,
+                )
+            )
+        except (JiraError, WorkspaceError, AgentRunError, DecomposeError) as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"Decomposition ready for {key}: {len(decomposition.stories)} stories — see {md_path}"
+    )
 
 
 if __name__ == "__main__":

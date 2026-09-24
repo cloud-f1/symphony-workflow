@@ -78,12 +78,16 @@ async def run_plan(
     model: str | None = None,
     max_turns: int = DEFAULT_PLAN_MAX_TURNS,
     max_budget_usd: float = DEFAULT_MAX_BUDGET_USD,
+    output_schema: dict | None = None,
 ) -> AgentRunResult:
     """Plan phase: `permission_mode="plan"` — explore without editing, no repo writes.
 
-    Also requests structured output (ADLC-28) via `output_format`, matching
-    `PLAN_OUTPUT_SCHEMA` — confirmed by spike to work cleanly alongside
-    plan-mode's exploratory multi-turn tool-use loop.
+    Also requests structured output (ADLC-28) via `output_format`, defaulting to
+    `PLAN_OUTPUT_SCHEMA` — confirmed by spike to work cleanly alongside plan-mode's
+    exploratory multi-turn tool-use loop. Pass `output_schema` to reuse this same
+    Plan-phase wiring for a different structured-output shape without duplicating
+    it — e.g. decompose.py passes `prompts.PLAN_DECOMPOSE_SCHEMA` (ADLC-46), the
+    first caller of this seam.
     """
     options = ClaudeAgentOptions(
         cwd=cwd,
@@ -91,7 +95,7 @@ async def run_plan(
         permission_mode="plan",
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
-        output_format={"type": "json_schema", "schema": PLAN_OUTPUT_SCHEMA},
+        output_format={"type": "json_schema", "schema": output_schema or PLAN_OUTPUT_SCHEMA},
     )
     return await _consume(query(prompt=prompt, options=options))
 

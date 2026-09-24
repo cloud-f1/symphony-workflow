@@ -24,6 +24,43 @@ PLAN_OUTPUT_SCHEMA = {
     "required": ["summary", "files_changed", "risks"],
 }
 
+# Structured output schema for the decompose command (ADLC-46) — reuses
+# agent_runner.run_plan()'s same Plan-phase wiring (permission_mode="plan" +
+# output_format/json_schema) with this schema in place of PLAN_OUTPUT_SCHEMA.
+# Deliberately does NOT include `definition_of_done`: that list is templated
+# from CLAUDE.md's own testing/lint/style standards in decompose.py
+# (DEFINITION_OF_DONE_TEMPLATE), not invented by the LLM per run — an explicit
+# design decision, see decompose.py's module docstring.
+PLAN_DECOMPOSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "stories": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "user_story": {"type": "string"},
+                    "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "description": {"type": "string"},
+                            },
+                            "required": ["title", "description"],
+                        },
+                    },
+                },
+                "required": ["title", "user_story", "acceptance_criteria", "tasks"],
+            },
+        },
+    },
+    "required": ["stories"],
+}
+
 PLAN_PROMPT_TEMPLATE = """You are looking at Jira ticket {key}: "{summary}" (status: {status}).
 
 Description:
@@ -41,6 +78,22 @@ IMPLEMENT_PROMPT_TEMPLATE = """Continue from the plan you wrote for {key} in the
 tests for anything you change. Stop when you're done — do not open a PR or push; a
 human reviews the diff next."""
 
+DECOMPOSE_PROMPT_TEMPLATE = """You are looking at Jira Epic {key}: "{summary}" (status: {status}).
+
+Description:
+{description}
+
+This is an unattended orchestration session running in permission_mode="plan" — you
+cannot edit files or run commands with side effects, only read and explore this
+repository to ground your decomposition in its actual structure and conventions.
+
+Break this Epic down into Stories. For each Story, write a concrete user story
+("As a ..., I want ..., so that ..."), Acceptance Criteria grounded in the Epic's
+actual content (not generic boilerplate), and the concrete Tasks needed to implement
+it. Keep each Story scoped to something independently shippable. Do not write code,
+and do not invent a Definition of Done — that is templated separately from this
+repo's own engineering standards, not something you should decide."""
+
 
 def render_plan_prompt(issue: Issue) -> str:
     return PLAN_PROMPT_TEMPLATE.format(
@@ -53,3 +106,12 @@ def render_plan_prompt(issue: Issue) -> str:
 
 def render_implement_prompt(issue_key: str) -> str:
     return IMPLEMENT_PROMPT_TEMPLATE.format(key=issue_key)
+
+
+def render_decompose_prompt(issue: Issue) -> str:
+    return DECOMPOSE_PROMPT_TEMPLATE.format(
+        key=issue.key,
+        summary=issue.summary,
+        status=issue.status,
+        description=issue.description or "No description provided.",
+    )
