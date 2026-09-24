@@ -133,3 +133,71 @@ repo's differences from this one's conventions make it worth the cost.
   `branch.byInstanceType` hasn't been exercised end-to-end. On a different
   Jira site, check its app connection the same way before assuming a
   correctly-named branch alone is enough.
+
+## Claude Code plugin (skill + hook only)
+
+`plugin/` at this repo's root packages the `jira-agent-cli-ops` skill and the
+`SessionStart` API-health-check hook as an installable [Claude Code
+plugin](https://code.claude.com/docs/en/plugins-reference), so an adopter gets
+both auto-wired into any Claude Code session without hand-editing
+`.claude/settings.json` or copying skill files around. `.claude-plugin/marketplace.json`
+at the repo root makes this repo itself a (private, single-plugin) marketplace.
+
+### What the plugin gives you
+
+- **The `jira-agent-cli-ops` skill**, namespaced `/jira-agent-cli-ops:jira-agent-cli-ops`
+  once installed — the same operational reference as this repo's own
+  `.claude/skills/jira-agent-cli-ops/SKILL.md` (kept in sync by hand; there's no
+  build step that generates one from the other, so a change to one needs the
+  same edit in the other until that's automated).
+- **The `SessionStart` hook** (`plugin/hooks/session-start-check-api.sh`,
+  wired via `plugin/hooks/hooks.json`) — checks whether the jira-agent-cli API
+  server is already running on `:8811` and auto-starts it if not, using
+  `${CLAUDE_PROJECT_DIR}` (not `${CLAUDE_PLUGIN_ROOT}`, which is the plugin's
+  own install directory) to find the jira-agent-cli checkout. Because a
+  plugin's hooks fire on every Claude Code session it's enabled for — not just
+  sessions opened in this repo — the script first checks that
+  `$CLAUDE_PROJECT_DIR/pyproject.toml` actually names `jira-agent-cli` and
+  exits silently otherwise, so it's safe to enable globally.
+
+### What the plugin does NOT give you
+
+- **The CLI, the FastAPI server, the poller, or the orchestrator.** Claude Code
+  plugins cannot install Python dependencies (no `uv sync`/`pip install` hook
+  in the plugin lifecycle) — the actual `jira_agent_cli` package stays a normal
+  git-cloned dependency. Installing the plugin without also cloning this repo
+  and running `uv sync --extra dev` gets you a skill that describes a server
+  that isn't there and a hook that will (silently) never find anything to
+  start.
+- Anything from the rest of this document — `TARGET_REPO`/`JIRA_PROJECT`
+  configuration, credentials, the prompt templates — none of that is
+  plugin-packaged; it's still `.env` and a real checkout.
+
+### Installing it
+
+```
+# 1. Clone and set up the actual CLI/server (still required, plugin or not):
+git clone https://github.com/cloud-f1/jira-agent-cli
+cd jira-agent-cli && uv sync --extra dev && cp .env.example .env   # fill in Jira creds
+
+# 2. Add this repo as a plugin marketplace, then install from it, from inside
+#    a Claude Code session (either a private GitHub remote or a local path
+#    both work — the marketplace add supports either):
+/plugin marketplace add cloud-f1/jira-agent-cli
+/plugin install jira-agent-cli-ops
+# or, working from a local clone instead of GitHub:
+/plugin marketplace add /path/to/jira-agent-cli
+/plugin install jira-agent-cli-ops
+```
+
+### Not verified live
+
+An isolated worktree with no interactive Claude Code session can't run
+`/plugin marketplace add` / `/plugin install` itself — that round trip
+(marketplace resolution, plugin install, skill namespacing showing up as
+`/jira-agent-cli-ops:jira-agent-cli-ops`, the hook actually firing on a real
+`SessionStart`) is a documented follow-up to verify by hand in an interactive
+session. What *is* verified: `plugin/.claude-plugin/plugin.json`,
+`.claude-plugin/marketplace.json`, and `plugin/hooks/hooks.json` are all valid
+JSON (`jq -e .`) with the fields the schema requires, and
+`plugin/hooks/session-start-check-api.sh` passes `bash -n`.
