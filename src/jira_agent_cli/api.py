@@ -30,7 +30,13 @@ from pydantic import BaseModel, ValidationError
 from jira_agent_cli.agent_runner import AgentRunError
 from jira_agent_cli.client import JiraClient, JiraError
 from jira_agent_cli.config import ConfigError, JiraConfig
-from jira_agent_cli.orchestrator import TARGET_REPO, WORKSPACE_ROOT, execute_implement, execute_plan
+from jira_agent_cli.orchestrator import (
+    TARGET_REPO,
+    WORKSPACE_ROOT,
+    execute_implement,
+    execute_plan,
+    sweep_terminal_workspaces,
+)
 from jira_agent_cli.poller import Poller
 from jira_agent_cli.runs import Run, RunState, RunStore, RunTransitionError
 from jira_agent_cli.tools import TOOLS, call_tool
@@ -52,6 +58,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.jira_client = JiraClient(config)
     app.state.runs = RunStore()
     app.state.workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=TARGET_REPO)
+
+    # Symphony §8.6 startup sweep — opt-in (JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED,
+    # default off), no-op and no Jira calls otherwise.
+    sweep_terminal_workspaces(client=app.state.jira_client, workspaces=app.state.workspaces)
 
     poller = Poller(
         client=app.state.jira_client,
@@ -200,12 +210,13 @@ async def implement_run(
     run_id: str,
     runs: RunStore = Depends(get_run_store),
     client: JiraClient = Depends(get_jira_client),
+    workspaces: WorkspaceManager = Depends(get_workspace_manager),
 ) -> Run:
     run = runs.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
     try:
-        return await execute_implement(run, runs=runs, client=client)
+        return await execute_implement(run, runs=runs, client=client, workspaces=workspaces)
     except RunTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AgentRunError as exc:

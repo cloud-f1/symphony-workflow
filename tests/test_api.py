@@ -25,10 +25,30 @@ from .conftest import BASE_URL
 
 
 class _FakeWorkspaceManager:
-    """Avoids real `git worktree add` against this repo during tests."""
+    """Avoids real `git worktree add` against this repo during tests. The
+    hook/cleanup methods record calls (`self.calls`) so tests can assert
+    orchestrator.py's hook wiring without re-testing hook dispatch itself —
+    that's test_workspace.py's job. Cleanup is opt-in and off by default, so
+    these tests never actually reach `remove()` unless a test enables it."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
 
     def ensure(self, issue_key: str, *, branch_slug: str | None = None) -> Path:
         return Path("/tmp/fake-workspace") / issue_key
+
+    def run_before_run(self, issue_key: str, workspace_path: Path) -> None:
+        self.calls.append("before_run")
+
+    def run_after_run(self, issue_key: str, workspace_path: Path) -> None:
+        self.calls.append("after_run")
+
+    def run_before_remove(self, issue_key: str, workspace_path: Path) -> None:
+        self.calls.append("before_remove")
+
+    def remove(self, issue_key: str) -> bool:
+        self.calls.append("remove")
+        return False
 
 
 def _mock_transition(key: str, name: str) -> None:
@@ -42,13 +62,22 @@ def _mock_transition(key: str, name: str) -> None:
 
 
 @pytest.fixture
-def api_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def fake_workspaces() -> _FakeWorkspaceManager:
+    """A single shared instance for the test's whole client session, so tests
+    can inspect `.calls` after making requests through `api_client`."""
+    return _FakeWorkspaceManager()
+
+
+@pytest.fixture
+def api_client(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_workspaces: _FakeWorkspaceManager
+):
     monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
     monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
     monkeypatch.setenv("JIRA_API_TOKEN", "token")
     monkeypatch.setenv("JIRA_AGENT_CLI_POLL_ENABLED", "false")
     monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path / "runs")
-    app.dependency_overrides[get_workspace_manager] = lambda: _FakeWorkspaceManager()
+    app.dependency_overrides[get_workspace_manager] = lambda: fake_workspaces
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
@@ -193,6 +222,76 @@ def test_missing_jira_env_fails_app_startup(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @respx.mock
+def test_lifespan_sweeps_existing_workspaces_at_startup_when_cleanup_enabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Symphony §8.6 startup sweep — `sweep_terminal_workspaces` must actually
+    run from `lifespan` when the opt-in env var is set, checking each existing
+    workspace directory's live Jira status. (Removal mechanics themselves are
+    covered by test_workspace.py/test_orchestrator.py; this just verifies the
+    wiring fires.)
+    """
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setenv("JIRA_AGENT_CLI_POLL_ENABLED", "false")
+    monkeypatch.setenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", "true")
+
+    workspace_root = tmp_path / "workspaces"
+    (workspace_root / "ADLC-1").mkdir(parents=True)
+    monkeypatch.setattr("jira_agent_cli.api.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("jira_agent_cli.api.TARGET_REPO", tmp_path)
+
+    route = respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "X", "status": {"name": "In Progress"}},
+            },
+        )
+    )
+
+    with TestClient(app):
+        pass
+
+    assert route.called
+
+
+@respx.mock
+def test_lifespan_startup_sweep_is_a_noop_when_cleanup_disabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setenv("JIRA_AGENT_CLI_POLL_ENABLED", "false")
+    monkeypatch.delenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", raising=False)
+
+    workspace_root = tmp_path / "workspaces"
+    (workspace_root / "ADLC-1").mkdir(parents=True)
+    monkeypatch.setattr("jira_agent_cli.api.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("jira_agent_cli.api.TARGET_REPO", tmp_path)
+
+    route = respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "X", "status": {"name": "In Progress"}},
+            },
+        )
+    )
+
+    with TestClient(app):
+        pass
+
+    assert not route.called
+
+
+@respx.mock
 def test_plan_endpoint_happy_path(api_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
         return_value=httpx.Response(
@@ -226,6 +325,39 @@ def test_plan_endpoint_happy_path(api_client: TestClient, monkeypatch: pytest.Mo
     assert body["plan"] == "Here is the plan."
     assert body["session_id"] == "sess-1"
     assert comment_route.called
+
+
+@respx.mock
+def test_plan_endpoint_runs_before_and_after_run_workspace_hooks(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch, fake_workspaces: _FakeWorkspaceManager
+) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "Do the thing", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-1", "In Review")
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        return AgentRunResult(text="the plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+
+    created = api_client.post("/runs", json={"issue_key": "ADLC-1"})
+    run_id = created.json()["id"]
+    api_client.post(f"/runs/{run_id}/plan")
+
+    # Symphony §9.4 — before_run must fire before the agent dispatch and
+    # after_run after it, exactly once each.
+    assert fake_workspaces.calls == ["before_run", "after_run"]
 
 
 def test_plan_endpoint_unknown_run_returns_404(api_client: TestClient) -> None:
@@ -325,6 +457,49 @@ def test_implement_endpoint_happy_path_resumes_plan_session(
     assert body["result"] == "implemented it"
     assert captured["resume_session_id"] == "sess-42"
     assert "ADLC-1" in captured["cwd"]
+
+
+@respx.mock
+def test_implement_endpoint_runs_before_and_after_run_workspace_hooks(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch, fake_workspaces: _FakeWorkspaceManager
+) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "X", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-1", "In Review")
+    _mock_transition("ADLC-1", "In Progress")
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        return AgentRunResult(text="the plan", session_id="sess-42", cost_usd=0.01, num_turns=1)
+
+    async def fake_run_implement(
+        prompt: str, *, cwd: str, resume_session_id: str, **kwargs: object
+    ) -> AgentRunResult:
+        return AgentRunResult(
+            text="implemented it", session_id="sess-42", cost_usd=0.02, num_turns=3
+        )
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+    monkeypatch.setattr(orchestrator_module, "run_implement", fake_run_implement)
+
+    created = api_client.post("/runs", json={"issue_key": "ADLC-1"})
+    run_id = created.json()["id"]
+    api_client.post(f"/runs/{run_id}/plan")
+    fake_workspaces.calls.clear()  # isolate Implement's own hook calls from Plan's
+
+    api_client.post(f"/runs/{run_id}/implement")
+
+    assert fake_workspaces.calls == ["before_run", "after_run"]
 
 
 @respx.mock

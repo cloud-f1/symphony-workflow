@@ -30,6 +30,67 @@ TARGET_REPO = Path(os.environ.get("JIRA_AGENT_CLI_TARGET_REPO", REPO_ROOT))
 RUNS_DOCS_ROOT = Path(os.environ.get("JIRA_AGENT_CLI_RUNS_DOCS_ROOT", REPO_ROOT / "docs" / "runs"))
 WORKSPACE_ROOT = Path(os.environ.get("JIRA_AGENT_CLI_WORKSPACE_ROOT", REPO_ROOT / ".worktrees"))
 
+# Symphony §8.6 terminal-status workspace cleanup. Off by default: removing a
+# workspace automatically is a real behavior change (an adopter might still
+# want to inspect a finished run's diff on disk), so it's an explicit opt-in
+# rather than a surprise. `JIRA_AGENT_CLI_TERMINAL_STATUSES` is a comma-
+# separated list of Jira status *names* (not IDs — matches this repo's
+# existing "match names, not IDs" pattern elsewhere, e.g. transition_issue).
+WORKSPACE_CLEANUP_ENV = "JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED"
+DEFAULT_TERMINAL_STATUSES = "Done"
+
+
+def _cleanup_enabled() -> bool:
+    # Read at call time, not import time, so tests can toggle this per-test via
+    # monkeypatch/setenv — same reasoning as api.py's `_poll_enabled()`.
+    return os.environ.get(WORKSPACE_CLEANUP_ENV, "false").lower() == "true"
+
+
+def _terminal_statuses() -> frozenset[str]:
+    raw = os.environ.get("JIRA_AGENT_CLI_TERMINAL_STATUSES", DEFAULT_TERMINAL_STATUSES)
+    return frozenset(status.strip() for status in raw.split(",") if status.strip())
+
+
+def cleanup_workspace_if_terminal(
+    issue_key: str, *, client: JiraClient, workspaces: WorkspaceManager
+) -> bool:
+    """Remove `issue_key`'s workspace if its *live* Jira status is terminal
+    (Symphony §8.6). Opt-in (see WORKSPACE_CLEANUP_ENV) and best-effort — never
+    raises, since cleanup must never take down a Run, a poll tick, or server
+    startup. Deliberately checks live Jira status rather than Run state: a Run
+    reaching completed/failed doesn't mean the ticket itself has reached Done
+    — that's a separate, human-driven transition this repo doesn't automate.
+    """
+    if not _cleanup_enabled():
+        return False
+    try:
+        issue = client.get_issue(issue_key)
+    except JiraError:
+        logger.warning("cleanup: could not fetch status for %s", issue_key, exc_info=True)
+        return False
+    if issue.status not in _terminal_statuses():
+        return False
+    logger.info("cleanup: %s is %r (terminal) — removing its workspace", issue_key, issue.status)
+    return workspaces.remove(issue_key)
+
+
+def sweep_terminal_workspaces(*, client: JiraClient, workspaces: WorkspaceManager) -> list[str]:
+    """Startup sweep (Symphony §8.6): check every existing workspace directory
+    against live Jira status and remove the ones whose issue is terminal.
+    Called from `api.py`'s `lifespan`. Opt-in via the same env var as
+    `cleanup_workspace_if_terminal` — returns immediately (no Jira calls) when
+    disabled, so it's cheap to call unconditionally at startup.
+    """
+    if not _cleanup_enabled() or not workspaces.root.exists():
+        return []
+    removed = []
+    for path in sorted(workspaces.root.iterdir()):
+        if not path.is_dir():
+            continue
+        if cleanup_workspace_if_terminal(path.name, client=client, workspaces=workspaces):
+            removed.append(path.name)
+    return removed
+
 
 def render_run_doc(client: JiraClient, issue_key: str, body: str) -> str:
     """Prepends a `jira_url` frontmatter line — the local-md-to-Jira half of
@@ -77,11 +138,15 @@ async def execute_plan(
         raise
 
     prompt = render_plan_prompt(issue)
+    workspaces.run_before_run(run.issue_key, workspace_path)
     try:
         result = await run_plan(prompt, cwd=str(workspace_path))
     except AgentRunError as exc:
         runs.mark_failed(run.id, error=str(exc))
+        cleanup_workspace_if_terminal(run.issue_key, client=client, workspaces=workspaces)
         raise
+    finally:
+        workspaces.run_after_run(run.issue_key, workspace_path)
 
     if not result.session_id:
         error = "Agent run produced no session_id — cannot resume for /implement"
@@ -115,7 +180,9 @@ async def execute_plan(
     return updated
 
 
-async def execute_implement(run: Run, *, runs: RunStore, client: JiraClient) -> Run:
+async def execute_implement(
+    run: Run, *, runs: RunStore, client: JiraClient, workspaces: WorkspaceManager
+) -> Run:
     """Hard-gated on state == plan_ready (RunTransitionError otherwise, raised
     by mark_implementing — the same check RunStore enforces everywhere else).
     Never opens a PR or pushes; a human reviews the diff next.
@@ -129,15 +196,20 @@ async def execute_implement(run: Run, *, runs: RunStore, client: JiraClient) -> 
 
     assert run.session_id is not None  # guaranteed by set_plan_ready
     assert run.workspace_path is not None
+    workspace_path = Path(run.workspace_path)
 
     prompt = render_implement_prompt(run.issue_key)
+    workspaces.run_before_run(run.issue_key, workspace_path)
     try:
         result = await run_implement(
             prompt, cwd=run.workspace_path, resume_session_id=run.session_id
         )
     except AgentRunError as exc:
         runs.mark_failed(run.id, error=str(exc))
+        cleanup_workspace_if_terminal(run.issue_key, client=client, workspaces=workspaces)
         raise
+    finally:
+        workspaces.run_after_run(run.issue_key, workspace_path)
 
     updated = runs.mark_completed(run.id, result=result.text)
 
@@ -145,5 +217,10 @@ async def execute_implement(run: Run, *, runs: RunStore, client: JiraClient) -> 
         client.transition_issue(run.issue_key, "In Progress")
     except JiraError:
         logger.warning("could not transition %s to 'In Progress'", run.issue_key, exc_info=True)
+
+    # Best-effort — e.g. the ticket was already Done before Implement ran, or
+    # got closed out-of-band mid-run. The common case (a human reviews the
+    # diff and transitions the ticket later) is caught by the startup sweep.
+    cleanup_workspace_if_terminal(run.issue_key, client=client, workspaces=workspaces)
 
     return updated
