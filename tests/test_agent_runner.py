@@ -109,6 +109,24 @@ async def test_run_plan_passes_output_format(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
+async def test_run_plan_output_schema_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ADLC-46: decompose.py reuses run_plan()'s Plan-phase wiring with a
+    different structured-output schema via `output_schema=`.
+    """
+    captured: dict[str, object] = {}
+    custom_schema = {"type": "object", "properties": {"stories": {"type": "array"}}}
+
+    def fake_query(prompt: str, options: object) -> AsyncIterator[Message]:
+        captured["options"] = options
+        return _fake_stream(text="plan")
+
+    monkeypatch.setattr(agent_runner, "query", fake_query)
+    await run_plan("decompose this", cwd="/tmp/workspace", output_schema=custom_schema)
+    assert captured["options"].output_format == {"type": "json_schema", "schema": custom_schema}
+    assert captured["options"].permission_mode == "plan"
+
+
+@pytest.mark.asyncio
 async def test_run_implement_does_not_set_output_format(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
