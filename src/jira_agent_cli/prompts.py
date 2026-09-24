@@ -8,6 +8,22 @@ from __future__ import annotations
 
 from jira_agent_cli.models import Issue
 
+# Structured output schema for the Plan phase (ADLC-28) — foundation for
+# ADLC-46's Epic/Story/Task decomposition schema, deliberately minimal here.
+# Confirmed via a throwaway spike (see docs/spec.md) that
+# `output_format={"type": "json_schema", "schema": PLAN_OUTPUT_SCHEMA}`
+# survives permission_mode="plan"'s exploratory multi-turn tool-use loop and
+# lands on ResultMessage.structured_output matching this shape.
+PLAN_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "files_changed": {"type": "array", "items": {"type": "string"}},
+        "risks": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["summary", "files_changed", "risks"],
+}
+
 PLAN_PROMPT_TEMPLATE = """You are looking at Jira ticket {key}: "{summary}" (status: {status}).
 
 Description:

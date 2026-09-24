@@ -27,6 +27,7 @@ class Run(BaseModel):
     state: RunState = RunState.CREATED
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     plan: str | None = None
+    plan_structured: dict | None = None
     session_id: str | None = None
     workspace_path: str | None = None
     result: str | None = None
@@ -89,12 +90,19 @@ class RunStore:
         return run
 
     def set_plan_ready(
-        self, run_id: str, *, plan: str, session_id: str, workspace_path: str
+        self,
+        run_id: str,
+        *,
+        plan: str,
+        session_id: str,
+        workspace_path: str,
+        plan_structured: dict | None = None,
     ) -> Run:
         run = self._require(run_id)
         self._require_state(run, RunState.PLANNING)
         run.state = RunState.PLAN_READY
         run.plan = plan
+        run.plan_structured = plan_structured
         run.session_id = session_id
         run.workspace_path = workspace_path
         return run

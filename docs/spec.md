@@ -66,6 +66,25 @@ unless explicitly restricted via `mcp_servers`/`setting_sources`. Fine for this 
 (same trust boundary as the operator); would need locking down before running
 anywhere less trusted.
 
+**Structured output (`output_format`) — spiked 2026-09-24 (`ADLC-28`):** `ClaudeAgentOptions`
+also has `output_format: dict[str, Any] | None`, e.g. `{"type": "json_schema", "schema":
+{...}}`; the matching result lands on `ResultMessage.structured_output: Any = None`. The
+open question going in was whether a forced output schema plays well with Plan phase's
+exploratory multi-turn tool-use loop (`permission_mode="plan"`, several Read/Write/ToolSearch
+turns before a final answer) — that interaction, not basic SDK support, was the unconfirmed
+part. A throwaway spike (prompt shaped like `PLAN_PROMPT_TEMPLATE`, a 3-field schema:
+`summary`/`files_changed`/`risks`) confirmed it works cleanly: the agent ran its normal
+multi-turn explore loop (Read, Read, Write, ToolSearch tool calls observed), then emitted a
+final structured-output turn, and `ResultMessage.structured_output` came back as a `dict`
+matching the schema exactly, with `is_error: False`. On the strength of that, `run_plan()`
+in `agent_runner.py` now always sets `output_format={"type": "json_schema", "schema":
+PLAN_OUTPUT_SCHEMA}` (`prompts.py`), and `AgentRunResult.structured` / `Run.plan_structured`
+carry it alongside (not instead of) the existing free-text `result.text` / `Run.plan` that
+`orchestrator.py` still writes to `plan.md` and the Jira comment. `run_implement()` does not
+set `output_format` — Implement stays free-text. This ticket only plumbs the field through;
+using `plan_structured` to actually change what's rendered/posted, or growing the schema into
+a full Epic/Story/Task decomposition, is `ADLC-46`'s scope, not this one's.
+
 ## The two-phase interface
 
 ```
