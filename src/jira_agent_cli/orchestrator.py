@@ -12,7 +12,13 @@ import os
 import re
 from pathlib import Path
 
-from jira_agent_cli.agent_runner import AgentRunError, run_implement, run_plan, run_triage
+from jira_agent_cli.agent_runner import (
+    AgentRunError,
+    AgentRunResult,
+    run_implement,
+    run_plan,
+    run_triage,
+)
 from jira_agent_cli.client import JiraClient, JiraError
 from jira_agent_cli.models import Issue, TriageDecision
 from jira_agent_cli.prompts import render_implement_prompt, render_plan_prompt
@@ -137,6 +143,64 @@ def _post_failure_comment(client: JiraClient, issue_key: str, phase: str, error:
         logger.warning("could not post failure comment for %s", issue_key, exc_info=True)
 
 
+def _render_plan_text(result: AgentRunResult) -> str:
+    """ADLC-56: `result.text` is normally the Plan phase's free-text
+    explanation, but a session's final turn can end up emitting only the
+    structured `output_format` result with no accompanying `TextBlock`
+    (confirmed live, see `docs/plans/0003-portability-validation-nexjs/
+    implement.md`'s incident record and `docs/runs/NXJS-1/plan.md`) --
+    `agent_runner._consume()` then leaves `text_parts` empty and
+    `result.text` comes back `""`. Silently writing/posting that empty
+    string as plan.md / the Jira comment would throw away a fully populated
+    `result.structured` for nothing, so fall back to rendering the
+    structured fields when text is empty.
+
+    Deliberately a fallback-when-empty, not an always-append: the ticket's
+    own framing ("silently blank") is about the empty-text case specifically
+    -- when `result.text` is already non-empty it's returned as-is,
+    unaugmented. Always appending structured fields onto an already-useful
+    render is a plausible nice-to-have but a different, broader change (a
+    render-format redesign) than the bug being fixed here.
+
+    Raises `AgentRunError` when both `result.text` and `result.structured`
+    are empty/absent -- a Run reaching `plan_ready` with truly no plan
+    content to show is worse than silently succeeding with nothing, and this
+    repo's conventions favor never swallowing that kind of failure quietly
+    (see CLAUDE.md's "never a bare `except Exception: pass`" rule; this is
+    the same spirit applied to a silent-empty-success instead of a silent
+    exception).
+    """
+    if result.text:
+        return result.text
+
+    structured = result.structured or {}
+    lines: list[str] = []
+
+    summary = structured.get("summary")
+    if summary:
+        lines.append(str(summary))
+
+    files_changed = structured.get("files_changed")
+    if files_changed:
+        if lines:
+            lines.append("")
+        lines.append("Files changed:")
+        lines.extend(f"- {f}" for f in files_changed)
+
+    risks = structured.get("risks")
+    if risks:
+        if lines:
+            lines.append("")
+        lines.append("Risks:")
+        lines.extend(f"- {r}" for r in risks)
+
+    rendered = "\n".join(lines).strip()
+    if rendered:
+        return rendered
+
+    raise AgentRunError("Agent run produced neither text nor usable structured output")
+
+
 async def execute_plan(
     run: Run,
     *,
@@ -189,19 +253,26 @@ async def execute_plan(
         _post_failure_comment(client, run.issue_key, "plan", error)
         raise AgentRunError(error)
 
+    try:
+        plan_text = _render_plan_text(result)
+    except AgentRunError as exc:
+        runs.mark_failed(run.id, error=str(exc))
+        _post_failure_comment(client, run.issue_key, "plan", str(exc))
+        raise
+
     plan_dir = RUNS_DOCS_ROOT / run.issue_key
     plan_dir.mkdir(parents=True, exist_ok=True)
     (plan_dir / "plan.md").write_text(
-        render_run_doc(client, run.issue_key, result.text), encoding="utf-8"
+        render_run_doc(client, run.issue_key, plan_text), encoding="utf-8"
     )
 
     client.add_comment(
-        run.issue_key, jira_safe_comment_body(f"[jira-agent-cli plan]\n\n{result.text}")
+        run.issue_key, jira_safe_comment_body(f"[jira-agent-cli plan]\n\n{plan_text}")
     )
 
     updated = runs.set_plan_ready(
         run.id,
-        plan=result.text,
+        plan=plan_text,
         session_id=result.session_id,
         workspace_path=str(workspace_path),
         plan_structured=result.structured,
