@@ -179,8 +179,11 @@ def implement(key: str) -> None:
     with _client() as client:
         runs = RunStore()
         runs.load(run)
+        workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=TARGET_REPO)
         try:
-            updated = asyncio.run(execute_implement(run, runs=runs, client=client))
+            updated = asyncio.run(
+                execute_implement(run, runs=runs, client=client, workspaces=workspaces)
+            )
         except (JiraError, RunTransitionError, AgentRunError) as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
