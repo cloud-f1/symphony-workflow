@@ -40,7 +40,7 @@ run jira-agent ...` will NOT pick up `.env` and fails with "Missing required
 env var(s)". Either pass `--env-file .env` to `uv run` (confirmed working,
 uv 0.12.3+) or export the three `JIRA_*` vars into the shell yourself.
 
-## The three ways to drive a ticket
+## The four ways to drive a ticket
 
 1. **Manual, one ticket**: `POST /runs {issue_key}` → `POST /runs/{id}/plan` →
    **read the plan, it's a real judgment call, not a formality** → `POST
@@ -54,6 +54,16 @@ uv 0.12.3+) or export the three `JIRA_*` vars into the shell yourself.
 3. **CLI tool-call passthrough**: `jira-agent call <tool> '<json args>'` or
    `jira-agent list-tools` — the same registry the API's `/tools` exposes, for
    scripting outside the server.
+4. **CLI-native control plane** (no server needed): `jira-agent plan <key>` /
+   `jira-agent implement <key>` run the same Plan/Implement loop as way 1
+   in-process, via `orchestrator.py` (ADLC-45) — `RunStore` is per-process here, so
+   `plan` saves its `Run` to `docs/runs/<key>/run.json` for a later `implement` to
+   reload. `jira-agent decompose <key>` (ADLC-46) breaks a Jira Epic into
+   Stories/Tasks for human review — read-only, no Jira writes, renders
+   `docs/runs/<key>/decomposition.{md,json}`. `jira-agent sync-decomposition <key>`
+   (ADLC-47) turns an already-reviewed `decomposition.json` into real Jira
+   Story/Subtask issues; it does not re-run the decompose agent. See
+   `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for design detail.
 
 ## Branch naming — required, not optional
 

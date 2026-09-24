@@ -59,6 +59,27 @@ re-litigate without updating docs/plans/0001-symphony-poc/spec.md first:
   Epic/Story/Task decomposition schema builds on, not that feature itself.
 - Never `claude -p`. See the "Why Claude Agent SDK" section of `docs/plans/0001-symphony-poc/spec.md`.
 
+## CLI control plane (`plan`/`implement`/`decompose`/`sync-decomposition`)
+
+`cli.py` can also drive a ticket without the FastAPI server, calling the same shared logic
+in-process (a fourth way to drive a ticket, alongside the API, the poller, and `call`/
+`list-tools` — see the `jira-agent-cli-ops` skill):
+
+- **`jira-agent plan/implement <key>`** (ADLC-45) — calls `orchestrator.execute_plan`/
+  `execute_implement`, the same functions `api.py`/`poller.py` use. `RunStore` is
+  per-process here, so `plan` persists its `Run` to `docs/runs/<key>/run.json` for a
+  later `implement` invocation to reload.
+- **`jira-agent decompose <key>`** (ADLC-46) — breaks a Jira Epic into Stories/Tasks for
+  human review. Reuses the Plan phase's `permission_mode="plan"` + `output_format` wiring
+  (`prompts.PLAN_DECOMPOSE_SCHEMA` in place of `PLAN_OUTPUT_SCHEMA`) — read-only, no Jira
+  writes. Renders `docs/runs/<key>/decomposition.{md,json}`.
+- **`jira-agent sync-decomposition <key>`** (ADLC-47) — materializes an already-reviewed
+  `decomposition.json` as real Jira Story (`parent=<epic-key>`)/Subtask
+  (`parent=<story-key>`) issues via the existing `create_issue` path. Does not re-run the
+  decompose agent.
+
+See `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for design detail.
+
 ## Branch naming — required, not optional
 
 Every workspace's branch is `{ISSUE-KEY}-{slug-of-summary}` (`workspace.py`'s `branch_name()`),
@@ -128,6 +149,8 @@ src/jira_agent_cli/
   prompts.py      # Plan/Implement prompt templates (docs/WORKFLOW.md is the policy summary)
   runs.py         # Run/RunState/RunStore — the Plan/Implement human-gate state machine
   orchestrator.py # execute_plan/execute_implement — shared by api.py AND poller.py
+  decompose.py    # Epic -> Stories/Tasks, read-only, reuses run_plan()'s output_format wiring
+  sync_decomposition.py # decomposition.json -> real Jira Story/Subtask issues
   poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements
   api.py          # FastAPI app — HTTP surface over tools.py + orchestrator.py
 tests/            # pytest + respx, one file per module above
