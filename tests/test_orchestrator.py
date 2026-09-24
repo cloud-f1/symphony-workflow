@@ -1,5 +1,8 @@
 """Unit tests for orchestrator.py helpers not already covered indirectly via
-test_api.py (execute_plan/execute_implement) and test_poller.py.
+test_api.py (execute_plan/execute_implement) and test_poller.py -- plus a
+direct execute_plan test for ADLC-56's empty-text-but-structured-present
+fallback, since that regression is about execute_plan's own plan.md/comment
+rendering, not something test_api.py's happy-path fixtures happen to cover.
 """
 
 from __future__ import annotations
@@ -12,18 +15,20 @@ import httpx
 import pytest
 import respx
 
-from jira_agent_cli.agent_runner import AgentRunError
+import jira_agent_cli.orchestrator as orchestrator_module
+from jira_agent_cli.agent_runner import AgentRunError, AgentRunResult
 from jira_agent_cli.client import JiraClient, JiraError
 from jira_agent_cli.config import JiraConfig
 from jira_agent_cli.models import Issue, TriageDecision
 from jira_agent_cli.orchestrator import (
     cleanup_workspace_if_terminal,
+    execute_plan,
     execute_triage,
     jira_safe_comment_body,
     render_run_doc,
     sweep_terminal_workspaces,
 )
-from jira_agent_cli.runs import TriageStore
+from jira_agent_cli.runs import RunStore, TriageStore
 
 from .conftest import BASE_URL
 
@@ -321,3 +326,143 @@ async def test_execute_triage_propagates_agent_run_error(monkeypatch: pytest.Mon
 
     with pytest.raises(AgentRunError):
         await execute_triage([_candidate("ADLC-5")], client=MagicMock(), triage_store=TriageStore())
+
+
+# --- execute_plan: ADLC-56 empty-text-but-structured fallback -------------
+
+
+class _FakeWorkspaceManager:
+    """Avoids a real `git worktree add` against this repo. Mirrors
+    test_api.py's `_FakeWorkspaceManager` -- kept local here rather than
+    imported from test_api.py so this module doesn't take on a cross-test-
+    file dependency for one fixture.
+    """
+
+    def ensure(self, issue_key: str, *, branch_slug: str | None = None) -> Path:
+        return Path("/tmp/fake-workspace") / issue_key
+
+    def run_before_run(self, issue_key: str, workspace_path: Path) -> None:
+        pass
+
+    def run_after_run(self, issue_key: str, workspace_path: Path) -> None:
+        pass
+
+
+def _mock_get_issue(key: str) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/issue/{key}").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": key,
+                "id": "1",
+                "fields": {"summary": "Do the thing", "status": {"name": "To Do"}},
+            },
+        )
+    )
+
+
+def _mock_transition(key: str, name: str) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/issue/{key}/transitions").mock(
+        return_value=httpx.Response(200, json={"transitions": [{"id": "1", "name": name}]})
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/{key}/transitions").mock(
+        return_value=httpx.Response(204)
+    )
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_execute_plan_falls_back_to_structured_render_when_text_is_empty(
+    config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reproduces ADLC-56 live: a Plan session's final turn emitted only the
+    structured `output_format` result with no accompanying TextBlock, so
+    `result.text` came back "" while `result.structured` was fully
+    populated. Before the fix, this silently wrote a blank plan.md and
+    posted a blank Jira comment despite there being a valuable structured
+    result sitting right there -- this test fails against the old code
+    (which wrote/posted `result.text` verbatim, i.e. "") and passes against
+    the fix (`orchestrator._render_plan_text`'s fallback).
+    """
+    monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path / "runs")
+
+    _mock_get_issue("ADLC-56")
+    comment_route = respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-56/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-56", "In Review")
+
+    structured = {
+        "summary": "Add a version constant to the poller module.",
+        "files_changed": ["src/jira_agent_cli/poller.py"],
+        "risks": ["None -- additive only."],
+    }
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        return AgentRunResult(
+            text="", session_id="sess-56", cost_usd=0.01, num_turns=3, structured=structured
+        )
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+
+    client = JiraClient(config)
+    runs = RunStore()
+    run = runs.create("ADLC-56")
+
+    updated = await execute_plan(run, runs=runs, client=client, workspaces=_FakeWorkspaceManager())
+
+    # The Run's own `plan` field must not be blank.
+    assert updated.state.value == "plan_ready"
+    assert updated.plan
+    assert "Add a version constant" in updated.plan
+    assert updated.plan_structured == structured
+
+    # plan.md must not be blank, and must carry the structured content.
+    plan_md = (tmp_path / "runs" / "ADLC-56" / "plan.md").read_text(encoding="utf-8")
+    assert "Add a version constant to the poller module." in plan_md
+    assert "src/jira_agent_cli/poller.py" in plan_md
+    assert "None -- additive only." in plan_md
+
+    # The Jira comment must not be blank either.
+    assert comment_route.called
+    comment_body = json.loads(comment_route.calls.last.request.content)["body"]
+    assert "Add a version constant to the poller module." in comment_body
+    assert "src/jira_agent_cli/poller.py" in comment_body
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_execute_plan_raises_when_text_and_structured_are_both_empty(
+    config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The pre-existing ADLC-56 fallback-of-last-resort: if there is truly no
+    text AND no usable structured output, execute_plan must fail loudly
+    (mark the Run failed, post a failure comment, raise AgentRunError)
+    rather than silently reaching plan_ready with nothing to show for it.
+    """
+    monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path / "runs")
+
+    _mock_get_issue("ADLC-57")
+    failure_comment_route = respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-57/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        return AgentRunResult(text="", session_id="sess-57", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+
+    client = JiraClient(config)
+    runs = RunStore()
+    run = runs.create("ADLC-57")
+
+    with pytest.raises(AgentRunError):
+        await execute_plan(run, runs=runs, client=client, workspaces=_FakeWorkspaceManager())
+
+    stored = runs.get(run.id)
+    assert stored is not None
+    assert stored.state.value == "failed"
+    assert not (tmp_path / "runs" / "ADLC-57" / "plan.md").exists()
+    assert failure_comment_route.called
+    failure_body = json.loads(failure_comment_route.calls.last.request.content)["body"]
+    assert "FAILED" in failure_body
