@@ -15,6 +15,61 @@ from .conftest import BASE_URL
 
 
 @respx.mock
+def test_get_myself_parses_response(config: JiraConfig) -> None:
+    route = respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "accountId": "5b10ac8d82e05b22cc7d4ef5",
+                "displayName": "Jira Bot",
+                "emailAddress": "bot@example.com",
+                "active": True,
+            },
+        )
+    )
+    with JiraClient(config) as client:
+        user = client.get_myself()
+    assert route.called
+    assert route.calls.last.request.method == "GET"
+    assert user.account_id == "5b10ac8d82e05b22cc7d4ef5"
+    assert user.display_name == "Jira Bot"
+    assert user.email_address == "bot@example.com"
+    assert user.active is True
+
+
+@respx.mock
+def test_get_myself_hidden_email_is_none(config: JiraConfig) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
+        return_value=httpx.Response(200, json={"accountId": "abc", "displayName": "Bot"})
+    )
+    with JiraClient(config) as client:
+        user = client.get_myself()
+    assert user.email_address is None
+
+
+@respx.mock
+def test_get_myself_passes_timeout_override(config: JiraConfig) -> None:
+    route = respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
+        return_value=httpx.Response(200, json={"accountId": "abc", "displayName": "Bot"})
+    )
+    with JiraClient(config) as client:
+        client.get_myself(timeout=2.5)
+    timeout = route.calls.last.request.extensions["timeout"]
+    assert timeout["connect"] == 2.5
+    assert timeout["read"] == 2.5
+
+
+@respx.mock
+def test_get_myself_unauthorized_raises_jira_error(config: JiraConfig) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
+        return_value=httpx.Response(401, json={"errorMessages": ["Unauthorized"]})
+    )
+    with JiraClient(config) as client, pytest.raises(JiraError) as exc_info:
+        client.get_myself()
+    assert exc_info.value.status_code == 401
+
+
+@respx.mock
 def test_get_issue_parses_response(config: JiraConfig) -> None:
     respx.get(f"{BASE_URL}/rest/api/2/issue/CF1-1").mock(
         return_value=httpx.Response(

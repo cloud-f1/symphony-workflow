@@ -17,7 +17,13 @@ from typing import Any
 import httpx
 
 from jira_agent_cli.config import JiraConfig
-from jira_agent_cli.models import Issue, IssueCreateResult, SearchResult, Transition
+from jira_agent_cli.models import (
+    CurrentUser,
+    Issue,
+    IssueCreateResult,
+    SearchResult,
+    Transition,
+)
 
 
 class JiraError(RuntimeError):
@@ -48,6 +54,15 @@ class JiraClient:
 
     def __exit__(self, *exc_info: object) -> None:
         self.close()
+
+    def get_myself(self, *, timeout: float | None = None) -> CurrentUser:
+        """Return the authenticated user. Cheap enough to double as a connectivity check —
+        pass a short `timeout` (seconds) to override the client default for that use.
+        """
+        kwargs: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
+        response = self._client.get("/rest/api/2/myself", **kwargs)
+        self._raise_for_status(response)
+        return CurrentUser.from_api(response.json())
 
     def get_issue(self, key: str) -> Issue:
         response = self._client.get(f"/rest/api/2/issue/{key}")

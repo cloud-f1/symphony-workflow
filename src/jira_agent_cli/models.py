@@ -45,3 +45,22 @@ class IssueCreateResult(BaseModel):
 class Transition(BaseModel):
     id: str
     name: str
+
+
+class CurrentUser(BaseModel):
+    """The authenticated user, from `GET /rest/api/2/myself`."""
+
+    account_id: str
+    display_name: str
+    email_address: str | None = None
+    active: bool = True
+
+    @classmethod
+    def from_api(cls, payload: dict[str, Any]) -> CurrentUser:
+        return cls(
+            account_id=payload["accountId"],
+            display_name=payload.get("displayName", ""),
+            # Jira Cloud omits emailAddress when the user's profile visibility hides it.
+            email_address=payload.get("emailAddress") or None,
+            active=payload.get("active", True),
+        )

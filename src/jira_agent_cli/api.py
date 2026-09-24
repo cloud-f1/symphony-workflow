@@ -14,8 +14,9 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
@@ -66,12 +67,33 @@ def get_workspace_manager(request: Request) -> WorkspaceManager:
     return request.app.state.workspaces
 
 
+HEALTH_JIRA_TIMEOUT_SECONDS = 5.0
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok"] = "ok"
+    jira_reachable: bool
+
+
 class ToolCallRequest(BaseModel):
     arguments: dict[str, Any] = {}
 
 
 class CreateRunRequest(BaseModel):
     issue_key: str
+
+
+@app.get("/health")
+def health(client: JiraClient = Depends(get_jira_client)) -> HealthResponse:
+    """Liveness + Jira connectivity. Always 200 while the server is up; `jira_reachable`
+    reflects a real `GET /rest/api/2/myself` call. A 401/403 (bad credentials) also
+    reports False. No user details are returned — this endpoint is unauthenticated.
+    """
+    try:
+        client.get_myself(timeout=HEALTH_JIRA_TIMEOUT_SECONDS)
+    except (JiraError, httpx.TransportError):
+        return HealthResponse(jira_reachable=False)
+    return HealthResponse(jira_reachable=True)
 
 
 @app.get("/tools")
