@@ -25,6 +25,15 @@ class _FakeWorkspaceManager:
     def ensure(self, issue_key: str, *, branch_slug: str | None = None) -> Path:
         return Path("/tmp/fake-workspace") / issue_key
 
+    def run_before_run(self, issue_key: str, workspace_path: Path) -> None:
+        pass
+
+    def run_after_run(self, issue_key: str, workspace_path: Path) -> None:
+        pass
+
+    def remove(self, issue_key: str) -> bool:
+        return False
+
 
 @pytest.fixture
 def config() -> JiraConfig:
