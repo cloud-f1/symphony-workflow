@@ -52,13 +52,15 @@ one **Story per phase** → **Subtasks** per concrete work item underneath each 
 |---|---|---|---|
 | 0 — pick the real ticket + live-verify | `ADLC-3` | — | Done |
 | 1 — API server | `ADLC-4` | — | Done (built under `CF1-286` before ADLC existed) |
-| 2 — Plan/Implement interface | `ADLC-1` | `ADLC-5`/`6`/`7` | In Progress |
-| 3 — Claude Code session runner | `ADLC-8` | `ADLC-9`/`10`/`11`/`12` | To Do (`ADLC-9` research done) |
-| 4 — end-to-end run | `ADLC-13` | `ADLC-14`/`15`/`16` | To Do |
+| 2 — Plan/Implement interface | `ADLC-1` | `ADLC-5`/`6`/`7` | Done |
+| 3 — Claude Code session runner | `ADLC-8` | `ADLC-9`/`10`/`11`/`12` | Done |
+| 4 — end-to-end run | `ADLC-13` | `ADLC-14`/`15`/`16` | Done (real ticket: `ADLC-17`) |
+| 5 — auto-discovery poller | `ADLC-18` | `ADLC-19`/`20`/`21`/`22`/`23` | Done (real ticket: `ADLC-24`) |
 
-Continuous polling (`/loop`) was considered and explicitly deferred — Phase 2 gets
-driven by hand a few times first so we can see real plan quality before automating
-ticket discovery.
+**Continuous polling revisited 2026-09-24** (originally deferred): resolved by
+splitting discovery from code-writing — the poller auto-runs Plan only, never
+Implement. Real daemon (background task in `api.py`, not `/loop`); ready signal =
+`status = "To Do"` (board default). See `docs/spec.md`'s Phase 5 section.
 
 ## Definition of done
 

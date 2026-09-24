@@ -62,6 +62,12 @@ class RunStore:
     def get(self, run_id: str) -> Run | None:
         return self._runs.get(run_id)
 
+    def get_by_issue_key(self, issue_key: str) -> Run | None:
+        """Used by poller.py's idempotency check — one issue key gets at most one
+        Run from auto-discovery, even across multiple poll ticks.
+        """
+        return next((r for r in self._runs.values() if r.issue_key == issue_key), None)
+
     def mark_planning(self, run_id: str) -> Run:
         run = self._require(run_id)
         self._require_state(run, RunState.CREATED)

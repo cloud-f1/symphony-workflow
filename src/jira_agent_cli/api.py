@@ -5,7 +5,14 @@ CLI's `list-tools` / `call` commands use, over HTTP, so a remote agent or
 orchestrator can drive Jira the same way a human at a terminal can.
 `POST /runs/{id}/plan` and `POST /runs/{id}/implement` are the two-phase
 interface from docs/spec.md — `/implement` is hard-gated on `state ==
-plan_ready`, enforced in runs.py's RunStore, not just here.
+plan_ready`, enforced in runs.py's RunStore, not just here. Both endpoints
+are thin wrappers over orchestrator.py, which the background poller
+(poller.py) also calls — so the two dispatch paths can never drift.
+
+Auto-discovery (Phase 5, docs/spec.md): a background poll-tick started in
+`lifespan` auto-creates a Run and auto-runs Plan for new "To Do" tickets.
+It never auto-runs Implement — that stays a deliberate POST a human makes.
+Disable via `JIRA_AGENT_CLI_POLL_ENABLED=false` (tests do this).
 """
 
 from __future__ import annotations
@@ -13,24 +20,26 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
-from jira_agent_cli.agent_runner import AgentRunError, run_implement, run_plan
+from jira_agent_cli.agent_runner import AgentRunError
 from jira_agent_cli.client import JiraClient, JiraError
 from jira_agent_cli.config import ConfigError, JiraConfig
-from jira_agent_cli.prompts import render_implement_prompt, render_plan_prompt
-from jira_agent_cli.runs import Run, RunState, RunStore, RunTransitionError
+from jira_agent_cli.orchestrator import REPO_ROOT, WORKSPACE_ROOT, execute_implement, execute_plan
+from jira_agent_cli.poller import Poller
+from jira_agent_cli.runs import Run, RunStore, RunTransitionError
 from jira_agent_cli.tools import TOOLS, call_tool
 from jira_agent_cli.workspace import WorkspaceError, WorkspaceManager
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-RUNS_DOCS_ROOT = Path(os.environ.get("JIRA_AGENT_CLI_RUNS_DOCS_ROOT", REPO_ROOT / "docs" / "runs"))
-WORKSPACE_ROOT = Path(os.environ.get("JIRA_AGENT_CLI_WORKSPACE_ROOT", REPO_ROOT / ".worktrees"))
+
+def _poll_enabled() -> bool:
+    # Read at lifespan-startup time, not module-import time, so tests can
+    # monkeypatch/setenv this per-test before their TestClient starts.
+    return os.environ.get("JIRA_AGENT_CLI_POLL_ENABLED", "true").lower() != "false"
 
 
 @asynccontextmanager
@@ -42,9 +51,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.jira_client = JiraClient(config)
     app.state.runs = RunStore()
     app.state.workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=REPO_ROOT)
+
+    poller = Poller(
+        client=app.state.jira_client,
+        runs=app.state.runs,
+        workspaces=app.state.workspaces,
+        interval_seconds=float(os.environ.get("JIRA_AGENT_CLI_POLL_INTERVAL_SECONDS", "60")),
+    )
+    app.state.poller = poller
+    if _poll_enabled():
+        poller.start()
+
     try:
         yield
     finally:
+        await poller.stop()
         app.state.jira_client.close()
 
 
@@ -73,6 +94,7 @@ HEALTH_JIRA_TIMEOUT_SECONDS = 5.0
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     jira_reachable: bool
+    poller_running: bool
 
 
 class ToolCallRequest(BaseModel):
@@ -84,16 +106,18 @@ class CreateRunRequest(BaseModel):
 
 
 @app.get("/health")
-def health(client: JiraClient = Depends(get_jira_client)) -> HealthResponse:
-    """Liveness + Jira connectivity. Always 200 while the server is up; `jira_reachable`
-    reflects a real `GET /rest/api/2/myself` call. A 401/403 (bad credentials) also
-    reports False. No user details are returned — this endpoint is unauthenticated.
+def health(request: Request, client: JiraClient = Depends(get_jira_client)) -> HealthResponse:
+    """Liveness + Jira connectivity + poller status. Always 200 while the server is
+    up; `jira_reachable` reflects a real `GET /rest/api/2/myself` call. A 401/403
+    (bad credentials) also reports False. No user details are returned.
     """
     try:
         client.get_myself(timeout=HEALTH_JIRA_TIMEOUT_SECONDS)
+        jira_reachable = True
     except (JiraError, httpx.TransportError):
-        return HealthResponse(jira_reachable=False)
-    return HealthResponse(jira_reachable=True)
+        jira_reachable = False
+    poller: Poller = request.app.state.poller
+    return HealthResponse(jira_reachable=jira_reachable, poller_running=poller.is_running)
 
 
 @app.get("/tools")
@@ -137,6 +161,17 @@ def get_run(run_id: str, runs: RunStore = Depends(get_run_store)) -> Run:
     return run
 
 
+@app.get("/issues/{key}/run")
+def get_run_for_issue(key: str, runs: RunStore = Depends(get_run_store)) -> Run:
+    """Find the Run for an issue key — needed to discover the run_id a poller-
+    dispatched Run got (auto-Plan creates the Run internally; nothing returns
+    its id to the caller until this endpoint)."""
+    run = runs.get_by_issue_key(key)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"No run found for issue {key!r}")
+    return run
+
+
 @app.post("/runs/{run_id}/plan")
 async def plan_run(
     run_id: str,
@@ -144,93 +179,33 @@ async def plan_run(
     client: JiraClient = Depends(get_jira_client),
     workspaces: WorkspaceManager = Depends(get_workspace_manager),
 ) -> Run:
-    """Read-only: renders the plan prompt, runs one bounded permission_mode="plan"
-    session, posts the result as a Jira comment + docs/runs/<key>/plan.md, and
-    records the SDK session_id so /implement can resume the same thread. Never
-    writes to the target repo — see docs/spec.md.
-    """
     run = runs.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
-
     try:
-        issue = client.get_issue(run.issue_key)
-    except JiraError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-    try:
-        runs.mark_planning(run_id)
+        return await execute_plan(run, runs=runs, client=client, workspaces=workspaces)
     except RunTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    try:
-        workspace_path = workspaces.ensure(run.issue_key)
     except WorkspaceError as exc:
-        runs.mark_failed(run_id, error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    prompt = render_plan_prompt(issue)
-    try:
-        result = await run_plan(prompt, cwd=str(workspace_path))
-    except AgentRunError as exc:
-        runs.mark_failed(run_id, error=str(exc))
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    if not result.session_id:
-        runs.mark_failed(
-            run_id, error="Agent run produced no session_id — cannot resume for /implement"
-        )
-        raise HTTPException(status_code=502, detail="Agent run produced no session_id")
-
-    plan_dir = RUNS_DOCS_ROOT / run.issue_key
-    plan_dir.mkdir(parents=True, exist_ok=True)
-    (plan_dir / "plan.md").write_text(result.text, encoding="utf-8")
-
-    try:
-        client.add_comment(run.issue_key, f"[jira-agent-cli plan]\n\n{result.text}")
     except JiraError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-    return runs.set_plan_ready(
-        run_id, plan=result.text, session_id=result.session_id, workspace_path=str(workspace_path)
-    )
+    except AgentRunError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.post("/runs/{run_id}/implement")
-async def implement_run(run_id: str, runs: RunStore = Depends(get_run_store)) -> Run:
-    """Hard-gated on state == plan_ready (enforced in RunStore, not just here).
-    Resumes the Plan phase's session_id, full edit permissions, scoped to the
-    same workspace. Never opens a PR or pushes — a human reviews the diff next.
-    """
+async def implement_run(
+    run_id: str,
+    runs: RunStore = Depends(get_run_store),
+    client: JiraClient = Depends(get_jira_client),
+) -> Run:
     run = runs.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
-    if run.state != RunState.PLAN_READY:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Run {run_id} is {run.state.value!r}, expected 'plan_ready' — "
-                "plan not approved yet"
-            ),
-        )
-
     try:
-        runs.mark_implementing(run_id)
+        return await execute_implement(run, runs=runs, client=client)
     except RunTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    assert run.session_id is not None  # guaranteed by set_plan_ready
-    assert run.workspace_path is not None
-
-    prompt = render_implement_prompt(run.issue_key)
-    try:
-        result = await run_implement(
-            prompt,
-            cwd=run.workspace_path,
-            resume_session_id=run.session_id,
-        )
     except AgentRunError as exc:
-        runs.mark_failed(run_id, error=str(exc))
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    return runs.mark_completed(run_id, result=result.text)

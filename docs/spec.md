@@ -106,4 +106,33 @@ enforce the human gate, not a full retry/reconciliation model.
   state machine, in-memory store — no DB for a POC), `docs/WORKFLOW.md` (prompt template
   + phase policy, Symphony-style but simplified).
 
+## Phase 5 — auto-discovery poller (decided + built + live-verified 2026-09-24)
+
+Deferred earlier in this POC ("no polling daemon" was a stated non-goal); revisited
+once Phases 0–4 proved the Plan/Implement loop works. Resolved the apparent tension
+by splitting *discovery* from *code-writing*: automating "notice a new ticket and
+write a plan" is safe (read-only, bounded cost); automating "write a plan → write
+code with nobody watching" is not — that's exactly the failure mode `feedback_no_claude_p_in_repo`
+warns about, and `ADLC-17` proved why (`acceptEdits` can't self-verify).
+
+- **Mechanism**: a background `asyncio` task in `api.py`'s `lifespan` (Symphony §8's
+  actual poll-tick pattern), not `/loop` — a real daemon independent of any open
+  terminal. `orchestrator.py` was extracted so the poller and the HTTP endpoint call
+  the exact same Plan/Implement logic and can't drift.
+- **Ready signal**: `status = "To Do"` on the ADLC board (board default, not a
+  label) — decided over a label because the dedicated ADLC project (not CF1) already
+  is the filter; see `docs/intent.md`'s Tracking table.
+- **Scope**: auto-creates a `Run` + auto-runs `/plan` only. `/implement` is
+  unchanged — still a deliberate `POST` a human makes.
+- **`GET /issues/{key}/run`**: added because the poller creates Runs internally;
+  nothing returned their id to a human until this lookup endpoint existed.
+- **Live-verified** (`ADLC-24`, [review](runs/ADLC-24/review.md)): a fresh "To Do"
+  ticket was auto-discovered, auto-planned, and transitioned to "In Review" with
+  zero manual API calls — confirmed against real Jira state directly, not just the
+  app's own response.
+- **Finding**: `RunStore`'s in-memory-only limitation (already documented as a POC
+  non-goal) was hit in practice — restarting the server lost the `session_id` a
+  poller-created Run needed for `/implement`. Real constraint for any non-POC
+  version, not hypothetical.
+
 See [`plan.md`](plan.md) for the phased build order.

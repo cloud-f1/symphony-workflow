@@ -1,8 +1,11 @@
 """Unit tests for the FastAPI server — HTTP calls to Jira mocked via respx,
 requests to the API itself go through Starlette's TestClient (no network),
-and the Claude Agent SDK (`run_plan`/`run_implement`) is monkeypatched so no
-live agent session runs and no real git worktree gets created against this
-repo — see test_agent_runner.py / test_workspace.py for those in isolation.
+and the Claude Agent SDK (`run_plan`/`run_implement`) is monkeypatched on
+`orchestrator` — where api.py's endpoints and poller.py both actually call
+them from — so no live agent session runs and no real git worktree gets
+created against this repo. The background poller is disabled for these
+tests (`JIRA_AGENT_CLI_POLL_ENABLED=false`) — see test_poller.py for that
+in isolation.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 
-import jira_agent_cli.api as api_module
+import jira_agent_cli.orchestrator as orchestrator_module
 from jira_agent_cli.agent_runner import AgentRunError, AgentRunResult
 from jira_agent_cli.api import app, get_workspace_manager
 
@@ -28,12 +31,23 @@ class _FakeWorkspaceManager:
         return Path("/tmp/fake-workspace") / issue_key
 
 
+def _mock_transition(key: str, name: str) -> None:
+    """Mocks the GET+POST pair `JiraClient.transition_issue` makes."""
+    respx.get(f"{BASE_URL}/rest/api/2/issue/{key}/transitions").mock(
+        return_value=httpx.Response(200, json={"transitions": [{"id": "1", "name": name}]})
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/{key}/transitions").mock(
+        return_value=httpx.Response(204)
+    )
+
+
 @pytest.fixture
 def api_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
     monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
     monkeypatch.setenv("JIRA_API_TOKEN", "token")
-    monkeypatch.setattr(api_module, "RUNS_DOCS_ROOT", tmp_path / "runs")
+    monkeypatch.setenv("JIRA_AGENT_CLI_POLL_ENABLED", "false")
+    monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path / "runs")
     app.dependency_overrides[get_workspace_manager] = lambda: _FakeWorkspaceManager()
     with TestClient(app) as client:
         yield client
@@ -48,7 +62,10 @@ def test_health_reports_jira_reachable(api_client: TestClient) -> None:
     response = api_client.get("/health")
     assert route.called
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "jira_reachable": True}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["jira_reachable"] is True
+    assert body["poller_running"] is False  # disabled for this fixture
 
 
 @pytest.mark.parametrize("status_code", [401, 503])
@@ -61,7 +78,7 @@ def test_health_reports_unreachable_on_jira_error_status(
     )
     response = api_client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "jira_reachable": False}
+    assert response.json()["jira_reachable"] is False
 
 
 @pytest.mark.parametrize(
@@ -74,7 +91,7 @@ def test_health_reports_unreachable_on_transport_error(
     respx.get(f"{BASE_URL}/rest/api/2/myself").mock(side_effect=error)
     response = api_client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "jira_reachable": False}
+    assert response.json()["jira_reachable"] is False
 
 
 def test_list_tools_returns_every_registered_schema(api_client: TestClient) -> None:
@@ -153,6 +170,20 @@ def test_get_unknown_run_returns_404(api_client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_get_run_for_issue_finds_the_dispatched_run(api_client: TestClient) -> None:
+    created = api_client.post("/runs", json={"issue_key": "ADLC-24"})
+    run_id = created.json()["id"]
+
+    found = api_client.get("/issues/ADLC-24/run")
+    assert found.status_code == 200
+    assert found.json()["id"] == run_id
+
+
+def test_get_run_for_issue_404_when_no_run_exists(api_client: TestClient) -> None:
+    response = api_client.get("/issues/ADLC-999/run")
+    assert response.status_code == 404
+
+
 def test_missing_jira_env_fails_app_startup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JIRA_BASE_URL", raising=False)
     monkeypatch.delenv("JIRA_EMAIL", raising=False)
@@ -176,13 +207,14 @@ def test_plan_endpoint_happy_path(api_client: TestClient, monkeypatch: pytest.Mo
     comment_route = respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
         return_value=httpx.Response(201, json={})
     )
+    _mock_transition("ADLC-1", "In Review")
 
     async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
         return AgentRunResult(
             text="Here is the plan.", session_id="sess-1", cost_usd=0.01, num_turns=1
         )
 
-    monkeypatch.setattr(api_module, "run_plan", fake_run_plan)
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
 
     created = api_client.post("/runs", json={"issue_key": "ADLC-1"})
     run_id = created.json()["id"]
@@ -219,7 +251,7 @@ def test_plan_endpoint_agent_error_marks_run_failed(
     async def failing_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
         raise AgentRunError("agent blew up")
 
-    monkeypatch.setattr(api_module, "run_plan", failing_run_plan)
+    monkeypatch.setattr(orchestrator_module, "run_plan", failing_run_plan)
 
     created = api_client.post("/runs", json={"issue_key": "ADLC-1"})
     run_id = created.json()["id"]
@@ -262,6 +294,8 @@ def test_implement_endpoint_happy_path_resumes_plan_session(
     respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
         return_value=httpx.Response(201, json={})
     )
+    _mock_transition("ADLC-1", "In Review")
+    _mock_transition("ADLC-1", "In Progress")
 
     async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
         return AgentRunResult(text="the plan", session_id="sess-42", cost_usd=0.01, num_turns=1)
@@ -277,8 +311,8 @@ def test_implement_endpoint_happy_path_resumes_plan_session(
             text="implemented it", session_id="sess-42", cost_usd=0.02, num_turns=3
         )
 
-    monkeypatch.setattr(api_module, "run_plan", fake_run_plan)
-    monkeypatch.setattr(api_module, "run_implement", fake_run_implement)
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+    monkeypatch.setattr(orchestrator_module, "run_implement", fake_run_implement)
 
     created = api_client.post("/runs", json={"issue_key": "ADLC-1"})
     run_id = created.json()["id"]
@@ -310,6 +344,8 @@ def test_implement_endpoint_cannot_run_twice(
     respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
         return_value=httpx.Response(201, json={})
     )
+    _mock_transition("ADLC-1", "In Review")
+    _mock_transition("ADLC-1", "In Progress")
 
     async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
         return AgentRunResult(text="the plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
@@ -319,8 +355,8 @@ def test_implement_endpoint_cannot_run_twice(
     ) -> AgentRunResult:
         return AgentRunResult(text="done", session_id="sess-1", cost_usd=0.01, num_turns=1)
 
-    monkeypatch.setattr(api_module, "run_plan", fake_run_plan)
-    monkeypatch.setattr(api_module, "run_implement", fake_run_implement)
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+    monkeypatch.setattr(orchestrator_module, "run_implement", fake_run_implement)
 
     created = api_client.post("/runs", json={"issue_key": "ADLC-1"})
     run_id = created.json()["id"]
