@@ -136,6 +136,20 @@ branch confirms it.
   params).** `client.py`'s `search_issues` already does this correctly — but anything posting
   JQL queries *outside* the Python client (e.g. a shell hook) has to get this right independently;
   re-discovered the hard way writing `.claude/hooks/session-start-check-api.sh`.
+- **Project creation (`POST /rest/api/3/project`) works fine via API — it does NOT require the
+  Jira UI** — confirmed live creating `NXJS` (`ADLC-40`), an account with global `ADMINISTER`
+  permission (check with `GET /rest/api/3/mypermissions?permissions=ADMINISTER`) can do this.
+  Two traps: (1) `projectTemplateKey` naming is misleading —
+  `com.pyxis.greenhopper.jira:gh-simplified-kanban-classic` creates a **classic**
+  (company-managed) project despite "simplified" in the name (the word "classic" in the key is
+  the real signal); the correct **team-managed** (next-gen, `"simplified": true`, matching
+  `ADLC`'s own style) Kanban template is
+  `com.pyxis.greenhopper.jira:gh-simplified-agility-kanban` — verify by checking the response's
+  `style`/`simplified` fields, don't trust the template key name alone. (2) `DELETE
+  /rest/api/3/project/{key}` soft-deletes into Jira's Trash with a ~60-day retention — the key
+  *and* name stay reserved the whole time (`GET /rest/api/3/project/search?status=deleted` lists
+  them), so recovering from a wrong-template creation needs a different key/name for the retry,
+  not just a delete-and-recreate with the same ones.
 
 ## Architecture
 

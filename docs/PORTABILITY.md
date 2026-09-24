@@ -74,16 +74,18 @@ actual operational pain.
 | Repo | Jira project | Port | Poller enabled? |
 |---|---|---|---|
 | `jira-agent-cli` (this repo, self-referential) | `ADLC` | 8811 | Yes — the owning instance for `ADLC` |
-| `ai-coding-nexjs-template` | `ADLC` (interim — see below; dedicated project TBD, `ADLC-40`) | 8812 (planned) | **No** — manual-only, see below |
+| `ai-coding-nexjs-template` | `NXJS` (dedicated, `ADLC-40`, Done — team-managed Kanban, matching `ADLC`'s own style) | 8812 (planned) | Yes, once `ADLC-41` stands up the instance |
 | `ai-rc-engineer-pm` | TBD | TBD | TBD |
 
 ### Sharing one Jira project across repos (interim/exception case)
 
-The default is a dedicated project per repo (`ADLC-40` tracks creating one for
-`ai-coding-nexjs-template`). Until that exists, a portability test may
-temporarily reuse `ADLC` as `JIRA_AGENT_CLI_JIRA_PROJECT` for a *second*
-instance pointed at a different `TARGET_REPO`. That's safe only with both of
-these, because exactly one poller may ever run against a given Jira project:
+The default is a dedicated project per repo — `ADLC-40` did this for
+`ai-coding-nexjs-template` (`NXJS`, created via `POST /rest/api/3/project`; see `CLAUDE.md`'s
+"Jira API gotchas" for the template-key trap hit along the way). For a *new* repo before its own
+dedicated project exists, a portability test may temporarily reuse `ADLC` (or any existing
+project) as `JIRA_AGENT_CLI_JIRA_PROJECT` for a *second* instance pointed at a different
+`TARGET_REPO`. That's safe only with both of these, because exactly one poller may ever run
+against a given Jira project:
 
 1. **The non-owning instance must start with `JIRA_AGENT_CLI_POLL_ENABLED=false`**
    (confirmed real, `api.py:43`, `os.environ.get("JIRA_AGENT_CLI_POLL_ENABLED",
