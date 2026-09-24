@@ -58,10 +58,35 @@ Epic/Subtask) via the v3 search endpoint and injects the list as session-start c
 per session start, not a recurring loop — `/loop` or a scheduled cloud agent would be needed for
 genuine periodic autonomous pulling, not yet set up.
 
-**Pick up here next**: check whether the three dispatched subagents' PRs are ready
-(`gh pr list --state open`), review + merge them, run the full suite on `main` after each merge
-("make main branch perfect" per the user's own framing). Still waiting on the user for `ADLC-40`
-(dedicated Jira project for `ai-coding-nexjs-template`) and confirmation before starting the
+**Update, same session, later**: all three dispatched PRs landed (`ADLC-49`, `ADLC-28`,
+`ADLC-50` — merged). Found and fixed a real live bug immediately after: the poller's `_seen` set
+blocked a failed auto-Plan from ever being retried, and posted no comment either — `ADLC-44`
+(this session's own new Story) got silently stuck on `error_max_turns`. Fixed with bounded retry
+(`JIRA_AGENT_CLI_POLL_MAX_PLAN_ATTEMPTS`, default 3) + failure-visible Jira comments
+(`orchestrator._post_failure_comment`) + a "giving up" comment once retries are exhausted — live
+re-verified: `ADLC-44` recovered and completed Plan on retry. Also shipped `ADLC-43`'s
+`docs/plans/<NNNN>-<slug>/` convention (migrated the old top-level `docs/{intent,spec,plan}.md` to
+`docs/plans/0001-symphony-poc/`) and used it for `ADLC-29`'s first real detailed spec
+(`docs/plans/0002-richer-polling-triage/`).
+
+**`/loop` turned on** (dynamic, self-pacing, user-approved) to keep this session autonomously
+pulling and developing tickets between prompts — subagent+worktree+PR pipeline, review-then-merge
+unless genuinely impactful (escalate instead of guessing), max 4 concurrent. Stop condition: if a
+tick finds nothing ready/in-flight/awaiting-review and the reason is a human-gated blocker (not a
+transient gap), the loop stops itself and pushes a notification rather than polling forever.
+
+**`ADLC-44`'s whole Story shipped** (all four subtasks Done, merged): `ADLC-45` (CLI
+plan/implement, direct commit), `ADLC-46` (`jira-agent decompose` — Epic→Stories/Tasks for human
+review, DoD templated from `CLAUDE.md` not LLM-invented, PR #5), `ADLC-47` (`jira-agent
+sync-decomposition` — reads reviewed `decomposition.json`, creates real Story/Subtask issues via
+the `parent=` mechanism, PR #6), `ADLC-48` (docs, PR #7). `ADLC-29` (richer-polling triage) was
+also dispatched — user explicitly approved building it despite its own ticket text saying to wait
+for Epic 2's first wave, since that's taking a while; check `gh pr list` for its status.
+
+**Pick up here next**: `ADLC-51` (quickstart doc + auto-memory refresh + CLAUDE.md consolidation
+pass) was created for after this burst of work settles — now's close to the right time, once
+`ADLC-29` lands too. Still waiting on the user for `ADLC-40` (dedicated Jira project for
+`ai-coding-nexjs-template`) and confirmation before starting the
 `ai-rc-engineer-pm` integration (no ticket exists for it yet).
 
 ---
