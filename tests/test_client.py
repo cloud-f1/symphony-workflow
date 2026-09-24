@@ -68,7 +68,7 @@ def test_get_issue_raises_jira_error_on_404(config: JiraConfig) -> None:
 
 @respx.mock
 def test_search_issues_returns_all_matches(config: JiraConfig) -> None:
-    respx.post(f"{BASE_URL}/rest/api/2/search").mock(
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -96,7 +96,7 @@ def test_search_issues_returns_all_matches(config: JiraConfig) -> None:
 
 @respx.mock
 def test_search_issues_sends_jql_and_max_results(config: JiraConfig) -> None:
-    route = respx.post(f"{BASE_URL}/rest/api/2/search").mock(
+    route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
         return_value=httpx.Response(200, json={"total": 0, "issues": []})
     )
     with JiraClient(config) as client:

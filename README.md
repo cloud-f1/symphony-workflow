@@ -47,10 +47,11 @@ Epic Link = `customfield_10014`, Sprint = `customfield_10020`, Story Points = `c
 These are per-project, not global — re-verify before pointing this at a different Jira project.
 Wire them via `.env` (see `.env.example`); `create_issue` only sends them when configured.
 
-⚠️ This client has only been exercised against mocked HTTP responses (`respx`) in this repo's
-test suite, never against a live Jira instance. The search endpoint in particular
-(`/rest/api/2/search`) has seen churn across Atlassian's API versions — re-verify it against
-current docs before depending on it in production.
+⚠️ Verified live against `cloud-f1.atlassian.net` on 2026-09-24: v2 issue CRUD works;
+v2's classic `/rest/api/2/search` is now HTTP 410 (retired), so `search_issues` uses v3's
+`/rest/api/3/search/jql` instead — the one place this client crosses API versions. Unit
+tests still only exercise mocked HTTP (`respx`); re-verify against a different Jira instance
+before trusting either endpoint there.
 
 ## Setup
 

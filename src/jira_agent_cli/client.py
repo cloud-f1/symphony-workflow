@@ -1,12 +1,13 @@
 """HTTP client wrapper for the Jira Cloud REST API.
 
-Uses API v2 throughout (plain-text `description`/comment bodies, not the v3
-Atlassian Document Format) — this matches the pattern already proven against
-`cloud-f1.atlassian.net` in this org's other tooling. If you point this at a
-different Jira Cloud instance, re-verify the search endpoint against current
-Atlassian docs before relying on it: Jira's JQL search API has changed more
-than once and this client has only been exercised against mocked responses,
-not a live server, in this repo.
+Uses API v2 for issue CRUD (plain-text `description`/comment bodies, not the
+v3 Atlassian Document Format) — matches the pattern already proven against
+`cloud-f1.atlassian.net` in this org's other tooling. `search_issues` is the
+one exception: it uses v3's `/rest/api/3/search/jql`, because the classic v2
+`/rest/api/2/search` endpoint is now HTTP 410 (retired by Atlassian) —
+verified live against cloud-f1.atlassian.net on 2026-09-24. If you point this
+at a different Jira Cloud instance, re-verify both endpoints are still
+current before relying on them.
 """
 
 from __future__ import annotations
@@ -54,8 +55,11 @@ class JiraClient:
         return Issue.from_api(response.json())
 
     def search_issues(self, jql: str, max_results: int = 50) -> SearchResult:
+        # Verified live 2026-09-24: the classic v2 `/rest/api/2/search` endpoint
+        # now returns HTTP 410 (Atlassian retired it) — this MUST use the v3
+        # enhanced search endpoint even though the rest of this client is v2.
         response = self._client.post(
-            "/rest/api/2/search",
+            "/rest/api/3/search/jql",
             json={
                 "jql": jql,
                 "maxResults": max_results,
@@ -64,10 +68,8 @@ class JiraClient:
         )
         self._raise_for_status(response)
         payload = response.json()
-        return SearchResult(
-            issues=[Issue.from_api(item) for item in payload.get("issues", [])],
-            total=payload.get("total", len(payload.get("issues", []))),
-        )
+        issues = [Issue.from_api(item) for item in payload.get("issues", [])]
+        return SearchResult(issues=issues, total=payload.get("total", len(issues)))
 
     def create_issue(
         self,
