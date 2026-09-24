@@ -40,6 +40,16 @@ assumes an unattended polling daemon. This POC deliberately does **not** build t
 every agent session starts from an explicit, human-made API call, never a background loop.
 See [`spec.md`](spec.md) for why this points at the Claude Agent SDK instead.
 
+## Tracking
+
+This POC is tracked in a dedicated Jira project — **ADLC** ("Agentic Dev Lifecycle"),
+team-managed Kanban board, separate from CF1's content/marketing backlog:
+https://cloud-f1.atlassian.net/jira/software/projects/ADLC/boards/74. Phase 1 was built
+and closed under `CF1-286` before ADLC existed; `ADLC-1` (Phase 2) is the first ticket on
+the new board. Continuous polling (`/loop`) was considered and explicitly deferred —
+Phase 2 gets driven by hand a few times first so we can see real plan quality before
+automating ticket discovery.
+
 ## Definition of done
 
 Run `plan` then `implement` against one real CF1 ticket, get a plan a human approves,
