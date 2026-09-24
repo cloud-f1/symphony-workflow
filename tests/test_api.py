@@ -328,6 +328,82 @@ def test_plan_endpoint_happy_path(api_client: TestClient, monkeypatch: pytest.Mo
 
 
 @respx.mock
+def test_plan_endpoint_max_turns_override_reaches_run_plan(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADLC-55: an explicit `max_turns` in the request body must reach
+    `agent_runner.run_plan` unchanged.
+    """
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "Do the thing", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-1", "In Review")
+
+    received: dict[str, object] = {}
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        received.update(kwargs)
+        return AgentRunResult(text="the plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+
+    created = api_client.post("/runs", json={"issue_key": "ADLC-1"})
+    run_id = created.json()["id"]
+
+    response = api_client.post(f"/runs/{run_id}/plan", json={"max_turns": 15})
+    assert response.status_code == 200
+    assert received.get("max_turns") == 15
+
+
+@respx.mock
+def test_plan_endpoint_no_body_omits_max_turns_override(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADLC-55: with no request body (today's behavior), `run_plan` must not
+    receive a `max_turns` kwarg at all — it keeps using its own default.
+    """
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "Do the thing", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-1", "In Review")
+
+    received_kwargs: dict[str, object] = {}
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        received_kwargs.update(kwargs)
+        return AgentRunResult(text="the plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+
+    created = api_client.post("/runs", json={"issue_key": "ADLC-1"})
+    run_id = created.json()["id"]
+
+    response = api_client.post(f"/runs/{run_id}/plan")
+    assert response.status_code == 200
+    assert "max_turns" not in received_kwargs
+
+
+@respx.mock
 def test_plan_endpoint_runs_before_and_after_run_workspace_hooks(
     api_client: TestClient, monkeypatch: pytest.MonkeyPatch, fake_workspaces: _FakeWorkspaceManager
 ) -> None:

@@ -10,6 +10,7 @@ import pytest
 
 from jira_agent_cli.config import (
     DEFAULT_TRIAGE_INTERVAL_SECONDS,
+    poll_plan_max_turns,
     triage_enabled,
     triage_interval_seconds,
 )
@@ -19,6 +20,7 @@ from jira_agent_cli.config import (
 def _clear_triage_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JIRA_AGENT_CLI_TRIAGE_ENABLED", raising=False)
     monkeypatch.delenv("JIRA_AGENT_CLI_TRIAGE_INTERVAL_SECONDS", raising=False)
+    monkeypatch.delenv("JIRA_AGENT_CLI_POLL_PLAN_MAX_TURNS", raising=False)
 
 
 def test_triage_enabled_defaults_false() -> None:
@@ -50,3 +52,15 @@ def test_triage_interval_seconds_parses_as_float(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("JIRA_AGENT_CLI_TRIAGE_INTERVAL_SECONDS", "120")
     assert triage_interval_seconds() == 120.0
     assert isinstance(triage_interval_seconds(), float)
+
+
+def test_poll_plan_max_turns_defaults_to_none() -> None:
+    # ADLC-55 definition of done: unset must preserve today's behavior, i.e.
+    # execute_plan/run_plan fall back to agent_runner.DEFAULT_PLAN_MAX_TURNS.
+    assert poll_plan_max_turns() is None
+
+
+def test_poll_plan_max_turns_parses_as_int(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JIRA_AGENT_CLI_POLL_PLAN_MAX_TURNS", "15")
+    assert poll_plan_max_turns() == 15
+    assert isinstance(poll_plan_max_turns(), int)

@@ -78,3 +78,25 @@ def triage_interval_seconds() -> float:
     if not raw:
         return DEFAULT_TRIAGE_INTERVAL_SECONDS
     return float(raw)
+
+
+# ADLC-55: the poller has no interactive human to retry with a higher
+# `max_turns` the way `jira-agent plan --max-turns`/`POST /runs/{id}/plan`'s
+# body field let one do -- this is the poller's equivalent escape hatch for a
+# target repo where agent_runner.DEFAULT_PLAN_MAX_TURNS is consistently too
+# low for auto-Plan. Unset (the default) means "don't override" -- same
+# read-at-call-time-for-testability shape as triage_enabled()/
+# triage_interval_seconds() above, and same optional/default-preserving
+# reasoning as the CLI/API overrides.
+POLL_PLAN_MAX_TURNS_ENV = "JIRA_AGENT_CLI_POLL_PLAN_MAX_TURNS"
+
+
+def poll_plan_max_turns() -> int | None:
+    """`None` (unset) means "use agent_runner.DEFAULT_PLAN_MAX_TURNS", exactly
+    today's behavior -- this must never change what an existing poller
+    deployment does unless it opts in.
+    """
+    raw = os.environ.get(POLL_PLAN_MAX_TURNS_ENV)
+    if not raw:
+        return None
+    return int(raw)
