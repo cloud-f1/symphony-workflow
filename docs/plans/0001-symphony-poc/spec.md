@@ -159,6 +159,46 @@ warns about, and `ADLC-17` proved why (`acceptEdits` can't self-verify).
   right about what breaks on restart, not that our POC cut a corner Symphony
   would have avoided. See the alignment matrix below.
 
+## CLI control plane + decomposition (ADLC-45/46/47, 2026-09)
+
+A fourth way to drive a ticket, alongside `POST /runs/.../plan|implement`, the poller, and
+`jira-agent call`: `cli.py`'s `plan`/`implement`/`decompose`/`sync-decomposition` commands
+run the same orchestration logic in-process, no `uvicorn` server required.
+
+- **`jira-agent plan/implement <key>`** (ADLC-45) call `orchestrator.execute_plan`/
+  `execute_implement` directly — the exact functions `api.py`'s HTTP handlers and
+  `poller.py` already share, so this doesn't fork the Plan/Implement logic a third way.
+  The one wrinkle: `RunStore` is in-memory and process-scoped (§14.3 above), and the CLI
+  is a separate short-lived process per invocation, so `plan` can't hand its `Run` to a
+  later `implement` call the way the long-lived API process can. `cli.py` works around
+  this with a small sidecar — `plan` writes `Run.model_dump_json()` to
+  `docs/runs/<key>/run.json` next to the `plan.md` it already renders, and `implement`
+  reloads it via `RunStore.load`. This is a CLI-process concern only, not a change to
+  `RunStore`/`runs.py` itself.
+- **`jira-agent decompose <key>`** (ADLC-46) breaks a Jira Epic into Stories, each with a
+  user story, acceptance criteria, and Tasks, for human review before any Jira issue
+  exists. Deliberately **not** routed through `runs.Run`/`RunStore` — that state machine
+  models one issue's Plan → Implement lifecycle, which a one-shot Epic decomposition has
+  no equivalent of. Instead it's Plan-phase-shaped: `agent_runner.run_plan()`'s
+  `permission_mode="plan"` (read-only exploration) + `output_format` wiring, the same
+  mechanism `execute_plan()` uses, just with a new `prompts.PLAN_DECOMPOSE_SCHEMA` in
+  place of `PLAN_OUTPUT_SCHEMA` — the direct next use of the `output_format` foundation
+  ADLC-28 landed (see above). No repo writes, no Jira writes; renders
+  `docs/runs/<key>/decomposition.md` (human review) and `decomposition.json` (the
+  structured seam `sync-decomposition` reads). A `definition_of_done` checklist is
+  templated in `decompose.py` from this repo's own CLAUDE.md standards, not left to the
+  LLM to invent per run.
+- **`jira-agent sync-decomposition <key>`** (ADLC-47) reads an already-reviewed
+  `decomposition.json` — never the Markdown, and never re-running the decompose agent —
+  and creates the real issues: one Story per decomposed story (`parent=<epic-key>`) then
+  one Subtask per that Story's tasks (`parent=<story-key>`), both via the existing
+  `client.create_issue(..., parent=...)` path (the standard-`parent`-field mechanism
+  team-managed projects like `ADLC` use, per the "Jira API gotchas" section) — no new
+  Jira operation, no client.py/tools.py change. Created Stories land in Jira's default
+  "To Do" state untouched, so the poller/manual Plan+Implement flow picks them up
+  unchanged; created Subtasks are excluded from the poller's `READY_JQL` like every other
+  Subtask this repo creates for its own tracking, the same way ADLC-44's own subtasks are.
+
 ## Symphony alignment matrix (2026-09-25)
 
 What we adopted vs. deferred from `SPEC.md`, and where re-reading it after
@@ -180,5 +220,7 @@ sections turned out to already agree with what we'd built for other reasons).
 | §14.1–14.2 Failure Model | Adopted (partial) | Per-run failure → `mark_failed`; no exponential backoff/retry queue (§14.2's "Worker failures: convert to retries") |
 | §14.3 Partial State Recovery | **Already agreed** | See the Finding above — same intentional in-memory design, discovered independently before re-reading this section |
 | §15 Security and Operational Safety | Adopted (partial) | Workspace safety yes; no documented sandbox/approval posture beyond `permission_mode` |
+| §13.7 HTTP API Extension, CLI variant | Adopted (new, ADLC-45/46/47) | `jira-agent plan/implement/decompose/sync-decomposition` — the CLI control plane above; a fourth interface onto `orchestrator.py`/`agent_runner.py`, not a parallel implementation of the Plan/Implement gate |
+| §4 Core Domain Model, Epic decomposition | Adopted (new, ADLC-46/47) | No Symphony section models Epic→Story/Task decomposition directly; `decompose.py`'s `Decomposition`/`Story`/`Task` are new, deliberately outside `RunState` — see the CLI control plane section above |
 
 See [`implement.md`](implement.md) for the phased build order.
