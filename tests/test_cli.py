@@ -20,6 +20,7 @@ import jira_agent_cli.decompose as decompose_module
 import jira_agent_cli.orchestrator as orchestrator_module
 from jira_agent_cli.agent_runner import AgentRunResult
 from jira_agent_cli.cli import app
+from jira_agent_cli.decompose import Decomposition, Story, Task
 
 from .conftest import BASE_URL
 
@@ -245,3 +246,93 @@ def test_decompose_command_reports_jira_error_and_exits_nonzero(
         result = runner.invoke(app, ["decompose", "NOPE-1"])
 
     assert result.exit_code == 1
+
+
+_SYNC_DECOMPOSITION = Decomposition(
+    epic_key="ADLC-27",
+    stories=[
+        Story(
+            title="Story A",
+            user_story="As a user, I want A.",
+            acceptance_criteria=["A works"],
+            tasks=[Task(title="Build A", description="Do it")],
+        )
+    ],
+    definition_of_done=["Tests pass"],
+)
+
+
+def _write_sync_decomposition(tmp_path: Path) -> None:
+    out_dir = tmp_path / "ADLC-27"
+    out_dir.mkdir(parents=True)
+    (out_dir / "decomposition.json").write_text(
+        _SYNC_DECOMPOSITION.model_dump_json(indent=2), encoding="utf-8"
+    )
+
+
+@respx.mock
+def test_sync_decomposition_command_creates_story_and_subtask(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+    _write_sync_decomposition(tmp_path)
+
+    responses = iter(
+        [
+            httpx.Response(201, json={"key": "ADLC-101", "id": "101"}),
+            httpx.Response(201, json={"key": "ADLC-102", "id": "102"}),
+        ]
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(side_effect=lambda request: next(responses))
+
+    result = runner.invoke(app, ["sync-decomposition", "ADLC-27"])
+
+    assert result.exit_code == 0, result.output
+    assert "Synced decomposition for ADLC-27 into project ADLC: 1 stories created" in result.output
+    assert "Story ADLC-101: Story A" in result.output
+    assert "Subtask ADLC-102: Build A" in result.output
+    assert len(respx.calls) == 2
+
+    story_call = json.loads(respx.calls[0].request.content)
+    assert story_call["fields"]["parent"] == {"key": "ADLC-27"}
+    task_call = json.loads(respx.calls[1].request.content)
+    assert task_call["fields"]["parent"] == {"key": "ADLC-101"}
+
+
+def test_sync_decomposition_command_without_decomposition_file_exits_with_helpful_message(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+
+    result = runner.invoke(app, ["sync-decomposition", "ADLC-27"])
+
+    assert result.exit_code == 1
+    assert "jira-agent decompose ADLC-27" in result.output
+
+
+@respx.mock
+def test_sync_decomposition_command_honors_project_option(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+    _write_sync_decomposition(tmp_path)
+
+    responses = iter(
+        [
+            httpx.Response(201, json={"key": "OTHER-1", "id": "1"}),
+            httpx.Response(201, json={"key": "OTHER-2", "id": "2"}),
+        ]
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(side_effect=lambda request: next(responses))
+
+    result = runner.invoke(app, ["sync-decomposition", "ADLC-27", "--project", "OTHER"])
+
+    assert result.exit_code == 0, result.output
+    assert "into project OTHER" in result.output
+    story_call = json.loads(respx.calls[0].request.content)
+    assert story_call["fields"]["project"] == {"key": "OTHER"}

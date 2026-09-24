@@ -11,6 +11,9 @@ Three ways to drive it:
   - `decompose` for breaking a Jira Epic into Stories/Tasks for human review: calls
     decompose.py in-process, reusing the Plan phase's agent wiring with a different
     structured-output schema. Read-only, no Jira writes — see ADLC-46.
+  - `sync-decomposition` for turning an already-reviewed decomposition.json into real
+    Jira Story/Subtask issues: calls sync_decomposition.py in-process. Does not re-run
+    the decompose agent — see ADLC-47.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from jira_agent_cli.orchestrator import (
     execute_plan,
 )
 from jira_agent_cli.runs import Run, RunStore, RunTransitionError
+from jira_agent_cli.sync_decomposition import SyncDecompositionError, execute_sync_decomposition
 from jira_agent_cli.tools import TOOLS, call_tool
 from jira_agent_cli.workspace import WorkspaceError, WorkspaceManager
 
@@ -218,6 +222,47 @@ def decompose(key: str) -> None:
     typer.echo(
         f"Decomposition ready for {key}: {len(decomposition.stories)} stories — see {md_path}"
     )
+
+
+@app.command("sync-decomposition")
+def sync_decomposition(
+    key: str,
+    project: str | None = typer.Option(
+        None,
+        "--project",
+        help=(
+            "Target project key for the created issues. Defaults to the epic key's own "
+            "project (the prefix before the dash, e.g. 'ADLC' for 'ADLC-27')."
+        ),
+    ),
+) -> None:
+    """Materialize an already-reviewed docs/runs/<key>/decomposition.json as real
+    Jira issues: one Story per decomposed story (parent=<key>) plus one Subtask per
+    story's tasks (parent=<story-key>). Does NOT re-run `jira-agent decompose` — run
+    that first and review decomposition.md. See ADLC-47.
+    """
+    with _client() as client:
+        try:
+            result = execute_sync_decomposition(
+                key,
+                client=client,
+                runs_docs_root=RUNS_DOCS_ROOT,
+                project_key=project,
+            )
+        except (JiraError, SyncDecompositionError) as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        f"Synced decomposition for {result.epic_key} into project {result.project_key}: "
+        f"{len(result.stories)} stories created"
+    )
+    for story in result.stories:
+        typer.echo(f"  Story {story.key}: {story.title}")
+        typer.echo(f"    {story.url}")
+        for task in story.tasks:
+            typer.echo(f"    Subtask {task.key}: {task.title}")
+            typer.echo(f"      {task.url}")
 
 
 if __name__ == "__main__":
