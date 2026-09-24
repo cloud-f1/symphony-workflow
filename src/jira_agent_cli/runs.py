@@ -11,6 +11,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from jira_agent_cli.models import TriageDecision
+
 
 class RunState(StrEnum):
     CREATED = "created"
@@ -151,3 +153,29 @@ class RunStore:
             raise RunTransitionError(
                 f"Run {run.id} is {run.state.value!r}, expected {expected.value!r}"
             )
+
+
+class TriageStore:
+    """In-memory triage-decision store (ADLC-29, same POC in-memory
+    simplification as `RunStore` above — see `RunStore`'s own docstring on
+    why this doesn't survive a process restart).
+
+    Records every decision (`plan`/`skip`/`flag`) so `poller.py`'s `tick()`
+    can tell "not yet triaged" (queue it) apart from "already triaged"
+    (dispatch or drop per the recorded action) purely by presence in this
+    store — see docs/plans/0002-richer-polling-triage/spec.md's
+    "Non-determinism & idempotency" risk, and `orchestrator.execute_triage`'s
+    docstring for why `plan` is recorded too, not just `skip`/`flag`.
+    """
+
+    def __init__(self) -> None:
+        self._decisions: dict[str, TriageDecision] = {}
+
+    def record(self, decision: TriageDecision) -> None:
+        self._decisions[decision.issue_key] = decision
+
+    def get(self, issue_key: str) -> TriageDecision | None:
+        return self._decisions.get(issue_key)
+
+    def all(self) -> list[TriageDecision]:
+        return list(self._decisions.values())

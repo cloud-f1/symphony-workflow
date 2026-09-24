@@ -6,6 +6,8 @@ docs/plan.md). If that changes, add Jinja2 then, not preemptively.
 
 from __future__ import annotations
 
+import json
+
 from jira_agent_cli.models import Issue
 
 # Structured output schema for the Plan phase (ADLC-28) — foundation for
@@ -61,6 +63,54 @@ PLAN_DECOMPOSE_SCHEMA = {
     "required": ["stories"],
 }
 
+# Structured output schema for the triage step (ADLC-29,
+# docs/plans/0002-richer-polling-triage/spec.md) — reuses
+# agent_runner.run_plan()'s Plan-phase wiring (ADLC-28/ADLC-46's seam) with
+# this schema in place of PLAN_OUTPUT_SCHEMA. One triage turn classifies a
+# whole batch of candidate issues, so the shape is a list of decisions, not a
+# single one.
+TRIAGE_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "decisions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "issue_key": {"type": "string"},
+                    "action": {"type": "string", "enum": ["plan", "skip", "flag"]},
+                    "reason": {"type": "string"},
+                },
+                "required": ["issue_key", "action", "reason"],
+            },
+        },
+    },
+    "required": ["decisions"],
+}
+
+TRIAGE_PROMPT_TEMPLATE = """You are triaging a batch of newly-discovered Jira tickets before \
+they are handed to an automated Plan phase. This is an unattended orchestration session \
+running in permission_mode="plan" with no Jira tool access at all — you cannot read live \
+Jira, add a comment, or transition any ticket. The only information you have about these \
+tickets is the JSON batch below; do not invent or reference any issue key that is not in it.
+
+For each ticket in the batch, decide exactly one action:
+
+- "plan": the ticket is well-formed enough for an automated Plan phase to attempt — it has a
+  concrete summary and a description that says what should actually change.
+- "skip": the ticket is malformed in a way no amount of planning fixes on its own — e.g. an
+  empty or placeholder description ("TBD", "N/A", a single word, just the summary repeated),
+  or a summary that's a near-duplicate of another ticket already in this same batch.
+- "flag": the ticket might be legitimate but needs a human's judgment before an agent should
+  attempt it — e.g. it's ambiguous, unusually high-risk, or conflicts with another ticket in
+  this batch.
+
+Candidate tickets:
+{candidates_json}
+
+Return exactly one decision per ticket above (the same set of issue keys, no more and no
+fewer), each with a short one-sentence reason."""
+
 PLAN_PROMPT_TEMPLATE = """You are looking at Jira ticket {key}: "{summary}" (status: {status}).
 
 Description:
@@ -115,3 +165,13 @@ def render_decompose_prompt(issue: Issue) -> str:
         status=issue.status,
         description=issue.description or "No description provided.",
     )
+
+
+def render_triage_prompt(candidates: list[dict]) -> str:
+    """`candidates` is the compact per-issue snapshot built by
+    `orchestrator.execute_triage` (key/summary/description/status) — see that
+    module for why `type`/`created` from the original design doc aren't
+    included (`Issue` doesn't carry them today, and adding that would mean a
+    client.py/tools.py change this design doc says isn't needed).
+    """
+    return TRIAGE_PROMPT_TEMPLATE.format(candidates_json=json.dumps(candidates, indent=2))

@@ -15,17 +15,28 @@ survives Plan phase's exploratory multi-turn tool-use loop.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import AssistantMessage, Message, ResultMessage, TextBlock
+from pydantic import ValidationError
 
-from jira_agent_cli.prompts import PLAN_OUTPUT_SCHEMA
+from jira_agent_cli.models import TriageDecision
+from jira_agent_cli.prompts import PLAN_OUTPUT_SCHEMA, TRIAGE_OUTPUT_SCHEMA, render_triage_prompt
+
+logger = logging.getLogger("jira_agent_cli.agent_runner")
 
 DEFAULT_PLAN_MAX_TURNS = 5
 DEFAULT_IMPLEMENT_MAX_TURNS = 20
 DEFAULT_MAX_BUDGET_USD = 2.0
+
+# ADLC-29: deliberately much cheaper than Plan/Implement's budget — triage is
+# a single cheap classification turn over a batch, not exploratory work. See
+# docs/plans/0002-richer-polling-triage/spec.md.
+DEFAULT_TRIAGE_MAX_TURNS = 2
+DEFAULT_TRIAGE_MAX_BUDGET_USD = 0.5
 
 
 class AgentRunError(RuntimeError):
@@ -119,3 +130,64 @@ async def run_implement(
         resume=resume_session_id,
     )
     return await _consume(query(prompt=prompt, options=options))
+
+
+async def run_triage(
+    candidates: list[dict],
+    *,
+    cwd: str,
+    model: str | None = None,
+    max_turns: int = DEFAULT_TRIAGE_MAX_TURNS,
+    max_budget_usd: float = DEFAULT_TRIAGE_MAX_BUDGET_USD,
+) -> list[TriageDecision]:
+    """Triage step (ADLC-29): one Plan-phase-shaped turn classifying a whole
+    batch of candidate issues as plan/skip/flag. Reuses `run_plan()`'s
+    `output_schema=` seam (ADLC-46) rather than hand-rolling new
+    `ClaudeAgentOptions` wiring — same `permission_mode="plan"`, same
+    structured-output mechanism, just `TRIAGE_OUTPUT_SCHEMA` in place of
+    `PLAN_OUTPUT_SCHEMA`/`PLAN_DECOMPOSE_SCHEMA`. No Jira tools are ever
+    registered on the SDK `query()` call in this module (no `mcp_servers`),
+    so "no live Jira tool access" already holds here exactly like it does for
+    Plan/Implement — nothing extra to restrict.
+
+    `candidates` is a list of plain dicts (already-rendered issue snapshots,
+    see `orchestrator.execute_triage`), not `Issue` objects — the agent only
+    ever sees the compact JSON this function renders into the prompt.
+
+    Never raises on a malformed/partial structured-output shape or an
+    out-of-batch issue key — those decisions are dropped (logged) rather
+    than crashing the triage cycle; only a genuine agent-run failure
+    (`AgentRunError`, e.g. `error_max_turns`/budget exceeded) propagates,
+    same as `run_plan`/`run_implement`.
+    """
+    prompt = render_triage_prompt(candidates)
+    result = await run_plan(
+        prompt,
+        cwd=cwd,
+        model=model,
+        max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
+        output_schema=TRIAGE_OUTPUT_SCHEMA,
+    )
+
+    valid_keys = {c.get("key") for c in candidates if c.get("key")}
+    decisions_raw = (result.structured or {}).get("decisions") or []
+    if not isinstance(decisions_raw, list):
+        logger.warning("triage: structured output 'decisions' was not a list, dropping batch")
+        return []
+
+    decisions: list[TriageDecision] = []
+    for raw in decisions_raw:
+        try:
+            decision = TriageDecision.model_validate(raw)
+        except ValidationError:
+            logger.warning("triage: dropping malformed decision %r", raw, exc_info=True)
+            continue
+        if decision.issue_key not in valid_keys:
+            logger.warning(
+                "triage: dropping decision for %r — not in the input batch", decision.issue_key
+            )
+            continue
+        decisions.append(decision)
+
+    return decisions
