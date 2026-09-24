@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 from jira_agent_cli.agent_runner import AgentRunError, run_implement, run_plan
@@ -40,6 +41,22 @@ def render_run_doc(client: JiraClient, issue_key: str, body: str) -> str:
     """
     jira_url = f"{client.base_url}/browse/{issue_key}"
     return f"---\njira_url: {jira_url}\n---\n\n{body}"
+
+
+_MARKDOWN_ATX_HEADER = re.compile(r"^#{1,6}[ \t]+(.*)$", re.MULTILINE)
+
+
+def jira_safe_comment_body(text: str) -> str:
+    """Jira's v2 `add_comment` body is rendered through wiki markup, not
+    GitHub Markdown: a leading `#`/`##`/`###` there means nested
+    ORDERED-LIST depth (1 / a / i), not a heading. Posting the agent's raw
+    GFM plan (which uses `##`/`###` headers) verbatim collides with that and
+    renders as a garbled outline instead of readable prose — confirmed live
+    on ADLC-28/ADLC-30's plan comments. `**bold**` renders fine as-is, so
+    ATX headers are converted to bold lines rather than stripped bare.
+    plan.md is unaffected — it's real GFM, rendered on GitHub.
+    """
+    return _MARKDOWN_ATX_HEADER.sub(r"**\1**", text)
 
 
 async def execute_plan(
@@ -77,7 +94,9 @@ async def execute_plan(
         render_run_doc(client, run.issue_key, result.text), encoding="utf-8"
     )
 
-    client.add_comment(run.issue_key, f"[jira-agent-cli plan]\n\n{result.text}")
+    client.add_comment(
+        run.issue_key, jira_safe_comment_body(f"[jira-agent-cli plan]\n\n{result.text}")
+    )
 
     updated = runs.set_plan_ready(
         run.id,
