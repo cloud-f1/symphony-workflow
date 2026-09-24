@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+.python-version
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+.env
+.env.*
+!.env.example
+uv.lock.bak

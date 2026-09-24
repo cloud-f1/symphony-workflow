@@ -1,0 +1,128 @@
+"""Tool-call layer: exposes Jira operations as discrete, schema-described
+functions an AI agent can invoke by name with JSON arguments — the same
+shape as an Anthropic/OpenAI function-calling tool definition. This is the
+layer other agent orchestration (e.g. `jira-agent call <tool> '<json>'`)
+should target instead of importing JiraClient methods directly, because it
+gives every tool a name, a description, and a validated input schema.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
+from pydantic import BaseModel
+
+from jira_agent_cli.client import JiraClient
+
+
+class GetIssueArgs(BaseModel):
+    key: str
+
+
+class SearchIssuesArgs(BaseModel):
+    jql: str
+    max_results: int = 50
+
+
+class CreateIssueArgs(BaseModel):
+    project_key: str
+    summary: str
+    issue_type: str = "Task"
+    description: str | None = None
+    labels: list[str] | None = None
+    epic: str | None = None
+    sprint_id: int | None = None
+    story_points: float | None = None
+    assignee_account_id: str | None = None
+
+
+class AddCommentArgs(BaseModel):
+    key: str
+    body: str
+
+
+class TransitionIssueArgs(BaseModel):
+    key: str
+    transition_name: str
+
+
+@dataclass(frozen=True)
+class Tool:
+    name: str
+    description: str
+    args_model: type[BaseModel]
+    handler: Callable[[JiraClient, Any], Any]
+
+    def json_schema(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self.args_model.model_json_schema(),
+        }
+
+
+def _get_issue(client: JiraClient, args: GetIssueArgs) -> dict[str, Any]:
+    return client.get_issue(args.key).model_dump()
+
+
+def _search_issues(client: JiraClient, args: SearchIssuesArgs) -> dict[str, Any]:
+    return client.search_issues(args.jql, args.max_results).model_dump()
+
+
+def _create_issue(client: JiraClient, args: CreateIssueArgs) -> dict[str, Any]:
+    result = client.create_issue(
+        args.project_key,
+        args.summary,
+        args.description,
+        args.issue_type,
+        labels=args.labels,
+        epic=args.epic,
+        sprint_id=args.sprint_id,
+        story_points=args.story_points,
+        assignee_account_id=args.assignee_account_id,
+    )
+    return result.model_dump()
+
+
+def _add_comment(client: JiraClient, args: AddCommentArgs) -> dict[str, Any]:
+    client.add_comment(args.key, args.body)
+    return {"ok": True, "key": args.key}
+
+
+def _transition_issue(client: JiraClient, args: TransitionIssueArgs) -> dict[str, Any]:
+    client.transition_issue(args.key, args.transition_name)
+    return {"ok": True, "key": args.key, "transition": args.transition_name}
+
+
+TOOLS: dict[str, Tool] = {
+    tool.name: tool
+    for tool in (
+        Tool("get_issue", "Fetch a single Jira issue by key.", GetIssueArgs, _get_issue),
+        Tool(
+            "search_issues",
+            "Search issues with a JQL query.",
+            SearchIssuesArgs,
+            _search_issues,
+        ),
+        Tool("create_issue", "Create a new Jira issue.", CreateIssueArgs, _create_issue),
+        Tool("add_comment", "Add a comment to an issue.", AddCommentArgs, _add_comment),
+        Tool(
+            "transition_issue",
+            "Move an issue through a named workflow transition (e.g. 'In Progress', 'Done').",
+            TransitionIssueArgs,
+            _transition_issue,
+        ),
+    )
+}
+
+
+def call_tool(client: JiraClient, name: str, raw_args: dict[str, Any]) -> Any:
+    """Validate `raw_args` against the named tool's schema and run it."""
+    tool = TOOLS.get(name)
+    if tool is None:
+        available = ", ".join(sorted(TOOLS)) or "none"
+        raise KeyError(f"Unknown tool {name!r}. Available: {available}")
+    parsed = tool.args_model.model_validate(raw_args)
+    return tool.handler(client, parsed)
