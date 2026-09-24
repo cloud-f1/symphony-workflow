@@ -16,6 +16,7 @@ import respx
 from jira_agent_cli.agent_runner import AgentRunError, AgentRunResult
 from jira_agent_cli.client import JiraClient
 from jira_agent_cli.config import JiraConfig
+from jira_agent_cli.models import TriageDecision
 from jira_agent_cli.poller import Poller
 from jira_agent_cli.runs import RunState, RunStore
 
@@ -47,6 +48,19 @@ def poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     # redirect it so poll-tick tests never touch this repo's real docs/runs/.
     monkeypatch.setattr("jira_agent_cli.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
     return Poller(client=JiraClient(config), runs=RunStore(), workspaces=_FakeWorkspaceManager())
+
+
+@pytest.fixture
+def triage_poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Poller:
+    # Same as `poller` above but with triage (ADLC-29) turned on -- the
+    # opt-in path, used only by the triage-specific tests below.
+    monkeypatch.setattr("jira_agent_cli.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
+    return Poller(
+        client=JiraClient(config),
+        runs=RunStore(),
+        workspaces=_FakeWorkspaceManager(),
+        triage_enabled=True,
+    )
 
 
 def _search_response(*keys: str) -> httpx.Response:
@@ -309,3 +323,340 @@ async def test_start_is_idempotent(poller: Poller, monkeypatch: pytest.MonkeyPat
     poller.start()  # second call must not replace the running task
     assert poller._task is task
     await poller.stop()
+
+
+# --- ADLC-29 triage cadence ------------------------------------------------
+
+
+async def _fail_if_run_plan_called(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+    raise AssertionError("execute_plan/run_plan must not be called before triage decides 'plan'")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_flag_off_by_default_dispatches_immediately_like_before(
+    poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The single most important regression to avoid: with the feature flag
+    # off (poller's default), a newly-discovered ticket is dispatched on the
+    # very first tick, exactly as before ADLC-29 -- it never touches the
+    # triage queue at all.
+    assert poller._triage_enabled is False
+
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-99"))
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-99").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-99",
+                "id": "1",
+                "fields": {"summary": "New work", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-99/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-99", "In Review")
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        return AgentRunResult(text="auto-plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", fake_run_plan)
+
+    dispatched = await poller.tick()
+
+    assert [r.issue_key for r in dispatched] == ["ADLC-99"]
+    assert poller._untriaged == {}  # never queued -- triage is entirely bypassed
+
+
+@pytest.mark.asyncio
+async def test_start_never_creates_a_triage_task_when_disabled(
+    poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def noop_tick() -> list:
+        return []
+
+    monkeypatch.setattr(poller, "tick", noop_tick)
+
+    poller.start()
+    assert poller._triage_task is None
+    await poller.stop()
+
+
+@pytest.mark.asyncio
+async def test_start_and_stop_manage_both_tasks_when_triage_enabled(
+    triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The triage loop runs on its own cadence, independent of the 60s poll
+    # loop -- both tasks are created by start() and torn down by stop().
+    async def noop_tick() -> list:
+        return []
+
+    async def noop_triage_tick() -> list:
+        return []
+
+    monkeypatch.setattr(triage_poller, "tick", noop_tick)
+    monkeypatch.setattr(triage_poller, "triage_tick", noop_triage_tick)
+    triage_poller._triage_interval = 0.01
+
+    assert not triage_poller.is_running
+    assert triage_poller._triage_task is None
+    triage_poller.start()
+    assert triage_poller.is_running
+    assert triage_poller._triage_task is not None
+    assert not triage_poller._triage_task.done()
+
+    await triage_poller.stop()
+    assert not triage_poller.is_running
+    assert triage_poller._triage_task is None
+
+
+@pytest.mark.asyncio
+async def test_start_is_idempotent_for_the_triage_task_too(
+    triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def noop_tick() -> list:
+        return []
+
+    async def noop_triage_tick() -> list:
+        return []
+
+    monkeypatch.setattr(triage_poller, "tick", noop_tick)
+    monkeypatch.setattr(triage_poller, "triage_tick", noop_triage_tick)
+
+    triage_poller.start()
+    task = triage_poller._triage_task
+    triage_poller.start()  # second call must not replace the running task
+    assert triage_poller._triage_task is task
+    await triage_poller.stop()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_tick_queues_new_ticket_for_triage_instead_of_dispatching(
+    triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-99"))
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", _fail_if_run_plan_called)
+
+    dispatched = await triage_poller.tick()
+
+    assert dispatched == []
+    assert set(triage_poller._untriaged) == {"ADLC-99"}
+    assert triage_poller._untriaged["ADLC-99"].key == "ADLC-99"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_tick_does_not_requeue_an_already_queued_ticket(
+    triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-99"))
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", _fail_if_run_plan_called)
+
+    await triage_poller.tick()
+    await triage_poller.tick()
+
+    assert len(triage_poller._untriaged) == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_triage_tick_is_a_noop_when_queue_is_empty(
+    triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fail_if_called(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        raise AssertionError("run_triage must not be called for an empty batch")
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fail_if_called)
+
+    assert await triage_poller.triage_tick() == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_triage_plan_decision_then_next_regular_tick_dispatches(
+    triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-99"))
+    await triage_poller.tick()
+    assert "ADLC-99" in triage_poller._untriaged
+
+    async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        assert [c["key"] for c in candidates] == ["ADLC-99"]
+        return [TriageDecision(issue_key="ADLC-99", action="plan", reason="well-formed")]
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+
+    triage_decisions = await triage_poller.triage_tick()
+    assert [d.action for d in triage_decisions] == ["plan"]
+    assert triage_poller._untriaged == {}  # drained
+
+    # Second call, on a slower cadence, would be a no-op regardless -- assert
+    # it explicitly so this doesn't silently regress into re-triaging.
+    async def fail_if_called_again(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        raise AssertionError("must not re-triage an already-queued-and-drained batch")
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fail_if_called_again)
+    assert await triage_poller.triage_tick() == []
+
+    # Now the *regular* poll tick dispatches it -- exactly one Plan run, not
+    # one per poll tick spent queued for triage.
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-99").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-99",
+                "id": "1",
+                "fields": {"summary": "New work", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-99/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-99", "In Review")
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        return AgentRunResult(text="auto-plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", fake_run_plan)
+
+    dispatched = await triage_poller.tick()
+    assert [r.issue_key for r in dispatched] == ["ADLC-99"]
+    assert dispatched[0].state == RunState.PLAN_READY
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_triage_skip_decision_prevents_dispatch_forever(
+    triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-97"))
+    await triage_poller.tick()
+
+    async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        return [TriageDecision(issue_key="ADLC-97", action="skip", reason="placeholder text")]
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    await triage_poller.triage_tick()
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", _fail_if_run_plan_called)
+
+    # Ticket is still "To Do" in Jira (skip doesn't transition anything), so
+    # it keeps showing up in search results -- but must never be dispatched,
+    # and must never re-enter the untriaged queue either.
+    dispatched = await triage_poller.tick()
+    assert dispatched == []
+    assert triage_poller._untriaged == {}
+    # Never became a Run -- so it never enters the bounded-retry accounting
+    # (ADLC-44) either.
+    assert triage_poller._runs.get_by_issue_key("ADLC-97") is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_triage_flag_decision_posts_comment_not_status_change_and_prevents_dispatch(
+    triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-96"))
+    await triage_poller.tick()
+
+    async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        return [TriageDecision(issue_key="ADLC-96", action="flag", reason="ambiguous scope")]
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    comment_route = respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-96/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    transitions_route = respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-96/transitions").mock(
+        return_value=httpx.Response(200, json={"transitions": []})
+    )
+
+    await triage_poller.triage_tick()
+
+    assert comment_route.called
+    body = json.loads(comment_route.calls.last.request.content)["body"]
+    assert "ambiguous scope" in body
+    assert not transitions_route.called  # no status transition -- comment-only by design
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", _fail_if_run_plan_called)
+    dispatched = await triage_poller.tick()
+    assert dispatched == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_triage_agent_failure_requeues_batch_for_next_cycle(
+    triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-95"))
+    await triage_poller.tick()
+    assert "ADLC-95" in triage_poller._untriaged
+
+    async def always_fails(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        raise AgentRunError("error_max_turns")
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", always_fails)
+
+    decisions = await triage_poller.triage_tick()
+
+    assert decisions == []
+    # Re-queued, not dropped -- a failed triage batch gets another shot on
+    # the next cycle instead of stranding the ticket forever.
+    assert "ADLC-95" in triage_poller._untriaged
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_bounded_retry_path_is_unaffected_by_triage(
+    triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A ticket that already has a Run (e.g. it was triaged as "plan" and
+    # dispatched, then its Plan failed) must keep using the existing
+    # ADLC-44 bounded-retry bookkeeping without ever consulting TriageStore
+    # again -- retries are not re-triaged.
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-94"))
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-94").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-94",
+                "id": "ADLC-94",
+                "fields": {"summary": "X", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-94/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-94", "In Review")
+
+    async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        return [TriageDecision(issue_key="ADLC-94", action="plan", reason="well-formed")]
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+
+    attempts = {"count": 0}
+
+    async def flaky_then_ok(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise AgentRunError("boom")
+        return AgentRunResult(text="ok", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", flaky_then_ok)
+
+    await triage_poller.tick()  # queues for triage
+    await triage_poller.triage_tick()  # decides "plan"
+
+    first = await triage_poller.tick()  # dispatches, fails
+    assert first == []
+    assert attempts["count"] == 1
+
+    # A retry must not require -- or re-check -- a TriageStore entry; it's
+    # already recorded and the run/retry path never looks at it again.
+    second = await triage_poller.tick()
+    assert [r.issue_key for r in second] == ["ADLC-94"]
+    assert attempts["count"] == 2

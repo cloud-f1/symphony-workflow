@@ -12,10 +12,11 @@ import os
 import re
 from pathlib import Path
 
-from jira_agent_cli.agent_runner import AgentRunError, run_implement, run_plan
+from jira_agent_cli.agent_runner import AgentRunError, run_implement, run_plan, run_triage
 from jira_agent_cli.client import JiraClient, JiraError
+from jira_agent_cli.models import Issue, TriageDecision
 from jira_agent_cli.prompts import render_implement_prompt, render_plan_prompt
-from jira_agent_cli.runs import Run, RunState, RunStore, RunTransitionError
+from jira_agent_cli.runs import Run, RunState, RunStore, RunTransitionError, TriageStore
 from jira_agent_cli.workspace import WorkspaceError, WorkspaceManager
 
 logger = logging.getLogger("jira_agent_cli.orchestrator")
@@ -243,3 +244,68 @@ async def execute_implement(
     cleanup_workspace_if_terminal(run.issue_key, client=client, workspaces=workspaces)
 
     return updated
+
+
+async def execute_triage(
+    candidates: list[Issue], *, client: JiraClient, triage_store: TriageStore
+) -> list[TriageDecision]:
+    """ADLC-29: one triage agent turn for a whole batch of newly-discovered
+    candidate issues, then code (not the agent) applies each decision:
+
+    - `plan` — no Jira-visible side effect. The poller's normal `execute_plan`
+      dispatch path picks it up on its next tick, unchanged (see poller.py's
+      `tick()`).
+    - `flag` — posts a Jira comment via `client.add_comment` (best-effort,
+      same swallow-and-log pattern as `_post_failure_comment`). No status
+      transition — this repo doesn't have live workflow-graph introspection
+      (docs/plans/0002-richer-polling-triage/intent.md's non-goals).
+    - `skip` — no Jira-visible side effect either; the ticket is just never
+      dispatched. Never becomes a `Run`, so it never enters `poller.py`'s
+      bounded-retry accounting (ADLC-44) either.
+
+    Every decision (including `plan`) is recorded in `triage_store` — not
+    just `flag`/`skip` — so `poller.py`'s `tick()` can tell "not yet triaged"
+    (queue it) apart from "triaged as plan, safe to dispatch now" purely by
+    presence in the store; without recording `plan` too, a plan-decided
+    ticket would look identical to a brand-new, never-queued one on the very
+    next tick and get re-queued for triage forever instead of dispatched.
+
+    The agent itself never gets `add_comment`/`transition_issue` tools — only
+    this function, after the agent returns, applies anything Jira-visible.
+    Empty `candidates` is a no-op (no agent turn) so an empty triage cycle
+    costs nothing. Propagates `AgentRunError` from `run_triage` (a genuine
+    agent-run failure, e.g. budget/turn limit) — the caller (poller.py's
+    `triage_tick`) decides how to handle that, same split as
+    `execute_plan`/`execute_implement` raising instead of swallowing.
+    """
+    if not candidates:
+        return []
+
+    payload = [
+        {
+            "key": issue.key,
+            "summary": issue.summary,
+            "description": issue.description or "",
+            "status": issue.status,
+        }
+        for issue in candidates
+    ]
+    decisions = await run_triage(payload, cwd=str(TARGET_REPO))
+
+    for decision in decisions:
+        if decision.action == "flag":
+            try:
+                client.add_comment(
+                    decision.issue_key,
+                    jira_safe_comment_body(
+                        f"[jira-agent-cli triage] Flagged for human review before "
+                        f"auto-Plan: {decision.reason}"
+                    ),
+                )
+            except JiraError:
+                logger.warning(
+                    "triage: could not post flag comment for %s", decision.issue_key, exc_info=True
+                )
+        triage_store.record(decision)
+
+    return decisions

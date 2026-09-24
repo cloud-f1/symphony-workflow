@@ -29,7 +29,7 @@ from pydantic import BaseModel, ValidationError
 
 from jira_agent_cli.agent_runner import AgentRunError
 from jira_agent_cli.client import JiraClient, JiraError
-from jira_agent_cli.config import ConfigError, JiraConfig
+from jira_agent_cli.config import ConfigError, JiraConfig, triage_enabled, triage_interval_seconds
 from jira_agent_cli.orchestrator import (
     TARGET_REPO,
     WORKSPACE_ROOT,
@@ -68,6 +68,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         runs=app.state.runs,
         workspaces=app.state.workspaces,
         interval_seconds=float(os.environ.get("JIRA_AGENT_CLI_POLL_INTERVAL_SECONDS", "60")),
+        # ADLC-29 — default false via config.triage_enabled(), so this is a
+        # no-op for anyone who hasn't opted in (docs/plans/0002-richer-
+        # polling-triage/intent.md's definition of done).
+        triage_enabled=triage_enabled(),
+        triage_interval_seconds=triage_interval_seconds(),
     )
     app.state.poller = poller
     if _poll_enabled():

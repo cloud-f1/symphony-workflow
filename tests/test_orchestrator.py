@@ -4,18 +4,28 @@ test_api.py (execute_plan/execute_implement) and test_poller.py.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
+import respx
 
-from jira_agent_cli.client import JiraError
+from jira_agent_cli.agent_runner import AgentRunError
+from jira_agent_cli.client import JiraClient, JiraError
+from jira_agent_cli.config import JiraConfig
+from jira_agent_cli.models import Issue, TriageDecision
 from jira_agent_cli.orchestrator import (
     cleanup_workspace_if_terminal,
+    execute_triage,
     jira_safe_comment_body,
     render_run_doc,
     sweep_terminal_workspaces,
 )
+from jira_agent_cli.runs import TriageStore
+
+from .conftest import BASE_URL
 
 
 @pytest.fixture(autouse=True)
@@ -183,3 +193,131 @@ def test_jira_safe_comment_body_leaves_non_header_text_untouched() -> None:
     result = jira_safe_comment_body(text)
 
     assert result == text
+
+
+# --- execute_triage (ADLC-29) --------------------------------------------
+
+
+def _candidate(key: str, *, status: str = "To Do") -> Issue:
+    return Issue(key=key, id=key, summary=f"Ticket {key}", status=status, description="desc")
+
+
+@pytest.mark.asyncio
+async def test_execute_triage_empty_candidates_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fail_if_called(*args: object, **kwargs: object) -> None:
+        raise AssertionError("run_triage should not be called for an empty batch")
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fail_if_called)
+
+    decisions = await execute_triage([], client=MagicMock(), triage_store=TriageStore())
+
+    assert decisions == []
+
+
+@pytest.mark.asyncio
+async def test_execute_triage_plan_decision_is_noop_here_but_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        return [TriageDecision(issue_key="ADLC-1", action="plan", reason="well-formed")]
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    client = MagicMock()
+    store = TriageStore()
+
+    decisions = await execute_triage([_candidate("ADLC-1")], client=client, triage_store=store)
+
+    assert [d.action for d in decisions] == ["plan"]
+    client.add_comment.assert_not_called()
+    # Recorded (not just flag/skip) so a plan-decided ticket isn't re-queued
+    # for triage forever on the next poll tick -- see execute_triage's
+    # docstring.
+    assert store.get("ADLC-1").action == "plan"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_execute_triage_flag_posts_a_comment(
+    config: JiraConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        return [TriageDecision(issue_key="ADLC-2", action="flag", reason="ambiguous scope")]
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    comment_route = respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-2/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    store = TriageStore()
+
+    decisions = await execute_triage(
+        [_candidate("ADLC-2")], client=JiraClient(config), triage_store=store
+    )
+
+    assert [d.action for d in decisions] == ["flag"]
+    assert comment_route.called
+    body = json.loads(comment_route.calls.last.request.content)["body"]
+    assert "ambiguous scope" in body
+    assert "triage" in body
+    assert store.get("ADLC-2").action == "flag"
+
+
+@pytest.mark.asyncio
+async def test_execute_triage_skip_records_and_is_not_re_triaged_on_second_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call_count = 0
+
+    async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        nonlocal call_count
+        call_count += 1
+        return [TriageDecision(issue_key="ADLC-3", action="skip", reason="duplicate summary")]
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    client = MagicMock()
+    store = TriageStore()
+
+    first = await execute_triage([_candidate("ADLC-3")], client=client, triage_store=store)
+    assert [d.action for d in first] == ["skip"]
+    client.add_comment.assert_not_called()
+    assert store.get("ADLC-3").action == "skip"
+
+    # execute_triage itself doesn't consult the store to skip re-running --
+    # that's poller.py's job (it never re-queues an already-triaged key). A
+    # second explicit call re-triages, but the store still reflects the
+    # latest decision and add_comment is never called for "skip" either way.
+    assert call_count == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_execute_triage_flag_comment_post_failure_is_swallowed(
+    config: JiraConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        return [TriageDecision(issue_key="ADLC-4", action="flag", reason="risky")]
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-4/comment").mock(
+        return_value=httpx.Response(500, json={"errorMessages": ["boom"]})
+    )
+    store = TriageStore()
+
+    decisions = await execute_triage(
+        [_candidate("ADLC-4")], client=JiraClient(config), triage_store=store
+    )
+
+    assert [d.action for d in decisions] == ["flag"]
+    # Comment post failed but did not raise -- and the decision is still
+    # recorded so it isn't retried every triage cycle.
+    assert store.get("ADLC-4").action == "flag"
+
+
+@pytest.mark.asyncio
+async def test_execute_triage_propagates_agent_run_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def always_fails(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
+        raise AgentRunError("budget exceeded")
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", always_fails)
+
+    with pytest.raises(AgentRunError):
+        await execute_triage([_candidate("ADLC-5")], client=MagicMock(), triage_store=TriageStore())

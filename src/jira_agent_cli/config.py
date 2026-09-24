@@ -48,3 +48,33 @@ class JiraConfig:
             sprint_field=os.environ.get("JIRA_FIELD_SPRINT") or None,
             story_points_field=os.environ.get("JIRA_FIELD_STORY_POINTS") or None,
         )
+
+
+# ADLC-29 triage env vars (docs/plans/0002-richer-polling-triage/spec.md).
+# Centralized here per that design's implement.md step 7 rather than read ad
+# hoc in poller.py/api.py — plain module-level functions (not JiraConfig
+# fields) since these are poller behavior toggles, not Jira credentials, and
+# `poller.py`/`orchestrator.py` already have their own precedent for this
+# shape (e.g. orchestrator._cleanup_enabled()). Read at call time, not import
+# time, so tests can monkeypatch/setenv per-test.
+TRIAGE_ENABLED_ENV = "JIRA_AGENT_CLI_TRIAGE_ENABLED"
+TRIAGE_INTERVAL_ENV = "JIRA_AGENT_CLI_TRIAGE_INTERVAL_SECONDS"
+
+# Deliberately >> the 60s poll interval (spec.md's design) -- triage is a
+# slow-cadence, budget-capped batch step, not a per-tick one.
+DEFAULT_TRIAGE_INTERVAL_SECONDS = 900.0
+
+
+def triage_enabled() -> bool:
+    """Default `false` -- must not change today's poller behavior for anyone
+    who hasn't opted in (definition of done, docs/plans/0002-richer-polling-
+    triage/intent.md).
+    """
+    return os.environ.get(TRIAGE_ENABLED_ENV, "false").lower() == "true"
+
+
+def triage_interval_seconds() -> float:
+    raw = os.environ.get(TRIAGE_INTERVAL_ENV)
+    if not raw:
+        return DEFAULT_TRIAGE_INTERVAL_SECONDS
+    return float(raw)
