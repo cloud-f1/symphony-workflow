@@ -8,7 +8,62 @@
 
 ---
 
-## Latest session — 2026-09-24 (Epic 2 mid-flight: ops hardening, CLI control plane, parallel dev pipeline)
+## Session close-out — 2026-09-24/25 (Epic 2 substantially complete, v0.2.0 tagged)
+
+**Epic 2's full arc finished this session**, in order: interface API (`ADLC-32`) →
+local md↔Jira linking (`ADLC-36`) → GitHub-for-Jira app connected (`ADLC-30`) → multi-repo
+policy designed → a real live bug found and fixed (poller's `_seen` permanently stranding a
+failed auto-Plan, `ADLC-44`'s own fix — bounded retry + failure-visible comments) →
+`ADLC-44`'s Story (CLI control plane, decompose, sync-decomposition, docs — `ADLC-45`–`48`) →
+richer-polling triage (`ADLC-29`) → wrap-up docs/memory pass (`ADLC-51`) → `ADLC-40`'s `NXJS`
+project created via API → real portability validation against `ai-coding-nexjs-template`
+(`ADLC-41`/`42`) which found a genuine security bug in that repo AND two real bugs in
+jira-agent-cli itself (`ADLC-55`/`56`, both fixed) → version cut, `v0.2.0` tagged.
+
+**`v0.2.0` is tagged and pushed.** See `CHANGELOG.md` for the full breakdown. `pyproject.toml`
+and `plugin/.claude-plugin/plugin.json` versions kept in sync by `tests/test_version.py`.
+
+**How this session actually ran, later half**: `/loop` (dynamic, self-pacing, user-approved) —
+each wake checked the `ADLC` board, dispatched dev subagents (`Agent` tool,
+`isolation: "worktree"`, capped at 4 concurrent per explicit user instruction — see
+auto-memory), reviewed real diffs (not just subagent self-reports) before merging, escalated
+instead of guessing on anything genuinely impactful. The loop has a real stop condition: it
+stops itself (not polls forever) when nothing's ready/in-flight/awaiting-review and the reason
+is a human-gated blocker. Ten PRs went through this pipeline this session (`#2`–`#11`), all reviewed and merged
+individually, none auto-merged blind.
+
+**Two tickets remain, both correctly untouched by the loop, both need you:**
+- **`ADLC-53`** — rename `jira-agent-cli` → `symphony-workflow`. Deliberately NOT started
+  autonomously (a real, hard-to-reverse, shared-system change — GitHub repo rename, this
+  session's own local checkout path, a full internal-reference sweep). Needs your explicit
+  go-ahead and a dedicated planning pass before any execution.
+- **`ADLC-54`** — port the Claude Code plugin to `ai-rc-engineer-pm`. Prep confirmed safe (no
+  skill-name collision), but the actual install-and-verify (`/plugin marketplace add`,
+  `/plugin install`) needs a real interactive Claude Code session — no tool/subagent can drive
+  Claude Code's own built-in slash commands. Run it yourself (or ask a fresh interactive
+  session cd'd into `ai-rc-engineer-pm`) when ready.
+
+**Findings worth remembering from this half of the session:**
+- **Jira project creation works fine via `POST /rest/api/3/project`** — no UI needed, an
+  account with global `ADMINISTER` permission can do it. Two traps: `projectTemplateKey`
+  naming is misleading (`gh-simplified-kanban-classic` creates a classic project despite
+  "simplified" in the name; `gh-simplified-agility-kanban` is the real team-managed one — verify
+  via the response's `style`/`simplified` fields, not the key name). `DELETE` soft-deletes into
+  Jira's Trash with a ~60-day retention — key *and* name stay reserved the whole time.
+- **`AgentRunResult.text` can come back empty even when `result.structured` is fully
+  populated** — happens when the model's final turn emits only the structured `output_format`
+  result with no accompanying `TextBlock`. Confirmed live against a large real-world target
+  repo, not a synthetic case. Fixed (`ADLC-56`), but worth remembering the SDK behavior itself
+  if it resurfaces somewhere else structured output gets used.
+- **`DEFAULT_PLAN_MAX_TURNS=5` is sized for this repo's own codebase, not real-world target
+  repos** — confirmed failing deterministically against a 90-phase mature codebase, succeeding
+  at `max_turns=15`. Now overridable (`ADLC-55`) without changing the shared default.
+- **A ticket-tracking repo's own handover doc can go stale just like this one can** —
+  `ai-coding-nexjs-template`'s `epic-progress.md` "Next Action" section flagged two issues
+  (`make hook-test` failures, migration drift) that were both already fixed by the time this
+  session checked live. Always verify a stale-doc-sourced lead before ticketing it as current.
+
+## Earlier session — 2026-09-24 (Epic 2 mid-flight: ops hardening, CLI control plane, parallel dev pipeline)
 
 **GitHub-for-Jira app connected** (`ADLC-30`, Done) — `repository.byInstanceType` now populated
 (previously `{}` for every data type). Branch-level linking itself still unverified — nothing has
