@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/cloud-f1/Documents/git_saas/jira-agent-cli/.claude/hooks/session-start-check-api.sh",
+            "timeout": 15,
+            "statusMessage": "Checking jira-agent-cli API server..."
+          }
+        ]
+      }
+    ]
+  }
+}
