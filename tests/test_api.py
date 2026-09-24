@@ -40,6 +40,43 @@ def api_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     app.dependency_overrides.clear()
 
 
+@respx.mock
+def test_health_reports_jira_reachable(api_client: TestClient) -> None:
+    route = respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
+        return_value=httpx.Response(200, json={"accountId": "abc", "displayName": "Bot"})
+    )
+    response = api_client.get("/health")
+    assert route.called
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "jira_reachable": True}
+
+
+@pytest.mark.parametrize("status_code", [401, 503])
+@respx.mock
+def test_health_reports_unreachable_on_jira_error_status(
+    api_client: TestClient, status_code: int
+) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
+        return_value=httpx.Response(status_code, json={"errorMessages": ["nope"]})
+    )
+    response = api_client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "jira_reachable": False}
+
+
+@pytest.mark.parametrize(
+    "error", [httpx.ConnectError("connection refused"), httpx.ReadTimeout("timed out")]
+)
+@respx.mock
+def test_health_reports_unreachable_on_transport_error(
+    api_client: TestClient, error: httpx.TransportError
+) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/myself").mock(side_effect=error)
+    response = api_client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "jira_reachable": False}
+
+
 def test_list_tools_returns_every_registered_schema(api_client: TestClient) -> None:
     response = api_client.get("/tools")
     assert response.status_code == 200

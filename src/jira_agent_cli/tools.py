@@ -48,6 +48,10 @@ class TransitionIssueArgs(BaseModel):
     transition_name: str
 
 
+class GetMyselfArgs(BaseModel):
+    """No arguments — returns the user the configured API token authenticates as."""
+
+
 @dataclass(frozen=True)
 class Tool:
     name: str
@@ -96,6 +100,10 @@ def _transition_issue(client: JiraClient, args: TransitionIssueArgs) -> dict[str
     return {"ok": True, "key": args.key, "transition": args.transition_name}
 
 
+def _get_myself(client: JiraClient, args: GetMyselfArgs) -> dict[str, Any]:
+    return client.get_myself().model_dump()
+
+
 TOOLS: dict[str, Tool] = {
     tool.name: tool
     for tool in (
@@ -113,6 +121,12 @@ TOOLS: dict[str, Tool] = {
             "Move an issue through a named workflow transition (e.g. 'In Progress', 'Done').",
             TransitionIssueArgs,
             _transition_issue,
+        ),
+        Tool(
+            "get_myself",
+            "Return the Jira user the configured API token authenticates as.",
+            GetMyselfArgs,
+            _get_myself,
         ),
     )
 }

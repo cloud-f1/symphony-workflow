@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
-from jira_agent_cli.models import Issue, IssueCreateResult
+from jira_agent_cli.models import CurrentUser, Issue, IssueCreateResult
 from jira_agent_cli.tools import TOOLS, call_tool
 
 
@@ -18,6 +18,7 @@ def test_tools_registry_has_expected_names() -> None:
         "create_issue",
         "add_comment",
         "transition_issue",
+        "get_myself",
     }
 
 
@@ -35,6 +36,19 @@ def test_call_tool_dispatches_get_issue() -> None:
     result = call_tool(client, "get_issue", {"key": "CF1-1"})
     client.get_issue.assert_called_once_with("CF1-1")
     assert result["key"] == "CF1-1"
+
+
+def test_call_tool_dispatches_get_myself() -> None:
+    client = MagicMock()
+    client.get_myself.return_value = CurrentUser(account_id="abc", display_name="Bot")
+    result = call_tool(client, "get_myself", {})
+    client.get_myself.assert_called_once_with()
+    assert result == {
+        "account_id": "abc",
+        "display_name": "Bot",
+        "email_address": None,
+        "active": True,
+    }
 
 
 def test_call_tool_dispatches_create_issue_with_defaults() -> None:
