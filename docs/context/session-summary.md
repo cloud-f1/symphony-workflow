@@ -22,15 +22,24 @@ alignment") is open, first wave scoped:
 |---|---|---|
 | `ADLC-30` | Install + connect GitHub-for-Jira app to `cloud-f1` org | To Do — **manual, needs you**, not agent-doable |
 | `ADLC-31` | Symphony alignment matrix in `docs/spec.md` | Done |
-| `ADLC-32` | Interface API — `GET /api/v1/state`, `GET /api/v1/issues/{key}` | To Do — next up |
-| `ADLC-36` | Local md ↔ Jira ticket linking (remotelink + frontmatter) | To Do |
-| `ADLC-39` | Portability validation against a real second repo (`ai-coding-nexjs-template`) | To Do |
+| `ADLC-32` | Interface API — `GET /api/v1/state`, `GET /api/v1/issues/{key}` | **Done** — live-verified |
+| `ADLC-36` | Local md ↔ Jira ticket linking (remotelink + frontmatter) | **Done** — real links created on `ADLC-17`/`ADLC-24` |
+| `ADLC-39` | Portability validation against a real second repo (`ai-coding-nexjs-template`) | To Do — **pick up here next session** |
 | `ADLC-43` | `docs/plans/<NNNN>-<slug>/` convention (this session's own overwritten-plan problem) | To Do — designed, not built |
 | `ADLC-28`/`ADLC-29` | Backlog, unsized: structured plan output, richer (Claude-Code-turn) polling | Tracked, not scoped |
 
-**Pick up here next session**: `ADLC-32` (interface API) is the next concrete
-build — reuses `RunStore`, no new state, matches Symphony §13.7's suggested JSON
-shape (see `docs/spec.md`'s alignment matrix row for it).
+**Pick up here next session**: `ADLC-39` (portability validation) — its own
+subtasks (`ADLC-40`/`41`/`42`) are the concrete steps: create a dedicated Jira
+project for `ai-coding-nexjs-template`'s agent-driven work (same reasoning as
+`ADLC` vs `CF1`), point a jira-agent-cli instance's env at it
+(`JIRA_AGENT_CLI_TARGET_REPO=~/Documents/git_saas/ai-coding-nexjs-template`,
+`JIRA_AGENT_CLI_JIRA_PROJECT=<that project's key>` — see `docs/PORTABILITY.md`
+for the full adoption steps), run one real Plan against one real ticket there,
+and judge whether the plan actually reads *that* repo's `CLAUDE.md`/conventions
+— expected to surface the prompt-templates gap `docs/PORTABILITY.md` already
+flags as deferred. This session deliberately left it unbuilt — it's a real,
+well-defined next action a fresh session should be able to execute correctly
+from these docs alone, not something left unfinished by accident.
 
 ### Findings worth remembering (don't rediscover)
 
