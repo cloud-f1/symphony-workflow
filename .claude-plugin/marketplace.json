@@ -1,0 +1,14 @@
+{
+  "name": "jira-agent-cli-marketplace",
+  "owner": {
+    "name": "cloud-f1"
+  },
+  "plugins": [
+    {
+      "name": "jira-agent-cli-ops",
+      "source": "./plugin",
+      "description": "Operational skill + SessionStart hook for jira-agent-cli's Plan/Implement loop.",
+      "version": "0.1.0"
+    }
+  ]
+}

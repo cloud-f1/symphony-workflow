@@ -196,5 +196,6 @@ commit a token, and never let a test read `.env` — `test_cli.py`'s
 - Don't reach for the v3 API / ADF format without a documented reason — it changes every model
   and client method to be structured instead of plain text.
 - Don't assume a correctly-named branch alone gets Jira auto-linking — it also needs the
-  GitHub-for-Jira app connected on the target Jira site (not currently true for
-  `cloud-f1.atlassian.net`, confirmed 2026-09-25 — see the Branch naming section above).
+  GitHub-for-Jira app connected on the target Jira site. True for `cloud-f1.atlassian.net` as of
+  2026-09-24 (`ADLC-30`, Done), but branch-level linking itself is still unverified — see the
+  Branch naming section above.
