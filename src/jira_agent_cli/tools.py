@@ -33,9 +33,16 @@ class CreateIssueArgs(BaseModel):
     description: str | None = None
     labels: list[str] | None = None
     epic: str | None = None
+    parent: str | None = None
     sprint_id: int | None = None
     story_points: float | None = None
     assignee_account_id: str | None = None
+
+
+class UpdateIssueArgs(BaseModel):
+    key: str
+    summary: str | None = None
+    description: str | None = None
 
 
 class AddCommentArgs(BaseModel):
@@ -89,11 +96,17 @@ def _create_issue(client: JiraClient, args: CreateIssueArgs) -> dict[str, Any]:
         args.issue_type,
         labels=args.labels,
         epic=args.epic,
+        parent=args.parent,
         sprint_id=args.sprint_id,
         story_points=args.story_points,
         assignee_account_id=args.assignee_account_id,
     )
     return result.model_dump()
+
+
+def _update_issue(client: JiraClient, args: UpdateIssueArgs) -> dict[str, Any]:
+    client.update_issue(args.key, summary=args.summary, description=args.description)
+    return {"ok": True, "key": args.key}
 
 
 def _add_comment(client: JiraClient, args: AddCommentArgs) -> dict[str, Any]:
@@ -126,6 +139,12 @@ TOOLS: dict[str, Tool] = {
             _search_issues,
         ),
         Tool("create_issue", "Create a new Jira issue.", CreateIssueArgs, _create_issue),
+        Tool(
+            "update_issue",
+            "Update an existing Jira issue's summary and/or description.",
+            UpdateIssueArgs,
+            _update_issue,
+        ),
         Tool("add_comment", "Add a comment to an issue.", AddCommentArgs, _add_comment),
         Tool(
             "transition_issue",

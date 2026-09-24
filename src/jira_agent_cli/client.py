@@ -99,10 +99,23 @@ class JiraClient:
         *,
         labels: list[str] | None = None,
         epic: str | None = None,
+        parent: str | None = None,
         sprint_id: int | None = None,
         story_points: float | None = None,
         assignee_account_id: str | None = None,
     ) -> IssueCreateResult:
+        """`epic` and `parent` are two different linking mechanisms, not
+        interchangeable spellings of the same thing — Jira project type
+        decides which one applies. `epic` sets the classic/company-managed
+        "Epic Link" custom field (confirmed on `CF1`; needs `epic_link_field`
+        configured, otherwise silently a no-op). `parent` sets the standard
+        `parent` field, which is what team-managed projects use for
+        Story->Epic linking (confirmed on `ADLC`, a `simplified: true`
+        project — `customfield_10014` errors there with "cannot be set. It
+        is not on the appropriate screen") *and* what every project type uses
+        for Subtask->Story linking. Callers must pick the one that matches
+        the target project/issue type.
+        """
         fields: dict[str, Any] = {
             "project": {"key": project_key},
             "summary": summary,
@@ -116,6 +129,8 @@ class JiraClient:
             fields["assignee"] = {"accountId": assignee_account_id}
         if epic and self._config.epic_link_field:
             fields[self._config.epic_link_field] = epic
+        if parent:
+            fields["parent"] = {"key": parent}
         if sprint_id is not None and self._config.sprint_field:
             fields[self._config.sprint_field] = sprint_id
         if story_points is not None and self._config.story_points_field:
@@ -129,6 +144,21 @@ class JiraClient:
             id=payload["id"],
             url=f"{self._config.base_url}/browse/{payload['key']}",
         )
+
+    def update_issue(
+        self, key: str, *, summary: str | None = None, description: str | None = None
+    ) -> None:
+        """PUT /issue/{key} with only the fields given — Jira's update endpoint
+        only touches fields present in the payload, so omitted ones are left
+        alone. At least one of summary/description must be given.
+        """
+        fields: dict[str, Any] = {}
+        if summary is not None:
+            fields["summary"] = summary
+        if description is not None:
+            fields["description"] = description
+        response = self._client.put(f"/rest/api/2/issue/{key}", json={"fields": fields})
+        self._raise_for_status(response)
 
     def add_comment(self, key: str, body: str) -> None:
         response = self._client.post(f"/rest/api/2/issue/{key}/comment", json={"body": body})

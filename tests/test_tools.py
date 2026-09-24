@@ -16,6 +16,7 @@ def test_tools_registry_has_expected_names() -> None:
         "get_issue",
         "search_issues",
         "create_issue",
+        "update_issue",
         "add_comment",
         "transition_issue",
         "get_myself",
@@ -65,11 +66,49 @@ def test_call_tool_dispatches_create_issue_with_defaults() -> None:
         "Task",
         labels=None,
         epic=None,
+        parent=None,
         sprint_id=None,
         story_points=None,
         assignee_account_id=None,
     )
     assert result["key"] == "CF1-9"
+
+
+def test_call_tool_dispatches_create_issue_with_parent() -> None:
+    client = MagicMock()
+    client.create_issue.return_value = IssueCreateResult(
+        key="ADLC-50", id="50", url="https://x/browse/ADLC-50"
+    )
+    result = call_tool(
+        client,
+        "create_issue",
+        {
+            "project_key": "ADLC",
+            "summary": "A subtask",
+            "issue_type": "Subtask",
+            "parent": "ADLC-45",
+        },
+    )
+    client.create_issue.assert_called_once_with(
+        "ADLC",
+        "A subtask",
+        None,
+        "Subtask",
+        labels=None,
+        epic=None,
+        parent="ADLC-45",
+        sprint_id=None,
+        story_points=None,
+        assignee_account_id=None,
+    )
+    assert result["key"] == "ADLC-50"
+
+
+def test_call_tool_dispatches_update_issue() -> None:
+    client = MagicMock()
+    result = call_tool(client, "update_issue", {"key": "ADLC-28", "summary": "New title"})
+    client.update_issue.assert_called_once_with("ADLC-28", summary="New title", description=None)
+    assert result == {"ok": True, "key": "ADLC-28"}
 
 
 def test_call_tool_dispatches_transition_issue() -> None:

@@ -211,6 +211,31 @@ def test_create_issue_includes_custom_fields_when_configured() -> None:
 
 
 @respx.mock
+def test_create_issue_parent_sets_standard_parent_field(config: JiraConfig) -> None:
+    # Team-managed projects (e.g. ADLC) reject the classic Epic Link custom
+    # field ("cannot be set. It is not on the appropriate screen") and use
+    # the standard `parent` field for both Story->Epic and Subtask->Story
+    # linking instead.
+    route = respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(201, json={"key": "ADLC-50", "id": "50"})
+    )
+    with JiraClient(config) as client:
+        client.create_issue("ADLC", "A subtask", issue_type="Subtask", parent="ADLC-45")
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["fields"]["parent"] == {"key": "ADLC-45"}
+    assert "customfield_10014" not in sent["fields"]
+
+
+@respx.mock
+def test_update_issue_sends_only_given_fields(config: JiraConfig) -> None:
+    route = respx.put(f"{BASE_URL}/rest/api/2/issue/ADLC-28").mock(return_value=httpx.Response(204))
+    with JiraClient(config) as client:
+        client.update_issue("ADLC-28", summary="New title")
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"fields": {"summary": "New title"}}
+
+
+@respx.mock
 def test_add_comment_posts_plain_body(config: JiraConfig) -> None:
     route = respx.post(f"{BASE_URL}/rest/api/2/issue/CF1-1/comment").mock(
         return_value=httpx.Response(201, json={})
