@@ -29,7 +29,7 @@ from pydantic import BaseModel, ValidationError
 from jira_agent_cli.agent_runner import AgentRunError
 from jira_agent_cli.client import JiraClient, JiraError
 from jira_agent_cli.config import ConfigError, JiraConfig
-from jira_agent_cli.orchestrator import REPO_ROOT, WORKSPACE_ROOT, execute_implement, execute_plan
+from jira_agent_cli.orchestrator import TARGET_REPO, WORKSPACE_ROOT, execute_implement, execute_plan
 from jira_agent_cli.poller import Poller
 from jira_agent_cli.runs import Run, RunStore, RunTransitionError
 from jira_agent_cli.tools import TOOLS, call_tool
@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise RuntimeError(str(exc)) from exc
     app.state.jira_client = JiraClient(config)
     app.state.runs = RunStore()
-    app.state.workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=REPO_ROOT)
+    app.state.workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=TARGET_REPO)
 
     poller = Poller(
         client=app.state.jira_client,

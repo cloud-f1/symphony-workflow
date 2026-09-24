@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from jira_agent_cli.agent_runner import AgentRunError
 from jira_agent_cli.client import JiraClient, JiraError
@@ -33,10 +34,15 @@ logger = logging.getLogger("jira_agent_cli.poller")
 DEFAULT_POLL_INTERVAL_SECONDS = 60.0
 DEFAULT_MAX_RESULTS = 25
 
+# Overridable per adopting repo/project — see docs/PORTABILITY.md. Defaults to
+# ADLC (this POC's own board) for backward compatibility.
+JIRA_PROJECT = os.environ.get("JIRA_AGENT_CLI_JIRA_PROJECT", "ADLC")
+
 # Epic/Subtask excluded: you can't "implement" an Epic, and a Subtask's parent
 # Story is the actual unit of work in this POC's model.
 READY_JQL = (
-    'project = ADLC AND status = "To Do" AND issuetype not in (Epic, Subtask) ORDER BY created ASC'
+    f'project = {JIRA_PROJECT} AND status = "To Do" '
+    "AND issuetype not in (Epic, Subtask) ORDER BY created ASC"
 )
 
 

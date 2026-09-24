@@ -10,6 +10,8 @@ import subprocess
 from pathlib import Path
 
 _SANITIZE_RE = re.compile(r"[^A-Za-z0-9._-]")
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+MAX_SLUG_LENGTH = 60
 
 
 class WorkspaceError(RuntimeError):
@@ -19,6 +21,24 @@ class WorkspaceError(RuntimeError):
 def sanitize_key(issue_key: str) -> str:
     """Symphony Invariant 3: only [A-Za-z0-9._-] in workspace directory names."""
     return _SANITIZE_RE.sub("_", issue_key)
+
+
+def slugify(text: str, *, max_length: int = MAX_SLUG_LENGTH) -> str:
+    """Lowercase, non-alnum -> `-`, collapsed and trimmed. Used to build branch
+    names of the form `{ISSUE-KEY}-{slug}` — see CLAUDE.md's Branch naming rule
+    for why the branch must *start with* the key (Jira's Development-panel
+    auto-linking depends on it, confirmed missing on ADLC-17 before this fix).
+    """
+    slug = _SLUG_RE.sub("-", text.lower()).strip("-")
+    return slug[:max_length].rstrip("-")
+
+
+def branch_name(issue_key: str, summary: str | None = None) -> str:
+    key = sanitize_key(issue_key)
+    if not summary:
+        return key
+    slug = slugify(summary)
+    return f"{key}-{slug}" if slug else key
 
 
 class WorkspaceManager:
@@ -37,12 +57,15 @@ class WorkspaceManager:
     def path_for(self, issue_key: str) -> Path:
         return self.root / sanitize_key(issue_key)
 
-    def ensure(self, issue_key: str) -> Path:
-        """Create (or reuse) the worktree for `issue_key`. Returns its validated path."""
+    def ensure(self, issue_key: str, *, branch_slug: str | None = None) -> Path:
+        """Create (or reuse) the worktree for `issue_key`. Returns its validated
+        path. `branch_slug` (typically the issue summary) becomes part of the
+        branch name so Jira auto-links it — see `branch_name()`.
+        """
         path = self.path_for(issue_key)
         self._validate(path)
         if not path.exists():
-            branch = f"jira-agent-cli/{sanitize_key(issue_key)}"
+            branch = branch_name(issue_key, branch_slug)
             try:
                 result = subprocess.run(
                     ["git", "worktree", "add", "-b", branch, str(path), "HEAD"],

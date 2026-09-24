@@ -27,7 +27,7 @@ from .conftest import BASE_URL
 class _FakeWorkspaceManager:
     """Avoids real `git worktree add` against this repo during tests."""
 
-    def ensure(self, issue_key: str) -> Path:
+    def ensure(self, issue_key: str, *, branch_slug: str | None = None) -> Path:
         return Path("/tmp/fake-workspace") / issue_key
 
 

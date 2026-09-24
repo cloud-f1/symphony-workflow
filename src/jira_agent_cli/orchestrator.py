@@ -19,7 +19,13 @@ from jira_agent_cli.workspace import WorkspaceError, WorkspaceManager
 
 logger = logging.getLogger("jira_agent_cli.orchestrator")
 
+# REPO_ROOT: where jira-agent-cli's own source lives (docs/runs, .worktrees
+# default here). TARGET_REPO: the repo Plan/Implement actually work against —
+# defaults to REPO_ROOT (this POC plans/implements against itself) but is the
+# one override a repo *adopting* jira-agent-cli as its orchestrator needs to
+# set. See docs/PORTABILITY.md.
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+TARGET_REPO = Path(os.environ.get("JIRA_AGENT_CLI_TARGET_REPO", REPO_ROOT))
 RUNS_DOCS_ROOT = Path(os.environ.get("JIRA_AGENT_CLI_RUNS_DOCS_ROOT", REPO_ROOT / "docs" / "runs"))
 WORKSPACE_ROOT = Path(os.environ.get("JIRA_AGENT_CLI_WORKSPACE_ROOT", REPO_ROOT / ".worktrees"))
 
@@ -36,7 +42,7 @@ async def execute_plan(
     runs.mark_planning(run.id)
 
     try:
-        workspace_path = workspaces.ensure(run.issue_key)
+        workspace_path = workspaces.ensure(run.issue_key, branch_slug=issue.summary)
     except WorkspaceError as exc:
         runs.mark_failed(run.id, error=str(exc))
         raise
