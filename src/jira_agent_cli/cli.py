@@ -161,7 +161,18 @@ def _load_run(issue_key: str) -> Run:
 
 
 @app.command("plan")
-def plan(key: str) -> None:
+def plan(
+    key: str,
+    max_turns: int | None = typer.Option(
+        None,
+        "--max-turns",
+        help=(
+            "Override the Plan phase's agent turn budget "
+            "(default: agent_runner.DEFAULT_PLAN_MAX_TURNS). Raise this for a "
+            "large target repo that hits error_max_turns at the default (ADLC-55)."
+        ),
+    ),
+) -> None:
     """Run the Plan phase for an issue in-process -- no server required."""
     with _client() as client:
         runs = RunStore()
@@ -169,7 +180,9 @@ def plan(key: str) -> None:
         workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=TARGET_REPO)
         try:
             updated = asyncio.run(
-                execute_plan(run, runs=runs, client=client, workspaces=workspaces)
+                execute_plan(
+                    run, runs=runs, client=client, workspaces=workspaces, max_turns=max_turns
+                )
             )
         except (JiraError, WorkspaceError, AgentRunError) as exc:
             typer.echo(str(exc), err=True)

@@ -119,6 +119,86 @@ def test_plan_command_saves_run_sidecar_for_implement(monkeypatch, tmp_path: Pat
 
 
 @respx.mock
+def test_plan_command_max_turns_option_reaches_run_plan(monkeypatch, tmp_path: Path) -> None:
+    """ADLC-55: `--max-turns` must reach `agent_runner.run_plan` unchanged."""
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(cli_module, "WorkspaceManager", _FakeWorkspaceManager)
+
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "Do the thing", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-1", "In Review")
+
+    received: dict[str, object] = {}
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        received.update(kwargs)
+        return AgentRunResult(text="the plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+
+    result = runner.invoke(app, ["plan", "ADLC-1", "--max-turns", "15"])
+
+    assert result.exit_code == 0, result.output
+    assert received.get("max_turns") == 15
+
+
+@respx.mock
+def test_plan_command_no_max_turns_option_omits_override(monkeypatch, tmp_path: Path) -> None:
+    """ADLC-55: without `--max-turns` (today's behavior), `run_plan` must not
+    receive a `max_turns` kwarg at all.
+    """
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(cli_module, "WorkspaceManager", _FakeWorkspaceManager)
+
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "Do the thing", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-1", "In Review")
+
+    received_kwargs: dict[str, object] = {}
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        received_kwargs.update(kwargs)
+        return AgentRunResult(text="the plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+
+    result = runner.invoke(app, ["plan", "ADLC-1"])
+
+    assert result.exit_code == 0, result.output
+    assert "max_turns" not in received_kwargs
+
+
+@respx.mock
 def test_implement_command_resumes_from_saved_run(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
     monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")

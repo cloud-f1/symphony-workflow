@@ -29,7 +29,13 @@ from pydantic import BaseModel, ValidationError
 
 from jira_agent_cli.agent_runner import AgentRunError
 from jira_agent_cli.client import JiraClient, JiraError
-from jira_agent_cli.config import ConfigError, JiraConfig, triage_enabled, triage_interval_seconds
+from jira_agent_cli.config import (
+    ConfigError,
+    JiraConfig,
+    poll_plan_max_turns,
+    triage_enabled,
+    triage_interval_seconds,
+)
 from jira_agent_cli.orchestrator import (
     TARGET_REPO,
     WORKSPACE_ROOT,
@@ -73,6 +79,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # polling-triage/intent.md's definition of done).
         triage_enabled=triage_enabled(),
         triage_interval_seconds=triage_interval_seconds(),
+        # ADLC-55 — unset by default (config.poll_plan_max_turns() returns
+        # None), so this is a no-op for anyone who hasn't opted in.
+        plan_max_turns=poll_plan_max_turns(),
     )
     app.state.poller = poller
     if _poll_enabled():
@@ -119,6 +128,16 @@ class ToolCallRequest(BaseModel):
 
 class CreateRunRequest(BaseModel):
     issue_key: str
+
+
+class PlanRunRequest(BaseModel):
+    """Optional body for `POST /runs/{id}/plan` (ADLC-55). `max_turns` unset
+    (the default) preserves today's behavior — `execute_plan` falls through
+    to `agent_runner.DEFAULT_PLAN_MAX_TURNS`. Every existing caller that
+    posts no body (or an empty `{}`) is unaffected.
+    """
+
+    max_turns: int | None = None
 
 
 @app.get("/health")
@@ -191,6 +210,7 @@ def get_run_for_issue(key: str, runs: RunStore = Depends(get_run_store)) -> Run:
 @app.post("/runs/{run_id}/plan")
 async def plan_run(
     run_id: str,
+    body: PlanRunRequest | None = None,
     runs: RunStore = Depends(get_run_store),
     client: JiraClient = Depends(get_jira_client),
     workspaces: WorkspaceManager = Depends(get_workspace_manager),
@@ -198,8 +218,11 @@ async def plan_run(
     run = runs.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
+    max_turns = body.max_turns if body is not None else None
     try:
-        return await execute_plan(run, runs=runs, client=client, workspaces=workspaces)
+        return await execute_plan(
+            run, runs=runs, client=client, workspaces=workspaces, max_turns=max_turns
+        )
     except RunTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except WorkspaceError as exc:

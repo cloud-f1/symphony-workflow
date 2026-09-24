@@ -97,12 +97,17 @@ class Poller:
         triage_enabled: bool = False,
         triage_interval_seconds: float = DEFAULT_TRIAGE_INTERVAL_SECONDS,
         triage_store: TriageStore | None = None,
+        plan_max_turns: int | None = None,
     ) -> None:
         self._client = client
         self._runs = runs
         self._workspaces = workspaces
         self._interval = interval_seconds
         self._max_plan_attempts = max_plan_attempts
+        # ADLC-55: optional override for auto-Plan's agent turn budget --
+        # None (the default, see config.poll_plan_max_turns()) preserves
+        # today's behavior (agent_runner.DEFAULT_PLAN_MAX_TURNS).
+        self._plan_max_turns = plan_max_turns
         self._seen: set[str] = set()
         self._attempts: dict[str, int] = {}
         self._given_up: set[str] = set()
@@ -211,7 +216,11 @@ class Poller:
             try:
                 dispatched.append(
                     await execute_plan(
-                        run, runs=self._runs, client=self._client, workspaces=self._workspaces
+                        run,
+                        runs=self._runs,
+                        client=self._client,
+                        workspaces=self._workspaces,
+                        max_turns=self._plan_max_turns,
                     )
                 )
                 self._seen.add(issue.key)

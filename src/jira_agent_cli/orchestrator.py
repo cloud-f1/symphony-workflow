@@ -138,12 +138,26 @@ def _post_failure_comment(client: JiraClient, issue_key: str, phase: str, error:
 
 
 async def execute_plan(
-    run: Run, *, runs: RunStore, client: JiraClient, workspaces: WorkspaceManager
+    run: Run,
+    *,
+    runs: RunStore,
+    client: JiraClient,
+    workspaces: WorkspaceManager,
+    max_turns: int | None = None,
 ) -> Run:
     """Read-only: no repo writes. Raises JiraError / RunTransitionError /
     WorkspaceError / AgentRunError on failure — the run is marked failed
     first wherever the failure happened after a state change, so GET
     /runs/{id} always reflects what actually happened.
+
+    `max_turns` (ADLC-55) optionally overrides `agent_runner.run_plan`'s own
+    `DEFAULT_PLAN_MAX_TURNS` for this one run — e.g. a large real-world
+    target repo (confirmed live against `ai-coding-nexjs-template`,
+    docs/plans/0003-portability-validation-nexjs/implement.md) can need more
+    than the default 5 turns to produce a real plan. `None` (the default)
+    means "don't override" — `run_plan` falls back to its own default,
+    exactly today's behavior, so every existing caller is unaffected unless
+    it explicitly opts in.
     """
     issue = client.get_issue(run.issue_key)
     runs.mark_planning(run.id)
@@ -156,8 +170,11 @@ async def execute_plan(
 
     prompt = render_plan_prompt(issue)
     workspaces.run_before_run(run.issue_key, workspace_path)
+    run_plan_kwargs: dict[str, int] = {}
+    if max_turns is not None:
+        run_plan_kwargs["max_turns"] = max_turns
     try:
-        result = await run_plan(prompt, cwd=str(workspace_path))
+        result = await run_plan(prompt, cwd=str(workspace_path), **run_plan_kwargs)
     except AgentRunError as exc:
         runs.mark_failed(run.id, error=str(exc))
         _post_failure_comment(client, run.issue_key, "plan", str(exc))
