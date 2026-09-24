@@ -13,6 +13,9 @@ jira-agent comment CF1-1 "Looks good, merging."
 jira-agent transition CF1-1 Done
 ```
 
+**New here?** `docs/QUICKSTART.md` is a linear walkthrough from `uv sync` to driving a real
+ticket through Plan/Implement — this README is the pitch, not a tutorial.
+
 ## Why a tool-call layer, not just a client
 
 Most Jira wrappers are just an HTTP client — fine for a script, awkward for an agent that needs

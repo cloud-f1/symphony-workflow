@@ -22,7 +22,8 @@ this `docs/plans/<NNNN>-<slug>/` layout is `docs/plans/README.md` (`ADLC-43`); s
 [docs/PORTABILITY.md](docs/PORTABILITY.md) for running this against a *different* repo/Jira
 project. **New to this repo? Load the `jira-agent-cli-ops` skill first**
 (`.claude/skills/jira-agent-cli-ops/SKILL.md`) — the short operational reference this file's
-sibling docs don't repeat.
+sibling docs don't repeat. Setting this up for the first time as a human (not a Claude Code
+session)? [docs/QUICKSTART.md](docs/QUICKSTART.md) is a linear walkthrough, not reference material.
 
 This is a standalone package under `~/Documents/git_saas/`, a private repo in the `cloud-f1`
 GitHub org. It is not part of `content-asset-system` — don't assume its rules apply here beyond
@@ -35,7 +36,8 @@ Work on this repo is tracked in Jira project **ADLC** (`cloud-f1.atlassian.net`,
 **Epic `ADLC-2`** → one **Story per POC phase** → **Subtasks** per concrete work item. When
 you pick up a subtask, transition it as you go (`jira-agent transition <key> "In Progress"` /
 `"Done"`) — this repo's own agent-tool CLI is the thing doing the tracking, so use it. See
-[docs/plans/0001-symphony-poc/intent.md](docs/plans/0001-symphony-poc/intent.md)'s Tracking table for the current phase → ticket mapping.
+[docs/plans/0001-symphony-poc/intent.md](docs/plans/0001-symphony-poc/intent.md)'s Tracking
+table for the current phase → ticket mapping.
 
 ## Claude Agent SDK usage (agent_runner.py)
 
@@ -54,9 +56,10 @@ re-litigate without updating docs/plans/0001-symphony-poc/spec.md first:
   `ResultMessage.structured_output` and is captured as `AgentRunResult.structured` /
   `Run.plan_structured`, alongside (not instead of) the existing free-text `result.text`
   / `Run.plan`. Confirmed by a throwaway spike that this survives plan-mode's
-  exploratory multi-turn tool-use loop cleanly — see docs/plans/0001-symphony-poc/spec.md. Implement phase
-  stays free-text (no `output_format`); this is the minimal foundation ADLC-46's
-  Epic/Story/Task decomposition schema builds on, not that feature itself.
+  exploratory multi-turn tool-use loop cleanly — see `docs/plans/0001-symphony-poc/spec.md`.
+  Implement phase stays free-text (no `output_format`); this is the minimal foundation
+  `ADLC-46`'s Epic/Story/Task decomposition schema builds on, not that feature itself. `ADLC-29`'s
+  triage step reuses this same seam rather than introducing a fourth settled decision.
 - Never `claude -p`. See the "Why Claude Agent SDK" section of `docs/plans/0001-symphony-poc/spec.md`.
 
 ## CLI control plane (`plan`/`implement`/`decompose`/`sync-decomposition`)
@@ -151,7 +154,9 @@ src/jira_agent_cli/
   orchestrator.py # execute_plan/execute_implement — shared by api.py AND poller.py
   decompose.py    # Epic -> Stories/Tasks, read-only, reuses run_plan()'s output_format wiring
   sync_decomposition.py # decomposition.json -> real Jira Story/Subtask issues
-  poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements
+  poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements.
+                  # Optional triage cadence (ADLC-29, off by default): a slower, batched agent
+                  # turn classifies new tickets plan/skip/flag before the normal dispatch path
   api.py          # FastAPI app — HTTP surface over tools.py + orchestrator.py
 tests/            # pytest + respx, one file per module above
 ```
@@ -216,12 +221,15 @@ commit a token, and never let a test read `.env` — `test_cli.py`'s
 
 - **Don't wire Implement into the poller.** `poller.py` auto-discovers and auto-Plans on
   purpose, never auto-Implements — that split is the load-bearing safety property of Phase 5
-  (see `docs/plans/0001-symphony-poc/spec.md`), not a missing feature. `acceptEdits` can't self-verify (documented
-  finding, `docs/runs/ADLC-17/review.md`); an unattended Plan→Implement chain would ship
-  unreviewed code with nobody watching.
+  (see `docs/plans/0001-symphony-poc/spec.md`), not a missing feature. `acceptEdits` can't
+  self-verify (documented finding, `docs/runs/ADLC-17/review.md`); an unattended Plan→Implement
+  chain would ship unreviewed code with nobody watching. The optional triage step (`ADLC-29`)
+  doesn't change this — it only ever decides plan/skip/flag, code applies the decision, and the
+  triage agent itself gets no Jira write tools, same as Plan/Implement.
 - **Don't add a database or persistent queue casually.** `RunStore` being in-memory-only is a
-  known, documented POC limitation (`docs/plans/0001-symphony-poc/spec.md`, confirmed in practice on `ADLC-24`) — fixing
-  it is real scope (Symphony §7.4-style recovery), not a quick add. If it's ever tackled, update
+  known, documented POC limitation (`docs/plans/0001-symphony-poc/spec.md`, confirmed in practice
+  on `ADLC-24`) — fixing it is real scope (Symphony §7.4-style recovery), not a quick add. If
+  it's ever tackled, update
   `docs/plans/0001-symphony-poc/spec.md` first.
 - Don't hardcode `cloud-f1.atlassian.net`, CF1's custom field IDs, `ADLC`, or a specific target
   repo path into `client.py`/`orchestrator.py`/`poller.py` — they belong in `.env` / env vars
@@ -229,7 +237,5 @@ commit a token, and never let a test read `.env` — `test_cli.py`'s
   work against any Jira Cloud project and any target repo — see `docs/PORTABILITY.md`.
 - Don't reach for the v3 API / ADF format without a documented reason — it changes every model
   and client method to be structured instead of plain text.
-- Don't assume a correctly-named branch alone gets Jira auto-linking — it also needs the
-  GitHub-for-Jira app connected on the target Jira site. True for `cloud-f1.atlassian.net` as of
-  2026-09-24 (`ADLC-30`, Done), but branch-level linking itself is still unverified — see the
-  Branch naming section above.
+- Don't assume a correctly-named branch alone gets Jira auto-linking — see the Branch naming
+  section above for the current status of the GitHub-for-Jira app connection this depends on.
