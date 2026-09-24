@@ -120,6 +120,22 @@ def jira_safe_comment_body(text: str) -> str:
     return _MARKDOWN_ATX_HEADER.sub(r"**\1**", text)
 
 
+def _post_failure_comment(client: JiraClient, issue_key: str, phase: str, error: str) -> None:
+    """Best-effort visibility for a failed Plan/Implement run — without this,
+    a failure was previously silent: the ticket just sat at its current
+    status with no indication anything was attempted (confirmed live,
+    ADLC-44's auto-Plan hit error_max_turns and left no trace on the ticket).
+    Never raises -- a failed comment post must not mask the original error.
+    """
+    try:
+        client.add_comment(
+            issue_key,
+            jira_safe_comment_body(f"[jira-agent-cli {phase}] FAILED: {error}"),
+        )
+    except JiraError:
+        logger.warning("could not post failure comment for %s", issue_key, exc_info=True)
+
+
 async def execute_plan(
     run: Run, *, runs: RunStore, client: JiraClient, workspaces: WorkspaceManager
 ) -> Run:
@@ -143,6 +159,7 @@ async def execute_plan(
         result = await run_plan(prompt, cwd=str(workspace_path))
     except AgentRunError as exc:
         runs.mark_failed(run.id, error=str(exc))
+        _post_failure_comment(client, run.issue_key, "plan", str(exc))
         cleanup_workspace_if_terminal(run.issue_key, client=client, workspaces=workspaces)
         raise
     finally:
@@ -151,6 +168,7 @@ async def execute_plan(
     if not result.session_id:
         error = "Agent run produced no session_id — cannot resume for /implement"
         runs.mark_failed(run.id, error=error)
+        _post_failure_comment(client, run.issue_key, "plan", error)
         raise AgentRunError(error)
 
     plan_dir = RUNS_DOCS_ROOT / run.issue_key
@@ -206,6 +224,7 @@ async def execute_implement(
         )
     except AgentRunError as exc:
         runs.mark_failed(run.id, error=str(exc))
+        _post_failure_comment(client, run.issue_key, "implement", str(exc))
         cleanup_workspace_if_terminal(run.issue_key, client=client, workspaces=workspaces)
         raise
     finally:

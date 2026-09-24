@@ -379,6 +379,9 @@ def test_plan_endpoint_agent_error_marks_run_failed(
             },
         )
     )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
 
     async def failing_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
         raise AgentRunError("agent blew up")
@@ -565,6 +568,9 @@ def test_api_v1_state_counts_running_and_by_state(
                 "fields": {"summary": "X", "status": {"name": "To Do"}},
             },
         )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
     )
 
     async def stuck_in_planning(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:

@@ -6,6 +6,7 @@ HTTP mocked via respx; `execute_plan`'s SDK call mocked at the source
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -166,6 +167,9 @@ async def test_tick_logs_and_continues_when_one_ticket_fails(
     respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-98/comment").mock(
         return_value=httpx.Response(201, json={})
     )
+    failure_comment_route = respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-97/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
     _mock_transition("ADLC-98", "In Review")
 
     async def flaky_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
@@ -178,6 +182,101 @@ async def test_tick_logs_and_continues_when_one_ticket_fails(
     dispatched = await poller.tick()
     # ADLC-97 failed and was logged, not raised; ADLC-98 still got planned.
     assert [r.issue_key for r in dispatched] == ["ADLC-98"]
+    # The failure is now visible on the ticket, not silent (ADLC-44 finding).
+    assert failure_comment_route.called
+    assert "FAILED" in json.loads(failure_comment_route.calls.last.request.content)["body"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_failed_ticket_is_retried_on_a_later_tick(
+    poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Reproduces the ADLC-44 finding: a Plan failure used to strand a ticket
+    # forever (permanently in `_seen`) with no further attempt. It should
+    # instead be retried on a subsequent tick, not treated as done.
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-97"))
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-97").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-97",
+                "id": "ADLC-97",
+                "fields": {"summary": "X", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-97/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-97", "In Review")
+
+    attempts = {"count": 0}
+
+    async def flaky_then_ok(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise AgentRunError("boom")
+        return AgentRunResult(text="ok", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", flaky_then_ok)
+
+    first = await poller.tick()
+    assert first == []  # failed, nothing dispatched yet
+    assert attempts["count"] == 1
+
+    second = await poller.tick()
+    # Retried (not skipped as already-seen) and succeeded this time.
+    assert [r.issue_key for r in second] == ["ADLC-97"]
+    assert attempts["count"] == 2
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_ticket_stops_being_retried_after_max_attempts(
+    config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("jira_agent_cli.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
+    poller = Poller(
+        client=JiraClient(config),
+        runs=RunStore(),
+        workspaces=_FakeWorkspaceManager(),
+        max_plan_attempts=2,
+    )
+
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-97"))
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-97").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-97",
+                "id": "ADLC-97",
+                "fields": {"summary": "X", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    failure_route = respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-97/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+
+    async def always_fails(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        raise AgentRunError("boom")
+
+    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", always_fails)
+
+    await poller.tick()  # attempt 1/2 — retried next tick
+    assert "ADLC-97" not in poller._given_up
+    await poller.tick()  # attempt 2/2 — exhausted, gives up
+    assert "ADLC-97" in poller._given_up
+
+    calls_after_giving_up = len(failure_route.calls)
+    await poller.tick()  # would be attempt 3 if retried -- must not be
+    assert len(failure_route.calls) == calls_after_giving_up
+
+    # One of the comment posts (across the attempts + the final give-up
+    # comment, same endpoint) says it gave up, not just "FAILED".
+    bodies = [json.loads(c.request.content)["body"] for c in failure_route.calls]
+    assert any("Gave up" in body for body in bodies)
 
 
 @pytest.mark.asyncio

@@ -75,6 +75,26 @@ def test_set_plan_ready_stores_plan_structured_when_given() -> None:
     assert updated.plan_structured == structured
 
 
+def test_reset_for_retry_brings_a_failed_run_back_to_created() -> None:
+    store = RunStore()
+    run = store.create("ADLC-1")
+    store.mark_planning(run.id)
+    store.mark_failed(run.id, error="boom")
+
+    retried = store.reset_for_retry(run.id)
+
+    assert retried.state == RunState.CREATED
+    assert retried.error is None
+    assert retried.id == run.id  # same Run reused, not a new one -- see poller.py
+
+
+def test_reset_for_retry_requires_failed_state() -> None:
+    store = RunStore()
+    run = store.create("ADLC-1")
+    with pytest.raises(RunTransitionError):
+        store.reset_for_retry(run.id)  # still 'created', never failed
+
+
 def test_implement_cannot_skip_the_plan_gate() -> None:
     store = RunStore()
     run = store.create("ADLC-1")

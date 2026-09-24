@@ -126,6 +126,19 @@ class RunStore:
         run.error = error
         return run
 
+    def reset_for_retry(self, run_id: str) -> Run:
+        """Bring a `failed` Run back to `created` so it can be retried (Symphony
+        §8.4-style bounded retry, see poller.py). Reuses the same Run rather
+        than creating a new one, so `get_by_issue_key`'s "one issue key, one
+        Run" invariant holds across retries -- a later lookup always finds the
+        current attempt, not a stale failed one.
+        """
+        run = self._require(run_id)
+        self._require_state(run, RunState.FAILED)
+        run.state = RunState.CREATED
+        run.error = None
+        return run
+
     def _require(self, run_id: str) -> Run:
         run = self._runs.get(run_id)
         if run is None:
