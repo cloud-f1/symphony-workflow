@@ -49,7 +49,7 @@ uv 0.12.3+) or export the three `JIRA_*` vars into the shell yourself.
 2. **Auto-discovery (the poller)**: any ticket with `status = "To Do"` on the
    configured Jira project gets auto-Planned — no manual `POST /runs` needed.
    **It never auto-Implements.** That's not a missing feature, it's the whole
-   point (see `docs/spec.md`'s Phase 5 section for why) — don't "complete" it
+   point (see `docs/plans/0001-symphony-poc/spec.md`'s Phase 5 section for why) — don't "complete" it
    by wiring Implement into the poller.
 3. **CLI tool-call passthrough**: `jira-agent call <tool> '<json args>'` or
    `jira-agent list-tools` — the same registry the API's `/tools` exposes, for
@@ -83,7 +83,7 @@ confirms it.
   per-issue git worktree under one root (`workspace.py`'s `_validate`) —
   Symphony §9.5's invariants, adopted deliberately.
 - **Never `claude -p`.** This repo's Agent SDK usage exists specifically to
-  avoid that failure mode — see `docs/spec.md`'s "Why Claude Agent SDK" section
+  avoid that failure mode — see `docs/plans/0001-symphony-poc/spec.md`'s "Why Claude Agent SDK" section
   and CAS's `feedback_no_claude_p_in_repo` memory.
 - **The poller auto-Plans, never auto-Implements.** See point 2 above — this
   is the load-bearing safety property of Phase 5, not an oversight to "fix."

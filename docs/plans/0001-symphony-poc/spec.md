@@ -140,7 +140,7 @@ warns about, and `ADLC-17` proved why (`acceptEdits` can't self-verify).
   the exact same Plan/Implement logic and can't drift.
 - **Ready signal**: `status = "To Do"` on the ADLC board (board default, not a
   label) — decided over a label because the dedicated ADLC project (not CF1) already
-  is the filter; see `docs/intent.md`'s Tracking table.
+  is the filter; see `intent.md`'s Tracking table.
 - **Scope**: auto-creates a `Run` + auto-runs `/plan` only. `/implement` is
   unchanged — still a deliberate `POST` a human makes.
 - **`GET /issues/{key}/run`**: added because the poller creates Runs internally;
@@ -170,7 +170,7 @@ sections turned out to already agree with what we'd built for other reasons).
 | §4 Core Domain Model | Adopted (subset) | `Issue`/`SearchResult` models; no `blockers`/labels normalization yet |
 | §5 `WORKFLOW.md` policy file | Deferred | `prompts.py` is still jira-agent-cli's own hardcoded templates, not a per-repo policy file — see `docs/PORTABILITY.md` |
 | §7 Orchestration State Machine | Adopted (5-state subset) | `RunState` — just enough to gate Implement, not Symphony's full 11-state lifecycle |
-| §8 Polling, Scheduling, Reconciliation | Adopted (poll only) | `poller.py` — no concurrency control (§8.3), no retry/backoff (§8.4), no reconciliation (§8.5); one ticket, one Run, no re-check loop |
+| §8 Polling, Scheduling, Reconciliation | Adopted (poll + bounded retry) | `poller.py` — no concurrency control (§8.3); §8.4 partially adopted 2026-09-24: a failed auto-Plan is retried up to `JIRA_AGENT_CLI_POLL_MAX_PLAN_ATTEMPTS` (default 3) at the normal poll cadence (crude backoff, not exponential), then gives up with a Jira comment — found live (`ADLC-44` hit `error_max_turns` and was silently stuck forever before this); no reconciliation (§8.5); one ticket, one Run per issue key (reused across retries via `RunStore.reset_for_retry`, not one-Run-per-attempt) |
 | §8.6 Workspace Cleanup | Adopted (opt-in) | `orchestrator.cleanup_workspace_if_terminal`/`sweep_terminal_workspaces` — startup sweep (`api.py`'s `lifespan`) + on-transition check in `execute_plan`/`execute_implement`'s failure/success paths; off by default (`JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED`), checks *live* Jira status against `JIRA_AGENT_CLI_TERMINAL_STATUSES` (default `Done`), never force-removes a dirty worktree. No periodic re-sweep in `poller.py`'s tick — startup sweep + the two orchestrator hook points were judged sufficient for this POC; a future ticket could add one if "eventually" needs to mean "within a poll interval" rather than "next restart" |
 | §9.4 Workspace Lifecycle Hooks | Adopted (minimal) | `workspace.py`'s `WorkspaceHooks`/`WorkspaceManager.run_*` — one optional shell command per hook point (`after_create`/`before_run`/`after_run`/`before_remove`), configured via `JIRA_AGENT_CLI_HOOK_*` env vars (this repo's existing convention, not a WORKFLOW.md policy file — see §5's row below), workspace path + issue key passed as env vars, `hooks.timeout_ms` default 60000 matching SPEC.md. Best-effort: a failing/timed-out hook is logged, never raised |
 | §9.5 Workspace Safety Invariants | **Adopted as-is** | `workspace.py`'s `_validate` — cwd-inside-root + sanitized keys, taken directly |
@@ -181,4 +181,4 @@ sections turned out to already agree with what we'd built for other reasons).
 | §14.3 Partial State Recovery | **Already agreed** | See the Finding above — same intentional in-memory design, discovered independently before re-reading this section |
 | §15 Security and Operational Safety | Adopted (partial) | Workspace safety yes; no documented sandbox/approval posture beyond `permission_mode` |
 
-See [`plan.md`](plan.md) for the phased build order.
+See [`implement.md`](implement.md) for the phased build order.

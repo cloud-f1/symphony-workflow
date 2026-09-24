@@ -69,8 +69,9 @@ genuine periodic autonomous pulling, not yet set up.
 ## Earlier session — 2026-09-25 (Epic 1 closed, Epic 2 scoped)
 
 **Epic 1** (`ADLC-2`, the Symphony-inspired POC — Phases 0–5) is **Done**. Full
-history: `docs/intent.md` (DoD review, all clauses ✅), `docs/spec.md` (design +
-Symphony alignment matrix), `docs/plan.md` (phase-by-phase build log),
+history: `docs/plans/0001-symphony-poc/intent.md` (DoD review, all clauses ✅),
+`docs/plans/0001-symphony-poc/spec.md` (design + Symphony alignment matrix),
+`docs/plans/0001-symphony-poc/implement.md` (phase-by-phase build log),
 `docs/runs/{ADLC-17,ADLC-24}/{plan,review}.md` (the two real live runs).
 
 **Epic 2** (`ADLC-27`, "interface API, portability validation, Symphony
@@ -79,7 +80,7 @@ alignment") is open, first wave scoped:
 | Story | What | Status |
 |---|---|---|
 | `ADLC-30` | Install + connect GitHub-for-Jira app to `cloud-f1` org | To Do — **manual, needs you**, not agent-doable |
-| `ADLC-31` | Symphony alignment matrix in `docs/spec.md` | Done |
+| `ADLC-31` | Symphony alignment matrix in `docs/plans/0001-symphony-poc/spec.md` | Done |
 | `ADLC-32` | Interface API — `GET /api/v1/state`, `GET /api/v1/issues/{key}` | **Done** — live-verified |
 | `ADLC-36` | Local md ↔ Jira ticket linking (remotelink + frontmatter) | **Done** — real links created on `ADLC-17`/`ADLC-24` |
 | `ADLC-39` | Portability validation against a real second repo (`ai-coding-nexjs-template`) | To Do — **pick up here next session** |
@@ -111,7 +112,7 @@ from these docs alone, not something left unfinished by accident.
   `branch.byInstanceType` hasn't been exercised end-to-end yet. Next real test:
   push one correctly-named branch and re-check.
 - **`RunStore`'s in-memory design matches Symphony's own §14.3 intentional
-  design**, not a corner we cut — reframed in `docs/spec.md` after re-reading the
+  design**, not a corner we cut — reframed in `docs/plans/0001-symphony-poc/spec.md` after re-reading the
   spec post-hoc. Restart recovery = re-poll, not resume in-flight sessions, on
   purpose (Symphony's words, not just ours).
 - **`acceptEdits` can't run Bash.** Implement writes a diff, can't self-verify.
@@ -119,15 +120,15 @@ from these docs alone, not something left unfinished by accident.
 - **`~/.claude/plans/*.md` (Claude Code's own plan-mode file) gets overwritten
   by the next unrelated plan-mode cycle.** This session's original POC roadmap
   plan was overwritten by the Epic-2-scoping plan — recoverable only because
-  `docs/intent.md` etc. already captured it before the overwrite. `ADLC-43`
-  exists because of this exact problem.
+  `docs/plans/0001-symphony-poc/intent.md` etc. already captured it before the overwrite. `ADLC-43`
+  exists because of this exact problem — and has now shipped: this is the convention it built.
 
 ### Where things live
 
 - **Ticket status** (what's Done/To Do/In Progress): the `ADLC` Jira board —
   this file doesn't duplicate it, just narrates around it.
-- **Design history**: `docs/{intent,spec,plan}.md` (will move to
-  `docs/plans/0001-symphony-poc/` once `ADLC-43` ships — not yet).
+- **Design history**: `docs/plans/0001-symphony-poc/{intent,spec,implement}.md`
+  (`ADLC-43`'s convention — see `docs/plans/README.md` and `docs/plans/INDEX.md`).
 - **Run-by-run record**: `docs/runs/{key}/{plan,review}.md`.
 - **How to operate this repo day to day**: `.claude/skills/jira-agent-cli-ops/SKILL.md`.
 - **Using this from another repo**: `docs/PORTABILITY.md`.

@@ -7,7 +7,7 @@ own config lives in `.env`, not here). Rendered by `src/jira_agent_cli/prompts.p
 ## Plan phase
 
 - **`permission_mode="plan"`** — the agent can read and explore but cannot edit
-  files or run side-effecting commands (see `docs/spec.md`).
+  files or run side-effecting commands (see `docs/plans/0001-symphony-poc/spec.md`).
 - Input: the issue's `key`, `summary`, `status`, `description`.
 - Output: a short plan (no code), posted as a Jira comment + saved to
   `docs/runs/<key>/plan.md`. The run's `session_id` is recorded so Implement

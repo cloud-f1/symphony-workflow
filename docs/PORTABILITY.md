@@ -23,7 +23,7 @@ own setup changes unless you explicitly override them.
    `uv add git+https://github.com/cloud-f1/jira-agent-cli` as a dev dependency.
 2. Create a Jira project for that repo's agent-driven work (same reasoning as
    `ADLC`: keep it separate from a general content/marketing backlog — see
-   `docs/intent.md`'s Tracking section for why). Set:
+   `docs/plans/0001-symphony-poc/intent.md`'s Tracking section for why). Set:
    ```
    JIRA_AGENT_CLI_JIRA_PROJECT=<that project's key>
    ```
@@ -121,7 +121,7 @@ repo's differences from this one's conventions make it worth the cost.
 
 ## Also worth knowing before adopting this elsewhere
 
-- `RunStore` is in-memory only (see `docs/spec.md`) — every adopting instance
+- `RunStore` is in-memory only (see `docs/plans/0001-symphony-poc/spec.md`) — every adopting instance
   inherits that limitation, not just this POC's.
 - Branch names are `{ISSUE-KEY}-{slug}` (see `CLAUDE.md`'s Branch naming rule) —
   this only gets you Jira auto-linking if the target GitHub org/repo has the

@@ -13,9 +13,12 @@ every operation is also a schema-described tool call, **and** a Symphony-inspire
 service (FastAPI server + background poller) that drives a Jira ticket through a Plan/Implement
 loop via the Claude Agent SDK. Both are first-class — the CLI didn't stay "just a CLI." See
 [README.md](README.md) for the CLI pitch and confirmed CF1 field IDs; see
-[docs/intent.md](docs/intent.md) / [docs/spec.md](docs/spec.md) / [docs/plan.md](docs/plan.md)
+[docs/plans/0001-symphony-poc/intent.md](docs/plans/0001-symphony-poc/intent.md) /
+[docs/plans/0001-symphony-poc/spec.md](docs/plans/0001-symphony-poc/spec.md) /
+[docs/plans/0001-symphony-poc/implement.md](docs/plans/0001-symphony-poc/implement.md)
 for the orchestration service's why/design/roadmap (read those three before touching `api.py`,
-`orchestrator.py`, `poller.py`, `runs.py`, or `agent_runner.py`); see
+`orchestrator.py`, `poller.py`, `runs.py`, or `agent_runner.py`) — the general convention behind
+this `docs/plans/<NNNN>-<slug>/` layout is `docs/plans/README.md` (`ADLC-43`); see
 [docs/PORTABILITY.md](docs/PORTABILITY.md) for running this against a *different* repo/Jira
 project. **New to this repo? Load the `jira-agent-cli-ops` skill first**
 (`.claude/skills/jira-agent-cli-ops/SKILL.md`) — the short operational reference this file's
@@ -32,14 +35,14 @@ Work on this repo is tracked in Jira project **ADLC** (`cloud-f1.atlassian.net`,
 **Epic `ADLC-2`** → one **Story per POC phase** → **Subtasks** per concrete work item. When
 you pick up a subtask, transition it as you go (`jira-agent transition <key> "In Progress"` /
 `"Done"`) — this repo's own agent-tool CLI is the thing doing the tracking, so use it. See
-[docs/intent.md](docs/intent.md)'s Tracking table for the current phase → ticket mapping.
+[docs/plans/0001-symphony-poc/intent.md](docs/plans/0001-symphony-poc/intent.md)'s Tracking table for the current phase → ticket mapping.
 
 ## Claude Agent SDK usage (agent_runner.py)
 
 Confirmed 2026-09-24 against `code.claude.com/docs/en/agent-sdk` — `pip install
 claude-agent-sdk` (installed, v0.2.159+). Entry point: `async def query(*, prompt,
 options: ClaudeAgentOptions) -> AsyncIterator[Message]`. Three settled decisions, don't
-re-litigate without updating docs/spec.md first:
+re-litigate without updating docs/plans/0001-symphony-poc/spec.md first:
 
 - **Plan phase uses `permission_mode="plan"`** (a built-in SDK mode — explore without
   editing), not a hand-rolled read-only tool allowlist. This is simpler and safer than
@@ -51,10 +54,10 @@ re-litigate without updating docs/spec.md first:
   `ResultMessage.structured_output` and is captured as `AgentRunResult.structured` /
   `Run.plan_structured`, alongside (not instead of) the existing free-text `result.text`
   / `Run.plan`. Confirmed by a throwaway spike that this survives plan-mode's
-  exploratory multi-turn tool-use loop cleanly — see docs/spec.md. Implement phase
+  exploratory multi-turn tool-use loop cleanly — see docs/plans/0001-symphony-poc/spec.md. Implement phase
   stays free-text (no `output_format`); this is the minimal foundation ADLC-46's
   Epic/Story/Task decomposition schema builds on, not that feature itself.
-- Never `claude -p`. See the "Why Claude Agent SDK" section of `docs/spec.md`.
+- Never `claude -p`. See the "Why Claude Agent SDK" section of `docs/plans/0001-symphony-poc/spec.md`.
 
 ## Branch naming — required, not optional
 
@@ -190,13 +193,13 @@ commit a token, and never let a test read `.env` — `test_cli.py`'s
 
 - **Don't wire Implement into the poller.** `poller.py` auto-discovers and auto-Plans on
   purpose, never auto-Implements — that split is the load-bearing safety property of Phase 5
-  (see `docs/spec.md`), not a missing feature. `acceptEdits` can't self-verify (documented
+  (see `docs/plans/0001-symphony-poc/spec.md`), not a missing feature. `acceptEdits` can't self-verify (documented
   finding, `docs/runs/ADLC-17/review.md`); an unattended Plan→Implement chain would ship
   unreviewed code with nobody watching.
 - **Don't add a database or persistent queue casually.** `RunStore` being in-memory-only is a
-  known, documented POC limitation (`docs/spec.md`, confirmed in practice on `ADLC-24`) — fixing
+  known, documented POC limitation (`docs/plans/0001-symphony-poc/spec.md`, confirmed in practice on `ADLC-24`) — fixing
   it is real scope (Symphony §7.4-style recovery), not a quick add. If it's ever tackled, update
-  `docs/spec.md` first.
+  `docs/plans/0001-symphony-poc/spec.md` first.
 - Don't hardcode `cloud-f1.atlassian.net`, CF1's custom field IDs, `ADLC`, or a specific target
   repo path into `client.py`/`orchestrator.py`/`poller.py` — they belong in `.env` / env vars
   (`JIRA_AGENT_CLI_TARGET_REPO`, `JIRA_AGENT_CLI_JIRA_PROJECT`, ...), because this is meant to

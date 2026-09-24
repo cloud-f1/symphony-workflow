@@ -60,7 +60,7 @@ one **Story per phase** → **Subtasks** per concrete work item underneath each 
 **Continuous polling revisited 2026-09-24** (originally deferred): resolved by
 splitting discovery from code-writing — the poller auto-runs Plan only, never
 Implement. Real daemon (background task in `api.py`, not `/loop`); ready signal =
-`status = "To Do"` (board default). See `docs/spec.md`'s Phase 5 section.
+`status = "To Do"` (board default). See `spec.md`'s Phase 5 section.
 
 ## Definition of done
 
@@ -80,8 +80,8 @@ the ADLC chain — including this intent/spec/plan trio itself.
 
 **The POC is done relative to its own stated DoD.** Two things stay explicitly *not*
 done, by design rather than oversight — both already documented as findings in
-`docs/spec.md`, not new news: a persistent `RunStore` (Symphony §7.4-style restart
+`spec.md`, not new news: a persistent `RunStore` (Symphony §7.4-style restart
 recovery) and a Bash-capable Implement phase that can self-verify its own output.
 
-See [`spec.md`](spec.md) for the design, [`plan.md`](plan.md) for the phased roadmap,
-[`PORTABILITY.md`](PORTABILITY.md) for using this outside jira-agent-cli itself.
+See [`spec.md`](spec.md) for the design, [`implement.md`](implement.md) for the phased
+roadmap, [`PORTABILITY.md`](../../PORTABILITY.md) for using this outside jira-agent-cli itself.
