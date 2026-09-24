@@ -13,6 +13,7 @@ class Issue(BaseModel):
     summary: str
     status: str
     assignee: str | None = None
+    description: str | None = None
 
     @classmethod
     def from_api(cls, payload: dict[str, Any]) -> Issue:
@@ -25,6 +26,8 @@ class Issue(BaseModel):
             summary=fields.get("summary", ""),
             status=status.get("name", ""),
             assignee=assignee.get("displayName") if assignee else None,
+            # v2 API returns description as plain text (not ADF) — see client.py.
+            description=fields.get("description") or None,
         )
 
 

@@ -13,3 +13,5 @@ build/
 .env.*
 !.env.example
 uv.lock.bak
+
+.worktrees/

@@ -27,7 +27,19 @@ class Run(BaseModel):
     state: RunState = RunState.CREATED
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     plan: str | None = None
+    session_id: str | None = None
+    workspace_path: str | None = None
+    result: str | None = None
     error: str | None = None
+
+
+class RunTransitionError(RuntimeError):
+    """Raised when a Run is asked to transition from a state that forbids it —
+    in particular, Implement requires state == plan_ready. That check is the
+    human-review gate from docs/spec.md; it is enforced here, not just by
+    convention in the API layer, so nothing can bypass it by calling
+    RunStore directly.
+    """
 
 
 class RunStore:
@@ -49,3 +61,52 @@ class RunStore:
 
     def get(self, run_id: str) -> Run | None:
         return self._runs.get(run_id)
+
+    def mark_planning(self, run_id: str) -> Run:
+        run = self._require(run_id)
+        self._require_state(run, RunState.CREATED)
+        run.state = RunState.PLANNING
+        return run
+
+    def set_plan_ready(
+        self, run_id: str, *, plan: str, session_id: str, workspace_path: str
+    ) -> Run:
+        run = self._require(run_id)
+        self._require_state(run, RunState.PLANNING)
+        run.state = RunState.PLAN_READY
+        run.plan = plan
+        run.session_id = session_id
+        run.workspace_path = workspace_path
+        return run
+
+    def mark_implementing(self, run_id: str) -> Run:
+        run = self._require(run_id)
+        self._require_state(run, RunState.PLAN_READY)
+        run.state = RunState.IMPLEMENTING
+        return run
+
+    def mark_completed(self, run_id: str, *, result: str) -> Run:
+        run = self._require(run_id)
+        self._require_state(run, RunState.IMPLEMENTING)
+        run.state = RunState.COMPLETED
+        run.result = result
+        return run
+
+    def mark_failed(self, run_id: str, *, error: str) -> Run:
+        run = self._require(run_id)
+        run.state = RunState.FAILED
+        run.error = error
+        return run
+
+    def _require(self, run_id: str) -> Run:
+        run = self._runs.get(run_id)
+        if run is None:
+            raise KeyError(f"Run {run_id!r} not found")
+        return run
+
+    @staticmethod
+    def _require_state(run: Run, expected: RunState) -> None:
+        if run.state != expected:
+            raise RunTransitionError(
+                f"Run {run.id} is {run.state.value!r}, expected {expected.value!r}"
+            )

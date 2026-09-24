@@ -119,15 +119,12 @@ class JiraClient:
         response = self._client.get(f"/rest/api/2/issue/{key}/transitions")
         self._raise_for_status(response)
         return [
-            Transition(id=t["id"], name=t["name"])
-            for t in response.json().get("transitions", [])
+            Transition(id=t["id"], name=t["name"]) for t in response.json().get("transitions", [])
         ]
 
     def transition_issue(self, key: str, transition_name: str) -> None:
         transitions = self.list_transitions(key)
-        match = next(
-            (t for t in transitions if t.name.lower() == transition_name.lower()), None
-        )
+        match = next((t for t in transitions if t.name.lower() == transition_name.lower()), None)
         if match is None:
             available = ", ".join(t.name for t in transitions) or "none"
             raise JiraError(
