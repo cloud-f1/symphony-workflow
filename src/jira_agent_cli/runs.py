@@ -59,6 +59,16 @@ class RunStore:
         self._runs[run.id] = run
         return run
 
+    def load(self, run: Run) -> Run:
+        """Register an already-built `Run` (e.g. rehydrated from the CLI's
+        on-disk sidecar, see cli.py's `plan`/`implement` commands) into a
+        fresh store, instead of `create()`'s always-new `created`-state Run.
+        Lets a later state-mutating call (e.g. `mark_implementing`) find it
+        via `_require` without going through the normal create->plan flow.
+        """
+        self._runs[run.id] = run
+        return run
+
     def get(self, run_id: str) -> Run | None:
         return self._runs.get(run_id)
 

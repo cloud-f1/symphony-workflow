@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from jira_agent_cli.runs import RunState, RunStore, RunTransitionError
+from jira_agent_cli.runs import Run, RunState, RunStore, RunTransitionError
 
 
 def test_create_starts_in_created_state() -> None:
@@ -14,6 +14,27 @@ def test_create_starts_in_created_state() -> None:
     run = store.create("ADLC-1")
     assert run.state == RunState.CREATED
     assert run.issue_key == "ADLC-1"
+
+
+def test_load_registers_an_already_built_run() -> None:
+    # Simulates cli.py's `implement` rehydrating a Run a prior, separate
+    # `jira-agent plan` process saved to disk (RunStore is process-scoped).
+    store = RunStore()
+    saved = Run(
+        id="run-1",
+        issue_key="ADLC-1",
+        state=RunState.PLAN_READY,
+        session_id="sess-1",
+        workspace_path="/tmp/x",
+    )
+
+    loaded = store.load(saved)
+
+    assert loaded is saved
+    assert store.get("run-1") is saved
+    # A state-mutating call must find it via the normal id lookup, not just load().
+    store.mark_implementing("run-1")
+    assert store.get("run-1").state == RunState.IMPLEMENTING
 
 
 def test_full_happy_path_transition_sequence() -> None:

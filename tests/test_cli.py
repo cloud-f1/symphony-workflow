@@ -1,14 +1,45 @@
-"""Unit tests for the CLI entrypoint (Typer's CliRunner — no live Jira access)."""
+"""Unit tests for the CLI entrypoint (Typer's CliRunner — no live Jira access).
+
+`plan`/`implement` tests mock the same two points test_api.py does: Jira HTTP
+via respx, and the Claude Agent SDK (`run_plan`/`run_implement`) monkeypatched
+on `orchestrator` — where cli.py's commands actually call them from — plus a
+fake WorkspaceManager so no real `git worktree add` runs against this repo.
+"""
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
+import httpx
+import respx
 from typer.testing import CliRunner
 
+import jira_agent_cli.cli as cli_module
+import jira_agent_cli.orchestrator as orchestrator_module
+from jira_agent_cli.agent_runner import AgentRunResult
 from jira_agent_cli.cli import app
 
+from .conftest import BASE_URL
+
 runner = CliRunner()
+
+
+class _FakeWorkspaceManager:
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def ensure(self, issue_key: str, *, branch_slug: str | None = None) -> Path:
+        return Path("/tmp/fake-workspace") / issue_key
+
+
+def _mock_transition(key: str, name: str) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/issue/{key}/transitions").mock(
+        return_value=httpx.Response(200, json={"transitions": [{"id": "1", "name": name}]})
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/{key}/transitions").mock(
+        return_value=httpx.Response(204)
+    )
 
 
 def test_list_tools_prints_all_registered_tool_schemas() -> None:
@@ -37,3 +68,98 @@ def test_missing_env_vars_exit_with_helpful_message(monkeypatch) -> None:
 def test_no_args_shows_help() -> None:
     result = runner.invoke(app, [])
     assert "Python CLI for Jira Cloud" in result.output
+
+
+@respx.mock
+def test_plan_command_saves_run_sidecar_for_implement(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(cli_module, "WorkspaceManager", _FakeWorkspaceManager)
+
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "Do the thing", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-1", "In Review")
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        return AgentRunResult(text="the plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_plan", fake_run_plan)
+
+    result = runner.invoke(app, ["plan", "ADLC-1"])
+
+    assert result.exit_code == 0, result.output
+    assert "Plan ready for ADLC-1" in result.output
+    sidecar = tmp_path / "ADLC-1" / "run.json"
+    assert sidecar.exists()
+    saved = json.loads(sidecar.read_text())
+    assert saved["state"] == "plan_ready"
+    assert saved["session_id"] == "sess-1"
+
+
+@respx.mock
+def test_implement_command_resumes_from_saved_run(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+
+    sidecar_dir = tmp_path / "ADLC-1"
+    sidecar_dir.mkdir(parents=True)
+    (sidecar_dir / "run.json").write_text(
+        json.dumps(
+            {
+                "id": "run-1",
+                "issue_key": "ADLC-1",
+                "state": "plan_ready",
+                "created_at": "2026-01-01T00:00:00Z",
+                "plan": "the plan",
+                "session_id": "sess-1",
+                "workspace_path": "/tmp/fake-workspace/ADLC-1",
+                "result": None,
+                "error": None,
+            }
+        )
+    )
+
+    _mock_transition("ADLC-1", "In Progress")
+
+    async def fake_run_implement(
+        prompt: str, *, cwd: str, resume_session_id: str, **kwargs: object
+    ) -> AgentRunResult:
+        return AgentRunResult(text="done", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_implement", fake_run_implement)
+
+    result = runner.invoke(app, ["implement", "ADLC-1"])
+
+    assert result.exit_code == 0, result.output
+    assert "state: completed" in result.output
+    saved = json.loads((sidecar_dir / "run.json").read_text())
+    assert saved["state"] == "completed"
+    assert saved["result"] == "done"
+
+
+def test_implement_command_without_saved_run_exits_with_helpful_message(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+
+    result = runner.invoke(app, ["implement", "ADLC-99"])
+
+    assert result.exit_code == 1
+    assert "No saved run for ADLC-99" in result.output
+    assert "jira-agent plan ADLC-99" in result.output
