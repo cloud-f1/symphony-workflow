@@ -8,8 +8,8 @@ import httpx
 import pytest
 import respx
 
-from jira_agent_cli.client import JiraClient, JiraError
-from jira_agent_cli.config import JiraConfig
+from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.config import JiraConfig
 
 from .conftest import BASE_URL
 

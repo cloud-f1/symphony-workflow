@@ -11,8 +11,8 @@ from collections.abc import AsyncIterator
 import pytest
 from claude_agent_sdk.types import AssistantMessage, Message, ResultMessage, TextBlock
 
-from jira_agent_cli import agent_runner
-from jira_agent_cli.agent_runner import AgentRunError, run_implement, run_plan, run_triage
+from symphony_workflow import agent_runner
+from symphony_workflow.agent_runner import AgentRunError, run_implement, run_plan, run_triage
 
 
 def _fake_stream(

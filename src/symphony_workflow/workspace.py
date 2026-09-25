@@ -12,21 +12,21 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-logger = logging.getLogger("jira_agent_cli.workspace")
+logger = logging.getLogger("symphony_workflow.workspace")
 
 _SANITIZE_RE = re.compile(r"[^A-Za-z0-9._-]")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 MAX_SLUG_LENGTH = 60
 
 # Symphony §9.4 lifecycle hook points -> the env var naming each one's shell
-# command. This repo configures everything via `JIRA_AGENT_CLI_*` env vars
+# command. This repo configures everything via `SYMPHONY_WORKFLOW_*` env vars
 # rather than a WORKFLOW.md policy file (see docs/PORTABILITY.md); hooks
 # follow that same convention instead of introducing a new config format.
 HOOK_ENV_VARS: dict[str, str] = {
-    "after_create": "JIRA_AGENT_CLI_HOOK_AFTER_CREATE",
-    "before_run": "JIRA_AGENT_CLI_HOOK_BEFORE_RUN",
-    "after_run": "JIRA_AGENT_CLI_HOOK_AFTER_RUN",
-    "before_remove": "JIRA_AGENT_CLI_HOOK_BEFORE_REMOVE",
+    "after_create": "SYMPHONY_WORKFLOW_HOOK_AFTER_CREATE",
+    "before_run": "SYMPHONY_WORKFLOW_HOOK_BEFORE_RUN",
+    "after_run": "SYMPHONY_WORKFLOW_HOOK_AFTER_RUN",
+    "before_remove": "SYMPHONY_WORKFLOW_HOOK_BEFORE_REMOVE",
 }
 DEFAULT_HOOK_TIMEOUT_MS = 60000  # Symphony SPEC.md's own `hooks.timeout_ms` default.
 
@@ -39,7 +39,7 @@ class WorkspaceError(RuntimeError):
 class WorkspaceHooks:
     """One optional shell command per Symphony §9.4 lifecycle point. Each
     command (if set) runs with the workspace path and issue key exported as
-    `JIRA_AGENT_CLI_WORKSPACE_PATH` / `JIRA_AGENT_CLI_ISSUE_KEY`, cwd'd into
+    `SYMPHONY_WORKFLOW_WORKSPACE_PATH` / `SYMPHONY_WORKFLOW_ISSUE_KEY`, cwd'd into
     the workspace, under a timeout. A hook is best-effort: a non-zero exit,
     timeout, or launch failure is logged and swallowed, never raised — a
     broken hook command must not take down a Plan/Implement run.
@@ -59,7 +59,7 @@ class WorkspaceHooks:
             after_run=os.environ.get(HOOK_ENV_VARS["after_run"]) or None,
             before_remove=os.environ.get(HOOK_ENV_VARS["before_remove"]) or None,
             timeout_ms=int(
-                os.environ.get("JIRA_AGENT_CLI_HOOK_TIMEOUT_MS", str(DEFAULT_HOOK_TIMEOUT_MS))
+                os.environ.get("SYMPHONY_WORKFLOW_HOOK_TIMEOUT_MS", str(DEFAULT_HOOK_TIMEOUT_MS))
             ),
         )
 
@@ -197,8 +197,8 @@ class WorkspaceManager:
         if not command:
             return
         env = dict(os.environ)
-        env["JIRA_AGENT_CLI_ISSUE_KEY"] = issue_key
-        env["JIRA_AGENT_CLI_WORKSPACE_PATH"] = str(workspace_path)
+        env["SYMPHONY_WORKFLOW_ISSUE_KEY"] = issue_key
+        env["SYMPHONY_WORKFLOW_WORKSPACE_PATH"] = str(workspace_path)
         cwd = str(workspace_path) if workspace_path.exists() else None
         try:
             result = subprocess.run(

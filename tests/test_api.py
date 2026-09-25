@@ -4,7 +4,7 @@ and the Claude Agent SDK (`run_plan`/`run_implement`) is monkeypatched on
 `orchestrator` — where api.py's endpoints and poller.py both actually call
 them from — so no live agent session runs and no real git worktree gets
 created against this repo. The background poller is disabled for these
-tests (`JIRA_AGENT_CLI_POLL_ENABLED=false`) — see test_poller.py for that
+tests (`SYMPHONY_WORKFLOW_POLL_ENABLED=false`) — see test_poller.py for that
 in isolation.
 """
 
@@ -17,9 +17,9 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 
-import jira_agent_cli.orchestrator as orchestrator_module
-from jira_agent_cli.agent_runner import AgentRunError, AgentRunResult
-from jira_agent_cli.api import app, get_workspace_manager
+import symphony_workflow.orchestrator as orchestrator_module
+from symphony_workflow.agent_runner import AgentRunError, AgentRunResult
+from symphony_workflow.api import app, get_workspace_manager
 
 from .conftest import BASE_URL
 
@@ -75,7 +75,7 @@ def api_client(
     monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
     monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
     monkeypatch.setenv("JIRA_API_TOKEN", "token")
-    monkeypatch.setenv("JIRA_AGENT_CLI_POLL_ENABLED", "false")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_POLL_ENABLED", "false")
     monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path / "runs")
     app.dependency_overrides[get_workspace_manager] = lambda: fake_workspaces
     with TestClient(app) as client:
@@ -234,13 +234,13 @@ def test_lifespan_sweeps_existing_workspaces_at_startup_when_cleanup_enabled(
     monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
     monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
     monkeypatch.setenv("JIRA_API_TOKEN", "token")
-    monkeypatch.setenv("JIRA_AGENT_CLI_POLL_ENABLED", "false")
-    monkeypatch.setenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", "true")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_POLL_ENABLED", "false")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED", "true")
 
     workspace_root = tmp_path / "workspaces"
     (workspace_root / "ADLC-1").mkdir(parents=True)
-    monkeypatch.setattr("jira_agent_cli.api.WORKSPACE_ROOT", workspace_root)
-    monkeypatch.setattr("jira_agent_cli.api.TARGET_REPO", tmp_path)
+    monkeypatch.setattr("symphony_workflow.api.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("symphony_workflow.api.TARGET_REPO", tmp_path)
 
     route = respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
         return_value=httpx.Response(
@@ -266,13 +266,13 @@ def test_lifespan_startup_sweep_is_a_noop_when_cleanup_disabled(
     monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
     monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
     monkeypatch.setenv("JIRA_API_TOKEN", "token")
-    monkeypatch.setenv("JIRA_AGENT_CLI_POLL_ENABLED", "false")
-    monkeypatch.delenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", raising=False)
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_POLL_ENABLED", "false")
+    monkeypatch.delenv("SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED", raising=False)
 
     workspace_root = tmp_path / "workspaces"
     (workspace_root / "ADLC-1").mkdir(parents=True)
-    monkeypatch.setattr("jira_agent_cli.api.WORKSPACE_ROOT", workspace_root)
-    monkeypatch.setattr("jira_agent_cli.api.TARGET_REPO", tmp_path)
+    monkeypatch.setattr("symphony_workflow.api.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("symphony_workflow.api.TARGET_REPO", tmp_path)
 
     route = respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
         return_value=httpx.Response(

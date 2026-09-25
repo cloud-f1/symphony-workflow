@@ -1,4 +1,4 @@
-"""Command-line entrypoint for jira-agent-cli.
+"""Command-line entrypoint for symphony-workflow.
 
 Three ways to drive it:
   - Friendly subcommands (`get`, `search`, `comment`, `transition`) for a human at a terminal.
@@ -24,21 +24,21 @@ from pathlib import Path
 
 import typer
 
-from jira_agent_cli.agent_runner import AgentRunError
-from jira_agent_cli.client import JiraClient, JiraError
-from jira_agent_cli.config import ConfigError, JiraConfig
-from jira_agent_cli.decompose import DecomposeError, execute_decompose
-from jira_agent_cli.orchestrator import (
+from symphony_workflow.agent_runner import AgentRunError
+from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.config import ConfigError, JiraConfig
+from symphony_workflow.decompose import DecomposeError, execute_decompose
+from symphony_workflow.orchestrator import (
     RUNS_DOCS_ROOT,
     TARGET_REPO,
     WORKSPACE_ROOT,
     execute_implement,
     execute_plan,
 )
-from jira_agent_cli.runs import Run, RunStore, RunTransitionError
-from jira_agent_cli.sync_decomposition import SyncDecompositionError, execute_sync_decomposition
-from jira_agent_cli.tools import TOOLS, call_tool
-from jira_agent_cli.workspace import WorkspaceError, WorkspaceManager
+from symphony_workflow.runs import Run, RunStore, RunTransitionError
+from symphony_workflow.sync_decomposition import SyncDecompositionError, execute_sync_decomposition
+from symphony_workflow.tools import TOOLS, call_tool
+from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
 
 app = typer.Typer(
     help=(
@@ -153,7 +153,8 @@ def _load_run(issue_key: str) -> Run:
     path = _run_sidecar_path(issue_key)
     if not path.exists():
         typer.echo(
-            f"No saved run for {issue_key} at {path} -- run `jira-agent plan {issue_key}` first.",
+            f"No saved run for {issue_key} at {path} -- "
+            f"run `symphony-workflow plan {issue_key}` first.",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -189,13 +190,15 @@ def plan(
             raise typer.Exit(code=1) from exc
     _save_run(updated)
     typer.echo(f"Plan ready for {key} — see docs/runs/{key}/plan.md")
-    typer.echo(f"Run state saved to {_run_sidecar_path(key)} for `jira-agent implement {key}`")
+    typer.echo(
+        f"Run state saved to {_run_sidecar_path(key)} for `symphony-workflow implement {key}`"
+    )
 
 
 @app.command("implement")
 def implement(key: str) -> None:
     """Run the Implement phase for an issue whose Plan is already approved
-    (state plan_ready, saved by a prior `jira-agent plan` run)."""
+    (state plan_ready, saved by a prior `symphony-workflow plan` run)."""
     run = _load_run(key)
     with _client() as client:
         runs = RunStore()
@@ -251,7 +254,7 @@ def sync_decomposition(
 ) -> None:
     """Materialize an already-reviewed docs/runs/<key>/decomposition.json as real
     Jira issues: one Story per decomposed story (parent=<key>) plus one Subtask per
-    story's tasks (parent=<story-key>). Does NOT re-run `jira-agent decompose` — run
+    story's tasks (parent=<story-key>). Does NOT re-run `symphony-workflow decompose` — run
     that first and review decomposition.md. See ADLC-47.
     """
     with _client() as client:

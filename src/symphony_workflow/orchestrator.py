@@ -12,38 +12,40 @@ import os
 import re
 from pathlib import Path
 
-from jira_agent_cli.agent_runner import (
+from symphony_workflow.agent_runner import (
     AgentRunError,
     AgentRunResult,
     run_implement,
     run_plan,
     run_triage,
 )
-from jira_agent_cli.client import JiraClient, JiraError
-from jira_agent_cli.models import Issue, TriageDecision
-from jira_agent_cli.prompts import render_implement_prompt, render_plan_prompt
-from jira_agent_cli.runs import Run, RunState, RunStore, RunTransitionError, TriageStore
-from jira_agent_cli.workspace import WorkspaceError, WorkspaceManager
+from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.models import Issue, TriageDecision
+from symphony_workflow.prompts import render_implement_prompt, render_plan_prompt
+from symphony_workflow.runs import Run, RunState, RunStore, RunTransitionError, TriageStore
+from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
 
-logger = logging.getLogger("jira_agent_cli.orchestrator")
+logger = logging.getLogger("symphony_workflow.orchestrator")
 
-# REPO_ROOT: where jira-agent-cli's own source lives (docs/runs, .worktrees
+# REPO_ROOT: where symphony-workflow's own source lives (docs/runs, .worktrees
 # default here). TARGET_REPO: the repo Plan/Implement actually work against —
 # defaults to REPO_ROOT (this POC plans/implements against itself) but is the
-# one override a repo *adopting* jira-agent-cli as its orchestrator needs to
+# one override a repo *adopting* symphony-workflow as its orchestrator needs to
 # set. See docs/PORTABILITY.md.
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-TARGET_REPO = Path(os.environ.get("JIRA_AGENT_CLI_TARGET_REPO", REPO_ROOT))
-RUNS_DOCS_ROOT = Path(os.environ.get("JIRA_AGENT_CLI_RUNS_DOCS_ROOT", REPO_ROOT / "docs" / "runs"))
-WORKSPACE_ROOT = Path(os.environ.get("JIRA_AGENT_CLI_WORKSPACE_ROOT", REPO_ROOT / ".worktrees"))
+TARGET_REPO = Path(os.environ.get("SYMPHONY_WORKFLOW_TARGET_REPO", REPO_ROOT))
+RUNS_DOCS_ROOT = Path(
+    os.environ.get("SYMPHONY_WORKFLOW_RUNS_DOCS_ROOT", REPO_ROOT / "docs" / "runs")
+)
+WORKSPACE_ROOT = Path(os.environ.get("SYMPHONY_WORKFLOW_WORKSPACE_ROOT", REPO_ROOT / ".worktrees"))
 
 # Symphony §8.6 terminal-status workspace cleanup. Off by default: removing a
 # workspace automatically is a real behavior change (an adopter might still
 # want to inspect a finished run's diff on disk), so it's an explicit opt-in
-# rather than a surprise. `JIRA_AGENT_CLI_TERMINAL_STATUSES` is a comma-
+# rather than a surprise. `SYMPHONY_WORKFLOW_TERMINAL_STATUSES` is a comma-
 # separated list of Jira status *names* (not IDs — matches this repo's
 # existing "match names, not IDs" pattern elsewhere, e.g. transition_issue).
-WORKSPACE_CLEANUP_ENV = "JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED"
+WORKSPACE_CLEANUP_ENV = "SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED"
 DEFAULT_TERMINAL_STATUSES = "Done"
 
 
@@ -54,7 +56,7 @@ def _cleanup_enabled() -> bool:
 
 
 def _terminal_statuses() -> frozenset[str]:
-    raw = os.environ.get("JIRA_AGENT_CLI_TERMINAL_STATUSES", DEFAULT_TERMINAL_STATUSES)
+    raw = os.environ.get("SYMPHONY_WORKFLOW_TERMINAL_STATUSES", DEFAULT_TERMINAL_STATUSES)
     return frozenset(status.strip() for status in raw.split(",") if status.strip())
 
 
@@ -137,7 +139,7 @@ def _post_failure_comment(client: JiraClient, issue_key: str, phase: str, error:
     try:
         client.add_comment(
             issue_key,
-            jira_safe_comment_body(f"[jira-agent-cli {phase}] FAILED: {error}"),
+            jira_safe_comment_body(f"[symphony-workflow {phase}] FAILED: {error}"),
         )
     except JiraError:
         logger.warning("could not post failure comment for %s", issue_key, exc_info=True)
@@ -267,7 +269,7 @@ async def execute_plan(
     )
 
     client.add_comment(
-        run.issue_key, jira_safe_comment_body(f"[jira-agent-cli plan]\n\n{plan_text}")
+        run.issue_key, jira_safe_comment_body(f"[symphony-workflow plan]\n\n{plan_text}")
     )
 
     updated = runs.set_plan_ready(
@@ -386,7 +388,7 @@ async def execute_triage(
                 client.add_comment(
                     decision.issue_key,
                     jira_safe_comment_body(
-                        f"[jira-agent-cli triage] Flagged for human review before "
+                        f"[symphony-workflow triage] Flagged for human review before "
                         f"auto-Plan: {decision.reason}"
                     ),
                 )

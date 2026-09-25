@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from jira_agent_cli.models import Issue
+from symphony_workflow.models import Issue
 
 # Structured output schema for the Plan phase (ADLC-28) — foundation for
 # ADLC-46's Epic/Story/Task decomposition schema, deliberately minimal here.

@@ -14,10 +14,10 @@ import httpx
 import pytest
 import respx
 
-from jira_agent_cli.client import JiraClient
-from jira_agent_cli.config import JiraConfig
-from jira_agent_cli.decompose import Decomposition, Story, Task
-from jira_agent_cli.sync_decomposition import (
+from symphony_workflow.client import JiraClient
+from symphony_workflow.config import JiraConfig
+from symphony_workflow.decompose import Decomposition, Story, Task
+from symphony_workflow.sync_decomposition import (
     SyncDecompositionError,
     execute_sync_decomposition,
     project_key_from_issue_key,
@@ -148,7 +148,7 @@ def test_execute_sync_decomposition_raises_clear_error_when_file_missing(
     tmp_path: Path,
 ) -> None:
     with _client() as client:
-        with pytest.raises(SyncDecompositionError, match="jira-agent decompose ADLC-27"):
+        with pytest.raises(SyncDecompositionError, match="symphony-workflow decompose ADLC-27"):
             execute_sync_decomposition("ADLC-27", client=client, runs_docs_root=tmp_path)
 
 

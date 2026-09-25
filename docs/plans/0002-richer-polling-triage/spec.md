@@ -9,7 +9,7 @@ fix). Add a **separate, throttled triage step** in front of `execute_plan`:
 1. **Poll tick stays cheap.** Same JQL + dedupe/retry bookkeeping, but a newly-discovered issue
    (not yet seen, not given up) goes into a small in-memory "untriaged" queue instead of an
    immediate `execute_plan` call.
-2. **A slower triage cadence** (new `JIRA_AGENT_CLI_TRIAGE_INTERVAL_SECONDS`, e.g. 900s —
+2. **A slower triage cadence** (new `SYMPHONY_WORKFLOW_TRIAGE_INTERVAL_SECONDS`, e.g. 900s —
    deliberately >> the 60s poll interval) drains that queue and, only if non-empty, makes **one**
    Claude Agent SDK turn for the whole batch — not one per ticket. The turn receives a compact
    JSON snapshot (key/summary/description/type/created) with **no live Jira tool access**, and
@@ -22,7 +22,7 @@ fix). Add a **separate, throttled triage step** in front of `execute_plan`:
    a target state is worse than not guessing). `skip` → recorded in a new small in-memory
    `TriageStore` (same POC pattern as `RunStore`) so it isn't re-reasoned-about every triage cycle
    while still `To Do`.
-4. **Feature-flagged.** `JIRA_AGENT_CLI_TRIAGE_ENABLED` defaults `false`, preserving today's
+4. **Feature-flagged.** `SYMPHONY_WORKFLOW_TRIAGE_ENABLED` defaults `false`, preserving today's
    behavior until validated.
 
 This bounds cost two ways: triage only fires on a slow cadence when there's new work, and it's one

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from jira_agent_cli.config import JiraConfig
+from symphony_workflow.config import JiraConfig
 
 BASE_URL = "https://example.atlassian.net"
 

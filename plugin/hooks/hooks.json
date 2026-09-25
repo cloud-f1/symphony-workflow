@@ -7,7 +7,7 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start-check-api.sh",
             "timeout": 15,
-            "statusMessage": "Checking jira-agent-cli API server..."
+            "statusMessage": "Checking symphony-workflow API server..."
           }
         ]
       }

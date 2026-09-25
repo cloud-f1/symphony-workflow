@@ -15,12 +15,12 @@ import httpx
 import respx
 from typer.testing import CliRunner
 
-import jira_agent_cli.cli as cli_module
-import jira_agent_cli.decompose as decompose_module
-import jira_agent_cli.orchestrator as orchestrator_module
-from jira_agent_cli.agent_runner import AgentRunResult
-from jira_agent_cli.cli import app
-from jira_agent_cli.decompose import Decomposition, Story, Task
+import symphony_workflow.cli as cli_module
+import symphony_workflow.decompose as decompose_module
+import symphony_workflow.orchestrator as orchestrator_module
+from symphony_workflow.agent_runner import AgentRunResult
+from symphony_workflow.cli import app
+from symphony_workflow.decompose import Decomposition, Story, Task
 
 from .conftest import BASE_URL
 
@@ -250,7 +250,7 @@ def test_implement_command_without_saved_run_exits_with_helpful_message(
 
     assert result.exit_code == 1
     assert "No saved run for ADLC-99" in result.output
-    assert "jira-agent plan ADLC-99" in result.output
+    assert "symphony-workflow plan ADLC-99" in result.output
 
 
 @respx.mock
@@ -391,7 +391,7 @@ def test_sync_decomposition_command_without_decomposition_file_exits_with_helpfu
     result = runner.invoke(app, ["sync-decomposition", "ADLC-27"])
 
     assert result.exit_code == 1
-    assert "jira-agent decompose ADLC-27" in result.output
+    assert "symphony-workflow decompose ADLC-27" in result.output
 
 
 @respx.mock

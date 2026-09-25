@@ -12,7 +12,7 @@ are thin wrappers over orchestrator.py, which the background poller
 Auto-discovery (Phase 5, docs/spec.md): a background poll-tick started in
 `lifespan` auto-creates a Run and auto-runs Plan for new "To Do" tickets.
 It never auto-runs Implement — that stays a deliberate POST a human makes.
-Disable via `JIRA_AGENT_CLI_POLL_ENABLED=false` (tests do this).
+Disable via `SYMPHONY_WORKFLOW_POLL_ENABLED=false` (tests do this).
 """
 
 from __future__ import annotations
@@ -27,32 +27,32 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
-from jira_agent_cli.agent_runner import AgentRunError
-from jira_agent_cli.client import JiraClient, JiraError
-from jira_agent_cli.config import (
+from symphony_workflow.agent_runner import AgentRunError
+from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.config import (
     ConfigError,
     JiraConfig,
     poll_plan_max_turns,
     triage_enabled,
     triage_interval_seconds,
 )
-from jira_agent_cli.orchestrator import (
+from symphony_workflow.orchestrator import (
     TARGET_REPO,
     WORKSPACE_ROOT,
     execute_implement,
     execute_plan,
     sweep_terminal_workspaces,
 )
-from jira_agent_cli.poller import Poller
-from jira_agent_cli.runs import Run, RunState, RunStore, RunTransitionError
-from jira_agent_cli.tools import TOOLS, call_tool
-from jira_agent_cli.workspace import WorkspaceError, WorkspaceManager
+from symphony_workflow.poller import Poller
+from symphony_workflow.runs import Run, RunState, RunStore, RunTransitionError
+from symphony_workflow.tools import TOOLS, call_tool
+from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
 
 
 def _poll_enabled() -> bool:
     # Read at lifespan-startup time, not module-import time, so tests can
     # monkeypatch/setenv this per-test before their TestClient starts.
-    return os.environ.get("JIRA_AGENT_CLI_POLL_ENABLED", "true").lower() != "false"
+    return os.environ.get("SYMPHONY_WORKFLOW_POLL_ENABLED", "true").lower() != "false"
 
 
 @asynccontextmanager
@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.runs = RunStore()
     app.state.workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=TARGET_REPO)
 
-    # Symphony §8.6 startup sweep — opt-in (JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED,
+    # Symphony §8.6 startup sweep — opt-in (SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED,
     # default off), no-op and no Jira calls otherwise.
     sweep_terminal_workspaces(client=app.state.jira_client, workspaces=app.state.workspaces)
 
@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         client=app.state.jira_client,
         runs=app.state.runs,
         workspaces=app.state.workspaces,
-        interval_seconds=float(os.environ.get("JIRA_AGENT_CLI_POLL_INTERVAL_SECONDS", "60")),
+        interval_seconds=float(os.environ.get("SYMPHONY_WORKFLOW_POLL_INTERVAL_SECONDS", "60")),
         # ADLC-29 — default false via config.triage_enabled(), so this is a
         # no-op for anyone who hasn't opted in (docs/plans/0002-richer-
         # polling-triage/intent.md's definition of done).
@@ -95,7 +95,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="jira-agent-cli",
+    title="symphony-workflow",
     description="Jira Cloud tool-call server — see docs/spec.md",
     lifespan=lifespan,
 )
@@ -157,7 +157,7 @@ def health(request: Request, client: JiraClient = Depends(get_jira_client)) -> H
 
 @app.get("/tools")
 def list_tools() -> list[dict[str, Any]]:
-    """Every registered tool's JSON schema — the same payload as `jira-agent list-tools`."""
+    """Every registered tool's JSON schema — the same payload as `symphony-workflow list-tools`."""
     return [tool.json_schema() for tool in TOOLS.values()]
 
 

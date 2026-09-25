@@ -1,23 +1,23 @@
 ---
-name: jira-agent-cli-ops
+name: symphony-workflow-ops
 description: >
-  Use when operating jira-agent-cli itself — starting the API server, driving a
+  Use when operating symphony-workflow itself — starting the API server, driving a
   ticket through Plan then Implement, reading poller status, or picking up a
-  ticket by hand. Trigger on: "run jira-agent-cli", "plan this ticket", "start
-  the poller", "jira-agent-cli server", "ADLC ticket", or any request to drive
+  ticket by hand. Trigger on: "run symphony-workflow", "plan this ticket", "start
+  the poller", "symphony-workflow server", "ADLC ticket", or any request to drive
   a Jira ticket through this repo's Plan/Implement loop. For the why/design
   behind these mechanics, read docs/{intent,spec,plan}.md — this skill is the
   short operational reference, not the design doc.
 ---
 
-# jira-agent-cli operations
+# symphony-workflow operations
 
-> This is the plugin-packaged copy of jira-agent-cli's own
-> `.claude/skills/jira-agent-cli-ops/SKILL.md`, published so it can be
-> installed via `/plugin install jira-agent-cli-ops` into *any* session
-> (namespaced there as `/jira-agent-cli-ops:jira-agent-cli-ops`) without
+> This is the plugin-packaged copy of symphony-workflow's own
+> `.claude/skills/symphony-workflow-ops/SKILL.md`, published so it can be
+> installed via `/plugin install symphony-workflow-ops` into *any* session
+> (namespaced there as `/symphony-workflow-ops:symphony-workflow-ops`) without
 > hand-copying files. It does not ship the CLI/server itself — see
-> `docs/PORTABILITY.md`'s "Claude Code plugin" section in the jira-agent-cli
+> `docs/PORTABILITY.md`'s "Claude Code plugin" section in the symphony-workflow
 > repo. Kept in sync with the canonical copy by hand (no build step exists
 > yet); if you edit one, edit the other.
 
@@ -31,7 +31,7 @@ duplicate them.
 ```bash
 uv sync --extra dev
 cp .env.example .env   # fill in JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN
-uv run uvicorn jira_agent_cli.api:app --port 8811
+uv run uvicorn symphony_workflow.api:app --port 8811
 ```
 
 `GET /health` reports Jira connectivity and whether the poller is running.
@@ -47,16 +47,16 @@ uv run uvicorn jira_agent_cli.api:app --port 8811
    **It never auto-Implements.** That's not a missing feature, it's the whole
    point (see `docs/plans/0001-symphony-poc/spec.md`'s Phase 5 section for why) — don't "complete" it
    by wiring Implement into the poller.
-3. **CLI tool-call passthrough**: `jira-agent call <tool> '<json args>'` or
-   `jira-agent list-tools` — the same registry the API's `/tools` exposes, for
+3. **CLI tool-call passthrough**: `symphony-workflow call <tool> '<json args>'` or
+   `symphony-workflow list-tools` — the same registry the API's `/tools` exposes, for
    scripting outside the server.
-4. **CLI-native control plane** (no server needed): `jira-agent plan <key>` /
-   `jira-agent implement <key>` run the same Plan/Implement loop as way 1
+4. **CLI-native control plane** (no server needed): `symphony-workflow plan <key>` /
+   `symphony-workflow implement <key>` run the same Plan/Implement loop as way 1
    in-process, via `orchestrator.py` (ADLC-45) — `RunStore` is per-process here, so
    `plan` saves its `Run` to `docs/runs/<key>/run.json` for a later `implement` to
-   reload. `jira-agent decompose <key>` (ADLC-46) breaks a Jira Epic into
+   reload. `symphony-workflow decompose <key>` (ADLC-46) breaks a Jira Epic into
    Stories/Tasks for human review — read-only, no Jira writes, renders
-   `docs/runs/<key>/decomposition.{md,json}`. `jira-agent sync-decomposition <key>`
+   `docs/runs/<key>/decomposition.{md,json}`. `symphony-workflow sync-decomposition <key>`
    (ADLC-47) turns an already-reviewed `decomposition.json` into real Jira
    Story/Subtask issues; it does not re-run the decompose agent. See
    `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for design detail.
@@ -111,6 +111,6 @@ auto-linking to actually show up in Jira, even with a correctly-named branch.
 
 This repo can act as the orchestrator for a *different* repo/Jira project — see
 `docs/PORTABILITY.md` for the two env vars that matter
-(`JIRA_AGENT_CLI_TARGET_REPO`, `JIRA_AGENT_CLI_JIRA_PROJECT`) and what's still
+(`SYMPHONY_WORKFLOW_TARGET_REPO`, `SYMPHONY_WORKFLOW_JIRA_PROJECT`) and what's still
 hardcoded (the prompt templates — Symphony's per-repo `WORKFLOW.md` model isn't
 implemented yet).

@@ -16,8 +16,8 @@ from typing import Any
 
 import httpx
 
-from jira_agent_cli.config import JiraConfig
-from jira_agent_cli.models import (
+from symphony_workflow.config import JiraConfig
+from symphony_workflow.models import (
     CurrentUser,
     Issue,
     IssueCreateResult,

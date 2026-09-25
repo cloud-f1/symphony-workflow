@@ -6,7 +6,7 @@
 polled every 60s, blanket-dispatching `orchestrator.execute_plan` for every unseen ticket. That's
 cheap and safe but dumb: it can't tell a well-formed ticket from a malformed one, can't
 prioritize, can't spot near-duplicates, and (as of `ADLC-44`'s bounded-retry fix) will now retry
-a genuinely bad ticket up to `JIRA_AGENT_CLI_POLL_MAX_PLAN_ATTEMPTS` times before giving up — which
+a genuinely bad ticket up to `SYMPHONY_WORKFLOW_POLL_MAX_PLAN_ATTEMPTS` times before giving up — which
 is the right behavior for a *transient* failure, but wasteful for a ticket that's malformed in a
 way a cheap classification step could have caught on attempt zero.
 
@@ -37,7 +37,7 @@ this document is that design.
 
 ## Definition of done (for actually building this, not for this design doc)
 
-- `JIRA_AGENT_CLI_TRIAGE_ENABLED` defaults `false` — this must not change today's behavior for
+- `SYMPHONY_WORKFLOW_TRIAGE_ENABLED` defaults `false` — this must not change today's behavior for
   anyone who hasn't opted in.
 - A batch of newly-discovered tickets produces exactly one Claude Agent SDK turn, not one per
   ticket and not one per poll tick.

@@ -11,7 +11,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from jira_agent_cli.models import TriageDecision
+from symphony_workflow.models import TriageDecision
 
 
 class RunState(StrEnum):

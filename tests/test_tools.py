@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
-from jira_agent_cli.models import CurrentUser, Issue, IssueCreateResult
-from jira_agent_cli.tools import TOOLS, call_tool
+from symphony_workflow.models import CurrentUser, Issue, IssueCreateResult
+from symphony_workflow.tools import TOOLS, call_tool
 
 
 def test_tools_registry_has_expected_names() -> None:
