@@ -23,10 +23,10 @@ from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import AssistantMessage, Message, ResultMessage, TextBlock
 from pydantic import ValidationError
 
-from jira_agent_cli.models import TriageDecision
-from jira_agent_cli.prompts import PLAN_OUTPUT_SCHEMA, TRIAGE_OUTPUT_SCHEMA, render_triage_prompt
+from symphony_workflow.models import TriageDecision
+from symphony_workflow.prompts import PLAN_OUTPUT_SCHEMA, TRIAGE_OUTPUT_SCHEMA, render_triage_prompt
 
-logger = logging.getLogger("jira_agent_cli.agent_runner")
+logger = logging.getLogger("symphony_workflow.agent_runner")
 
 DEFAULT_PLAN_MAX_TURNS = 5
 DEFAULT_IMPLEMENT_MAX_TURNS = 20

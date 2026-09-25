@@ -19,13 +19,13 @@ import asyncio
 import logging
 import os
 
-from jira_agent_cli.agent_runner import AgentRunError
-from jira_agent_cli.client import JiraClient, JiraError
-from jira_agent_cli.config import DEFAULT_TRIAGE_INTERVAL_SECONDS
-from jira_agent_cli.models import Issue, TriageDecision
-from jira_agent_cli.orchestrator import execute_plan, execute_triage, jira_safe_comment_body
-from jira_agent_cli.runs import Run, RunState, RunStore, RunTransitionError, TriageStore
-from jira_agent_cli.workspace import WorkspaceError, WorkspaceManager
+from symphony_workflow.agent_runner import AgentRunError
+from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.config import DEFAULT_TRIAGE_INTERVAL_SECONDS
+from symphony_workflow.models import Issue, TriageDecision
+from symphony_workflow.orchestrator import execute_plan, execute_triage, jira_safe_comment_body
+from symphony_workflow.runs import Run, RunState, RunStore, RunTransitionError, TriageStore
+from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
 
 # Errors execute_plan can raise per-ticket — caught individually below so an
 # unexpected exception type (a real bug) still surfaces loudly instead of
@@ -38,7 +38,7 @@ _PLAN_FAILURE_TYPES = (JiraError, RunTransitionError, WorkspaceError, AgentRunEr
 # _PLAN_FAILURE_TYPES above.
 _TRIAGE_FAILURE_TYPES = (AgentRunError,)
 
-logger = logging.getLogger("jira_agent_cli.poller")
+logger = logging.getLogger("symphony_workflow.poller")
 
 DEFAULT_POLL_INTERVAL_SECONDS = 60.0
 DEFAULT_MAX_RESULTS = 25
@@ -54,7 +54,7 @@ DEFAULT_MAX_PLAN_ATTEMPTS = 3
 
 # Overridable per adopting repo/project — see docs/PORTABILITY.md. Defaults to
 # ADLC (this POC's own board) for backward compatibility.
-JIRA_PROJECT = os.environ.get("JIRA_AGENT_CLI_JIRA_PROJECT", "ADLC")
+JIRA_PROJECT = os.environ.get("SYMPHONY_WORKFLOW_JIRA_PROJECT", "ADLC")
 
 # Epic/Subtask excluded: you can't "implement" an Epic, and a Subtask's parent
 # Story is the actual unit of work in this POC's model.
@@ -267,7 +267,7 @@ class Poller:
             self._client.add_comment(
                 issue_key,
                 jira_safe_comment_body(
-                    f"[jira-agent-cli plan] Gave up after {attempts} failed auto-Plan "
+                    f"[symphony-workflow plan] Gave up after {attempts} failed auto-Plan "
                     "attempts. Not retrying automatically anymore -- needs a human look "
                     "(check the failure comments above), or POST /runs to retry manually."
                 ),

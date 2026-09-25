@@ -5,7 +5,7 @@
 We read OpenAI's [Symphony](https://github.com/openai/symphony) spec (`openai/symphony`,
 Apache-2.0): tracker → per-issue workspace → coding-agent session → PR, with the tracker
 exposing "provider-native tools" to the agent. Right after, we scaffolded
-**`jira-agent-cli`** — a Python CLI that already plays Symphony's "Issue Tracker Adapter"
+**`symphony-workflow`** — a Python CLI that already plays Symphony's "Issue Tracker Adapter"
 role: every Jira op is both a typed client method and a schema-described tool
 (`list-tools` / `call`), 22 tests, and live-verified against `cloud-f1.atlassian.net` (v2
 issue CRUD works; v2 search is dead — HTTP 410 — fixed to use v3 `/search/jql`).
@@ -45,7 +45,7 @@ See [`spec.md`](spec.md) for why this points at the Claude Agent SDK instead.
 This POC is tracked in a dedicated Jira project — **ADLC** ("Agentic Dev Lifecycle"),
 team-managed Kanban board, separate from CF1's content/marketing backlog:
 https://cloud-f1.atlassian.net/jira/software/projects/ADLC/boards/74. Structure:
-**Epic `ADLC-2`** ("jira-agent-cli POC — Symphony-inspired Jira agent orchestration") →
+**Epic `ADLC-2`** ("symphony-workflow POC — Symphony-inspired Jira agent orchestration") →
 one **Story per phase** → **Subtasks** per concrete work item underneath each Story.
 
 | Phase | Story | Subtasks | Status |
@@ -74,7 +74,7 @@ the ADLC chain — including this intent/spec/plan trio itself.
 |---|---|---|
 | Plan run against a real ticket | ✅ | `ADLC-17`, `ADLC-24` |
 | Human approves the plan before Implement | ✅ | Enforced in code (`RunTransitionError`), exercised for real on `ADLC-17` |
-| Code+tests a human can review | ✅ | jira-agent-cli PR #1, merged, 64→77 tests over the POC |
+| Code+tests a human can review | ✅ | symphony-workflow PR #1, merged, 64→77 tests over the POC |
 | Working ADLC artifact chain | ✅ | this trio + `docs/runs/{ADLC-17,ADLC-24}/{plan,review}.md` |
 | intent/spec/plan trio itself | ✅ | kept current through every phase |
 
@@ -84,4 +84,4 @@ done, by design rather than oversight — both already documented as findings in
 recovery) and a Bash-capable Implement phase that can self-verify its own output.
 
 See [`spec.md`](spec.md) for the design, [`implement.md`](implement.md) for the phased
-roadmap, [`PORTABILITY.md`](../../PORTABILITY.md) for using this outside jira-agent-cli itself.
+roadmap, [`PORTABILITY.md`](../../PORTABILITY.md) for using this outside symphony-workflow itself.

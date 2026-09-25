@@ -1,7 +1,7 @@
 """Materialize a human-reviewed Epic decomposition (ADLC-46) as real Jira
 issues (ADLC-47).
 
-Reads `docs/runs/<epic_key>/decomposition.json` -- written by `jira-agent
+Reads `docs/runs/<epic_key>/decomposition.json` -- written by `symphony-workflow
 decompose` and, by the time this runs, already reviewed by a human as
 `decomposition.md` -- and creates one Story per `Decomposition.stories` entry
 (`parent=<epic_key>`, the standard-`parent`-field mechanism team-managed
@@ -13,7 +13,7 @@ mechanism Subtask->Story linking uses).
 This module does NOT re-run the decompose agent -- it only reads the
 already-generated `decomposition.json` (never the Markdown; that file is for
 human review only). Created issues land in Jira's default "To Do" state
-untouched, so the existing poller / manual `jira-agent plan`+`implement` flow
+untouched, so the existing poller / manual `symphony-workflow plan`+`implement` flow
 picks up the new Stories unchanged -- this is a new front stage, not a
 replacement. Subtasks are deliberately invisible to the poller's `READY_JQL`
 (it excludes `issuetype in (Epic, Subtask)`, same as every other Subtask this
@@ -32,8 +32,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
-from jira_agent_cli.client import JiraClient
-from jira_agent_cli.decompose import Decomposition, Story
+from symphony_workflow.client import JiraClient
+from symphony_workflow.decompose import Decomposition, Story
 
 
 class SyncDecompositionError(RuntimeError):
@@ -97,9 +97,9 @@ def _load_decomposition(epic_key: str, runs_docs_root: Path) -> Decomposition:
     if not path.exists():
         raise SyncDecompositionError(
             f"No decomposition found for {epic_key} at {path} -- run "
-            f"`jira-agent decompose {epic_key}` first, review the rendered "
+            f"`symphony-workflow decompose {epic_key}` first, review the rendered "
             f"{runs_docs_root / epic_key / 'decomposition.md'}, then re-run "
-            "`jira-agent sync-decomposition`."
+            "`symphony-workflow sync-decomposition`."
         )
     try:
         decomposition = Decomposition.model_validate_json(path.read_text(encoding="utf-8"))
@@ -109,7 +109,7 @@ def _load_decomposition(epic_key: str, runs_docs_root: Path) -> Decomposition:
     if decomposition.epic_key != epic_key:
         raise SyncDecompositionError(
             f"{path} was generated for epic {decomposition.epic_key!r}, not "
-            f"{epic_key!r} -- stale or hand-edited file. Re-run `jira-agent "
+            f"{epic_key!r} -- stale or hand-edited file. Re-run `symphony-workflow "
             f"decompose {epic_key}` to regenerate it before syncing."
         )
     if not decomposition.stories:

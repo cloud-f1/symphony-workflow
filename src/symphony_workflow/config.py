@@ -57,8 +57,8 @@ class JiraConfig:
 # `poller.py`/`orchestrator.py` already have their own precedent for this
 # shape (e.g. orchestrator._cleanup_enabled()). Read at call time, not import
 # time, so tests can monkeypatch/setenv per-test.
-TRIAGE_ENABLED_ENV = "JIRA_AGENT_CLI_TRIAGE_ENABLED"
-TRIAGE_INTERVAL_ENV = "JIRA_AGENT_CLI_TRIAGE_INTERVAL_SECONDS"
+TRIAGE_ENABLED_ENV = "SYMPHONY_WORKFLOW_TRIAGE_ENABLED"
+TRIAGE_INTERVAL_ENV = "SYMPHONY_WORKFLOW_TRIAGE_INTERVAL_SECONDS"
 
 # Deliberately >> the 60s poll interval (spec.md's design) -- triage is a
 # slow-cadence, budget-capped batch step, not a per-tick one.
@@ -81,14 +81,14 @@ def triage_interval_seconds() -> float:
 
 
 # ADLC-55: the poller has no interactive human to retry with a higher
-# `max_turns` the way `jira-agent plan --max-turns`/`POST /runs/{id}/plan`'s
+# `max_turns` the way `symphony-workflow plan --max-turns`/`POST /runs/{id}/plan`'s
 # body field let one do -- this is the poller's equivalent escape hatch for a
 # target repo where agent_runner.DEFAULT_PLAN_MAX_TURNS is consistently too
 # low for auto-Plan. Unset (the default) means "don't override" -- same
 # read-at-call-time-for-testability shape as triage_enabled()/
 # triage_interval_seconds() above, and same optional/default-preserving
 # reasoning as the CLI/API overrides.
-POLL_PLAN_MAX_TURNS_ENV = "JIRA_AGENT_CLI_POLL_PLAN_MAX_TURNS"
+POLL_PLAN_MAX_TURNS_ENV = "SYMPHONY_WORKFLOW_POLL_PLAN_MAX_TURNS"
 
 
 def poll_plan_max_turns() -> int | None:

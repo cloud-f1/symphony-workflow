@@ -8,7 +8,7 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 ## Project Overview
 
-**jira-agent-cli** is now two things, not one: a Python CLI for the Jira Cloud REST API where
+**symphony-workflow** is now two things, not one: a Python CLI for the Jira Cloud REST API where
 every operation is also a schema-described tool call, **and** a Symphony-inspired orchestration
 service (FastAPI server + background poller) that drives a Jira ticket through a Plan/Implement
 loop via the Claude Agent SDK. Both are first-class — the CLI didn't stay "just a CLI." See
@@ -20,8 +20,8 @@ for the orchestration service's why/design/roadmap (read those three before touc
 `orchestrator.py`, `poller.py`, `runs.py`, or `agent_runner.py`) — the general convention behind
 this `docs/plans/<NNNN>-<slug>/` layout is `docs/plans/README.md` (`ADLC-43`); see
 [docs/PORTABILITY.md](docs/PORTABILITY.md) for running this against a *different* repo/Jira
-project. **New to this repo? Load the `jira-agent-cli-ops` skill first**
-(`.claude/skills/jira-agent-cli-ops/SKILL.md`) — the short operational reference this file's
+project. **New to this repo? Load the `symphony-workflow-ops` skill first**
+(`.claude/skills/symphony-workflow-ops/SKILL.md`) — the short operational reference this file's
 sibling docs don't repeat. Setting this up for the first time as a human (not a Claude Code
 session)? [docs/QUICKSTART.md](docs/QUICKSTART.md) is a linear walkthrough, not reference material.
 
@@ -34,7 +34,7 @@ what this file states.
 Work on this repo is tracked in Jira project **ADLC** (`cloud-f1.atlassian.net`, Kanban board
 74), not CF1 — CF1 is content/marketing work, ADLC is agent-driven dev work. Structure:
 **Epic `ADLC-2`** → one **Story per POC phase** → **Subtasks** per concrete work item. When
-you pick up a subtask, transition it as you go (`jira-agent transition <key> "In Progress"` /
+you pick up a subtask, transition it as you go (`symphony-workflow transition <key> "In Progress"` /
 `"Done"`) — this repo's own agent-tool CLI is the thing doing the tracking, so use it. See
 [docs/plans/0001-symphony-poc/intent.md](docs/plans/0001-symphony-poc/intent.md)'s Tracking
 table for the current phase → ticket mapping.
@@ -66,17 +66,17 @@ re-litigate without updating docs/plans/0001-symphony-poc/spec.md first:
 
 `cli.py` can also drive a ticket without the FastAPI server, calling the same shared logic
 in-process (a fourth way to drive a ticket, alongside the API, the poller, and `call`/
-`list-tools` — see the `jira-agent-cli-ops` skill):
+`list-tools` — see the `symphony-workflow-ops` skill):
 
-- **`jira-agent plan/implement <key>`** (ADLC-45) — calls `orchestrator.execute_plan`/
+- **`symphony-workflow plan/implement <key>`** (ADLC-45) — calls `orchestrator.execute_plan`/
   `execute_implement`, the same functions `api.py`/`poller.py` use. `RunStore` is
   per-process here, so `plan` persists its `Run` to `docs/runs/<key>/run.json` for a
   later `implement` invocation to reload.
-- **`jira-agent decompose <key>`** (ADLC-46) — breaks a Jira Epic into Stories/Tasks for
+- **`symphony-workflow decompose <key>`** (ADLC-46) — breaks a Jira Epic into Stories/Tasks for
   human review. Reuses the Plan phase's `permission_mode="plan"` + `output_format` wiring
   (`prompts.PLAN_DECOMPOSE_SCHEMA` in place of `PLAN_OUTPUT_SCHEMA`) — read-only, no Jira
   writes. Renders `docs/runs/<key>/decomposition.{md,json}`.
-- **`jira-agent sync-decomposition <key>`** (ADLC-47) — materializes an already-reviewed
+- **`symphony-workflow sync-decomposition <key>`** (ADLC-47) — materializes an already-reviewed
   `decomposition.json` as real Jira Story (`parent=<epic-key>`)/Subtask
   (`parent=<story-key>`) issues via the existing `create_issue` path. Does not re-run the
   decompose agent.
@@ -88,7 +88,7 @@ See `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for des
 Every workspace's branch is `{ISSUE-KEY}-{slug-of-summary}` (`workspace.py`'s `branch_name()`),
 e.g. `ADLC-24-poller-live-verify-add-a-version-constant`. **Must start with the issue key** —
 that's what Jira's Development-panel auto-linking depends on (confirmed missing on `ADLC-17`
-before this was fixed, when the branch was `jira-agent-cli/ADLC-17`). A human doing manual dev
+before this was fixed, when the branch was `symphony-workflow/ADLC-17`). A human doing manual dev
 work on a ticket outside the Plan/Implement path should use the same pattern by hand:
 `git checkout -b ADLC-24-poller-live-verify-add-a-version-constant`.
 
@@ -104,13 +104,13 @@ branch confirms it.
 
 ## The three non-negotiables
 
-1. **Python codebase, CLI type.** The public interface is the `jira-agent` console script
+1. **Python codebase, CLI type.** The public interface is the `symphony-workflow` console script
    (Typer), not a library someone imports into unrelated code — though `JiraClient` is a normal
    typed class and importable when that's genuinely what's needed. Any new capability gets a
    subcommand or a `call`-able tool, not a side script.
 2. **Jira API is integrated as tool calls, not just an HTTP client.** Every Jira operation must
    be reachable two ways: `client.py` (typed Python method) AND a registered `Tool` in
-   `tools.py` with a pydantic input model, exposed via `jira-agent list-tools` / `call`. Adding
+   `tools.py` with a pydantic input model, exposed via `symphony-workflow list-tools` / `call`. Adding
    a client method without a matching tool entry is an incomplete change.
 3. **Unit tests are required, not optional.** No PR-worthy change ships without tests. HTTP
    calls are mocked with `respx` — nothing in this repo talks to a live Jira instance. If you
@@ -154,7 +154,7 @@ branch confirms it.
 ## Architecture
 
 ```
-src/jira_agent_cli/
+src/symphony_workflow/
   config.py       # JiraConfig.from_env() — required: JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN
                   # optional: JIRA_FIELD_EPIC_LINK / JIRA_FIELD_SPRINT / JIRA_FIELD_STORY_POINTS
   models.py       # pydantic response models (Issue, SearchResult, IssueCreateResult, Transition)
@@ -218,10 +218,10 @@ codes.
 ```bash
 uv sync --extra dev              # install deps (base + dev extras)
 uv run pytest                    # run tests (mocked HTTP only)
-uv run pytest --cov=jira_agent_cli
+uv run pytest --cov=symphony_workflow
 uv run ruff check .              # lint
 uv run ruff format .             # format
-uv run jira-agent list-tools     # sanity-check the tool registry
+uv run symphony-workflow list-tools     # sanity-check the tool registry
 ```
 
 ## Secrets
@@ -247,7 +247,7 @@ commit a token, and never let a test read `.env` — `test_cli.py`'s
   `docs/plans/0001-symphony-poc/spec.md` first.
 - Don't hardcode `cloud-f1.atlassian.net`, CF1's custom field IDs, `ADLC`, or a specific target
   repo path into `client.py`/`orchestrator.py`/`poller.py` — they belong in `.env` / env vars
-  (`JIRA_AGENT_CLI_TARGET_REPO`, `JIRA_AGENT_CLI_JIRA_PROJECT`, ...), because this is meant to
+  (`SYMPHONY_WORKFLOW_TARGET_REPO`, `SYMPHONY_WORKFLOW_JIRA_PROJECT`, ...), because this is meant to
   work against any Jira Cloud project and any target repo — see `docs/PORTABILITY.md`.
 - Don't reach for the v3 API / ADF format without a documented reason — it changes every model
   and client method to be structured instead of plain text.

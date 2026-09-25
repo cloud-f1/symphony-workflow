@@ -1,8 +1,8 @@
-# WORKFLOW — jira-agent-cli POC prompt policy
+# WORKFLOW — symphony-workflow POC prompt policy
 
 Symphony-style, deliberately simplified (see [`plan.md`](plan.md)): a single
-policy file for the two phases, no tracker/polling config (jira-agent-cli's
-own config lives in `.env`, not here). Rendered by `src/jira_agent_cli/prompts.py`.
+policy file for the two phases, no tracker/polling config (symphony-workflow's
+own config lives in `.env`, not here). Rendered by `src/symphony_workflow/prompts.py`.
 
 ## Plan phase
 
@@ -25,7 +25,7 @@ own config lives in `.env`, not here). Rendered by `src/jira_agent_cli/prompts.p
 
 ## Exact prompt text
 
-See `src/jira_agent_cli/prompts.py` — `PLAN_PROMPT_TEMPLATE` /
+See `src/symphony_workflow/prompts.py` — `PLAN_PROMPT_TEMPLATE` /
 `IMPLEMENT_PROMPT_TEMPLATE`. Kept in code rather than parsed out of this file
 for the POC (no template-loader indirection); this doc is the read-first
 policy summary, the module is the source of truth for exact wording.

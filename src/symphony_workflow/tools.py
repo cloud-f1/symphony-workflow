@@ -1,7 +1,7 @@
 """Tool-call layer: exposes Jira operations as discrete, schema-described
 functions an AI agent can invoke by name with JSON arguments — the same
 shape as an Anthropic/OpenAI function-calling tool definition. This is the
-layer other agent orchestration (e.g. `jira-agent call <tool> '<json>'`)
+layer other agent orchestration (e.g. `symphony-workflow call <tool> '<json>'`)
 should target instead of importing JiraClient methods directly, because it
 gives every tool a name, a description, and a validated input schema.
 """
@@ -14,7 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from jira_agent_cli.client import JiraClient
+from symphony_workflow.client import JiraClient
 
 
 class GetIssueArgs(BaseModel):

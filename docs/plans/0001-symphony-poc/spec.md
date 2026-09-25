@@ -6,7 +6,7 @@ See [`intent.md`](intent.md) for why this exists.
 
 | Symphony component | This POC | Status |
 |---|---|---|
-| Issue Tracker Adapter | `jira_agent_cli.tools` / `.client` | ✅ already built, live-verified |
+| Issue Tracker Adapter | `symphony_workflow.tools` / `.client` | ✅ already built, live-verified |
 | `WORKFLOW.md` (policy-as-code) | new `docs/WORKFLOW.md` | new, small |
 | Agent Runner (Codex app-server) | Claude Agent SDK session, not `claude -p` | new |
 | Orchestrator (poll/dispatch/retry) | **out of scope** — a human calls the API once per ticket | intentionally cut |
@@ -46,7 +46,7 @@ better than the custom tool-budget split this spec originally proposed. Implemen
 `default` / `acceptEdits` / `plan` / `dontAsk` / `bypassPermissions` / `auto`
 (model-classifier-approved).
 
-Custom tools (e.g. exposing `jira_agent_cli.tools`'s registry to the agent directly)
+Custom tools (e.g. exposing `symphony_workflow.tools`'s registry to the agent directly)
 register via the `@tool` decorator + `create_sdk_mcp_server(...)` (in-process MCP
 server) — deferred for this POC; the orchestrator fetches the issue and injects it into
 the prompt instead, which is simpler and enough for Phase 2/3.
@@ -101,7 +101,7 @@ POST /runs/{id}/implement                     → REQUIRES state == plan_ready (
                                                   the plan phase's session_id, scoped to
                                                   .worktrees/<key>/; writes code+tests)
 GET  /runs/{id}                               → current state + artifacts produced
-GET  /tools                                   → jira-agent-cli's existing TOOLS registry
+GET  /tools                                   → symphony-workflow's existing TOOLS registry
 POST /tools/{name}/call                       → direct tool-call passthrough (agent-callable)
 ```
 
@@ -120,8 +120,8 @@ enforce the human gate, not a full retry/reconciliation model.
 
 - **Reused unchanged:** `client.py`, `tools.py`, `config.py`, `models.py`, `cli.py` — the
   whole existing tracker-adapter layer.
-- **New:** `src/jira_agent_cli/api.py` (FastAPI), `src/jira_agent_cli/agent_runner.py`
-  (Claude Agent SDK wrapper + workspace manager), `src/jira_agent_cli/runs.py` (the small
+- **New:** `src/symphony_workflow/api.py` (FastAPI), `src/symphony_workflow/agent_runner.py`
+  (Claude Agent SDK wrapper + workspace manager), `src/symphony_workflow/runs.py` (the small
   state machine, in-memory store — no DB for a POC), `docs/WORKFLOW.md` (prompt template
   + phase policy, Symphony-style but simplified).
 
@@ -162,10 +162,10 @@ warns about, and `ADLC-17` proved why (`acceptEdits` can't self-verify).
 ## CLI control plane + decomposition (ADLC-45/46/47, 2026-09)
 
 A fourth way to drive a ticket, alongside `POST /runs/.../plan|implement`, the poller, and
-`jira-agent call`: `cli.py`'s `plan`/`implement`/`decompose`/`sync-decomposition` commands
+`symphony-workflow call`: `cli.py`'s `plan`/`implement`/`decompose`/`sync-decomposition` commands
 run the same orchestration logic in-process, no `uvicorn` server required.
 
-- **`jira-agent plan/implement <key>`** (ADLC-45) call `orchestrator.execute_plan`/
+- **`symphony-workflow plan/implement <key>`** (ADLC-45) call `orchestrator.execute_plan`/
   `execute_implement` directly — the exact functions `api.py`'s HTTP handlers and
   `poller.py` already share, so this doesn't fork the Plan/Implement logic a third way.
   The one wrinkle: `RunStore` is in-memory and process-scoped (§14.3 above), and the CLI
@@ -175,7 +175,7 @@ run the same orchestration logic in-process, no `uvicorn` server required.
   `docs/runs/<key>/run.json` next to the `plan.md` it already renders, and `implement`
   reloads it via `RunStore.load`. This is a CLI-process concern only, not a change to
   `RunStore`/`runs.py` itself.
-- **`jira-agent decompose <key>`** (ADLC-46) breaks a Jira Epic into Stories, each with a
+- **`symphony-workflow decompose <key>`** (ADLC-46) breaks a Jira Epic into Stories, each with a
   user story, acceptance criteria, and Tasks, for human review before any Jira issue
   exists. Deliberately **not** routed through `runs.Run`/`RunStore` — that state machine
   models one issue's Plan → Implement lifecycle, which a one-shot Epic decomposition has
@@ -188,7 +188,7 @@ run the same orchestration logic in-process, no `uvicorn` server required.
   structured seam `sync-decomposition` reads). A `definition_of_done` checklist is
   templated in `decompose.py` from this repo's own CLAUDE.md standards, not left to the
   LLM to invent per run.
-- **`jira-agent sync-decomposition <key>`** (ADLC-47) reads an already-reviewed
+- **`symphony-workflow sync-decomposition <key>`** (ADLC-47) reads an already-reviewed
   `decomposition.json` — never the Markdown, and never re-running the decompose agent —
   and creates the real issues: one Story per decomposed story (`parent=<epic-key>`) then
   one Subtask per that Story's tasks (`parent=<story-key>`), both via the existing
@@ -208,11 +208,11 @@ sections turned out to already agree with what we'd built for other reasons).
 | Symphony section | Status | Note |
 |---|---|---|
 | §4 Core Domain Model | Adopted (subset) | `Issue`/`SearchResult` models; no `blockers`/labels normalization yet |
-| §5 `WORKFLOW.md` policy file | Deferred | `prompts.py` is still jira-agent-cli's own hardcoded templates, not a per-repo policy file — see `docs/PORTABILITY.md` |
+| §5 `WORKFLOW.md` policy file | Deferred | `prompts.py` is still symphony-workflow's own hardcoded templates, not a per-repo policy file — see `docs/PORTABILITY.md` |
 | §7 Orchestration State Machine | Adopted (5-state subset) | `RunState` — just enough to gate Implement, not Symphony's full 11-state lifecycle |
-| §8 Polling, Scheduling, Reconciliation | Adopted (poll + bounded retry) | `poller.py` — no concurrency control (§8.3); §8.4 partially adopted 2026-09-24: a failed auto-Plan is retried up to `JIRA_AGENT_CLI_POLL_MAX_PLAN_ATTEMPTS` (default 3) at the normal poll cadence (crude backoff, not exponential), then gives up with a Jira comment — found live (`ADLC-44` hit `error_max_turns` and was silently stuck forever before this); no reconciliation (§8.5); one ticket, one Run per issue key (reused across retries via `RunStore.reset_for_retry`, not one-Run-per-attempt) |
-| §8.6 Workspace Cleanup | Adopted (opt-in) | `orchestrator.cleanup_workspace_if_terminal`/`sweep_terminal_workspaces` — startup sweep (`api.py`'s `lifespan`) + on-transition check in `execute_plan`/`execute_implement`'s failure/success paths; off by default (`JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED`), checks *live* Jira status against `JIRA_AGENT_CLI_TERMINAL_STATUSES` (default `Done`), never force-removes a dirty worktree. No periodic re-sweep in `poller.py`'s tick — startup sweep + the two orchestrator hook points were judged sufficient for this POC; a future ticket could add one if "eventually" needs to mean "within a poll interval" rather than "next restart" |
-| §9.4 Workspace Lifecycle Hooks | Adopted (minimal) | `workspace.py`'s `WorkspaceHooks`/`WorkspaceManager.run_*` — one optional shell command per hook point (`after_create`/`before_run`/`after_run`/`before_remove`), configured via `JIRA_AGENT_CLI_HOOK_*` env vars (this repo's existing convention, not a WORKFLOW.md policy file — see §5's row below), workspace path + issue key passed as env vars, `hooks.timeout_ms` default 60000 matching SPEC.md. Best-effort: a failing/timed-out hook is logged, never raised |
+| §8 Polling, Scheduling, Reconciliation | Adopted (poll + bounded retry) | `poller.py` — no concurrency control (§8.3); §8.4 partially adopted 2026-09-24: a failed auto-Plan is retried up to `SYMPHONY_WORKFLOW_POLL_MAX_PLAN_ATTEMPTS` (default 3) at the normal poll cadence (crude backoff, not exponential), then gives up with a Jira comment — found live (`ADLC-44` hit `error_max_turns` and was silently stuck forever before this); no reconciliation (§8.5); one ticket, one Run per issue key (reused across retries via `RunStore.reset_for_retry`, not one-Run-per-attempt) |
+| §8.6 Workspace Cleanup | Adopted (opt-in) | `orchestrator.cleanup_workspace_if_terminal`/`sweep_terminal_workspaces` — startup sweep (`api.py`'s `lifespan`) + on-transition check in `execute_plan`/`execute_implement`'s failure/success paths; off by default (`SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED`), checks *live* Jira status against `SYMPHONY_WORKFLOW_TERMINAL_STATUSES` (default `Done`), never force-removes a dirty worktree. No periodic re-sweep in `poller.py`'s tick — startup sweep + the two orchestrator hook points were judged sufficient for this POC; a future ticket could add one if "eventually" needs to mean "within a poll interval" rather than "next restart" |
+| §9.4 Workspace Lifecycle Hooks | Adopted (minimal) | `workspace.py`'s `WorkspaceHooks`/`WorkspaceManager.run_*` — one optional shell command per hook point (`after_create`/`before_run`/`after_run`/`before_remove`), configured via `SYMPHONY_WORKFLOW_HOOK_*` env vars (this repo's existing convention, not a WORKFLOW.md policy file — see §5's row below), workspace path + issue key passed as env vars, `hooks.timeout_ms` default 60000 matching SPEC.md. Best-effort: a failing/timed-out hook is logged, never raised |
 | §9.5 Workspace Safety Invariants | **Adopted as-is** | `workspace.py`'s `_validate` — cwd-inside-root + sanitized keys, taken directly |
 | §10 Agent Runner Protocol (Codex app-server) | **Not applicable** | We use the Claude Agent SDK, a different protocol entirely — `agent_runner.py` is our own contract, not §10's |
 | §11 Issue Tracker Integration Contract | Adopted (Jira only) | `tools.py`'s registry plays the adapter role; no multi-tracker abstraction |
@@ -220,7 +220,7 @@ sections turned out to already agree with what we'd built for other reasons).
 | §14.1–14.2 Failure Model | Adopted (partial) | Per-run failure → `mark_failed`; no exponential backoff/retry queue (§14.2's "Worker failures: convert to retries") |
 | §14.3 Partial State Recovery | **Already agreed** | See the Finding above — same intentional in-memory design, discovered independently before re-reading this section |
 | §15 Security and Operational Safety | Adopted (partial) | Workspace safety yes; no documented sandbox/approval posture beyond `permission_mode` |
-| §13.7 HTTP API Extension, CLI variant | Adopted (new, ADLC-45/46/47) | `jira-agent plan/implement/decompose/sync-decomposition` — the CLI control plane above; a fourth interface onto `orchestrator.py`/`agent_runner.py`, not a parallel implementation of the Plan/Implement gate |
+| §13.7 HTTP API Extension, CLI variant | Adopted (new, ADLC-45/46/47) | `symphony-workflow plan/implement/decompose/sync-decomposition` — the CLI control plane above; a fourth interface onto `orchestrator.py`/`agent_runner.py`, not a parallel implementation of the Plan/Implement gate |
 | §4 Core Domain Model, Epic decomposition | Adopted (new, ADLC-46/47) | No Symphony section models Epic→Story/Task decomposition directly; `decompose.py`'s `Decomposition`/`Story`/`Task` are new, deliberately outside `RunState` — see the CLI control plane section above |
 
 See [`implement.md`](implement.md) for the phased build order.

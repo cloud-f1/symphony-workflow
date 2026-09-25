@@ -1,10 +1,65 @@
-# jira-agent-cli — Session Summary
+# symphony-workflow — Session Summary
 > **Load this to resume any session without re-explaining context.** Pattern borrowed
 > from `ai-coding-nexjs-template`'s `docs/context/session-summary.md` (a real, proven
 > sibling-repo convention) — adapted here since Jira (the `ADLC` board) is this repo's
 > SSOT for epic/story *status*, not a local markdown file; this doc carries the
 > narrative — what happened, what's next, what to remember — that a ticket list alone
 > doesn't.
+
+---
+
+## Session close-out — 2026-09-25 (`ADLC-53`: repo renamed to symphony-workflow, v0.3.0 tagged)
+
+**Executed `ADLC-53`**, the rename flagged in the previous close-out as needing explicit
+human confirmation before touching anything. Alex confirmed both open decisions: new local
+path is `~/Documents/git_saas/symphony-workflow` (not left at the old path), and the Python
+package/console command are renamed too (`jira_agent_cli` → `symphony_workflow`, `jira-agent`
+→ `symphony-workflow`) rather than deferred to a follow-up ticket.
+
+**What changed, in order:**
+1. Quiesced first — killed the running `uvicorn` server, removed 10 already-merged worktrees
+   (`.worktrees/ADLC-{28,29,30,43,44,49,50,51,52,53,54}`) + their merged local branches, and
+   unlocked/removed one stale worktree (`.claude/worktrees/agent-ad0c65d5e520a53c8`, PID
+   confirmed dead) — an abandoned duplicate ADLC-50 attempt, unmerged, superseded by the
+   branch that actually shipped. A full-tree `mv` with live linked worktrees still attached
+   would have broken every one of them (their `.git/worktrees/*/gitdir` files store absolute
+   paths).
+2. Package rename on a branch first, while the GitHub repo was still named `jira-agent-cli`
+   (so nothing broke mid-flight): `src/jira_agent_cli/` → `src/symphony_workflow/`, every
+   import, `pyproject.toml` (`name`, `[project.scripts]`, hatch wheel `packages`), all
+   docstrings/comments/Jira-comment-template strings in `cli.py`/`orchestrator.py`/
+   `poller.py`/`decompose.py`/`sync_decomposition.py`/`tools.py`/`api.py`/`config.py`. 194
+   tests + ruff clean throughout. One deliberate exception: `tests/test_workspace.py`'s
+   regression test for the old `jira-agent-cli/ADLC-17` branch-naming bug keeps that literal
+   string — it's quoting a real historical bug, not a live reference.
+3. Plugin/skill layer, landed atomically: `.claude/skills/jira-agent-cli-ops/` →
+   `.claude/skills/symphony-workflow-ops/` (and the `plugin/skills/` mirror copy — these two
+   `SKILL.md` files were already hand-drifted from each other pre-rename; renamed both without
+   reconciling that separate staleness), `.claude-plugin/marketplace.json`,
+   `plugin/.claude-plugin/plugin.json` (incl. `homepage` URL), `plugin/hooks/hooks.json`, both
+   `session-start-check-api.sh` copies (module path, log filename, status messages), and
+   `.claude/settings.json`'s hardcoded absolute hook path (forward-referenced the not-yet-created
+   new path, confirmed correct after the `mv` in step 4).
+4. Version bumped to `0.3.0` (pyproject.toml + plugin.json, kept in sync per
+   `test_plugin_version_matches_pyproject_version`), `CHANGELOG.md` entry added. Rename branch
+   pushed, PR opened and merged into `main` on GitHub while the repo was still named
+   `jira-agent-cli` — so the PR's own links stay valid pre-rename.
+5. `gh repo rename symphony-workflow` on GitHub (auto-redirect keeps old
+   `github.com/cloud-f1/jira-agent-cli` links resolving), then local
+   `mv ~/Documents/git_saas/jira-agent-cli ~/Documents/git_saas/symphony-workflow` +
+   `git remote set-url origin`, server restarted from the new path and `/health` re-verified.
+
+**Deliberately left untouched (historical, not living references):** `docs/runs/**/*.md`
+(per-ticket Plan-phase logs), `docs/plans/**/implement.md` (append-only execution logs),
+`docs/plans/0001-symphony-poc/implement.md` specifically — these describe what was literally
+true when written, under the name the repo had at the time. Only `intent.md`/`spec.md`
+(forward-looking design docs) were swept. `CHANGELOG.md`'s pre-0.3.0 entries were left alone
+for the same reason; a new 0.3.0 entry documents the rename itself.
+
+**One follow-up surfaces for a later session**: the two `symphony-workflow-ops` `SKILL.md`
+copies (`.claude/skills/` vs `plugin/skills/`) were already substantively different before
+this rename (confirmed by diff) — the plugin copy is a hand-maintained mirror that's drifted.
+Not fixed here (out of scope for a rename), but worth a dedicated reconciliation pass.
 
 ---
 

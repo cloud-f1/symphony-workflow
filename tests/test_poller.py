@@ -13,12 +13,12 @@ import httpx
 import pytest
 import respx
 
-from jira_agent_cli.agent_runner import AgentRunError, AgentRunResult
-from jira_agent_cli.client import JiraClient
-from jira_agent_cli.config import JiraConfig
-from jira_agent_cli.models import TriageDecision
-from jira_agent_cli.poller import Poller
-from jira_agent_cli.runs import RunState, RunStore
+from symphony_workflow.agent_runner import AgentRunError, AgentRunResult
+from symphony_workflow.client import JiraClient
+from symphony_workflow.config import JiraConfig
+from symphony_workflow.models import TriageDecision
+from symphony_workflow.poller import Poller
+from symphony_workflow.runs import RunState, RunStore
 
 from .conftest import BASE_URL
 
@@ -46,7 +46,7 @@ def config() -> JiraConfig:
 def poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Poller:
     # execute_plan writes docs/runs/<key>/plan.md via orchestrator.RUNS_DOCS_ROOT —
     # redirect it so poll-tick tests never touch this repo's real docs/runs/.
-    monkeypatch.setattr("jira_agent_cli.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
+    monkeypatch.setattr("symphony_workflow.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
     return Poller(client=JiraClient(config), runs=RunStore(), workspaces=_FakeWorkspaceManager())
 
 
@@ -54,7 +54,7 @@ def poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
 def max_turns_poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Poller:
     # ADLC-55: same as `poller` above but with an explicit plan_max_turns
     # override -- the opt-in path, used only by the max-turns-specific test.
-    monkeypatch.setattr("jira_agent_cli.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
+    monkeypatch.setattr("symphony_workflow.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
     return Poller(
         client=JiraClient(config),
         runs=RunStore(),
@@ -67,7 +67,7 @@ def max_turns_poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_pa
 def triage_poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Poller:
     # Same as `poller` above but with triage (ADLC-29) turned on -- the
     # opt-in path, used only by the triage-specific tests below.
-    monkeypatch.setattr("jira_agent_cli.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
+    monkeypatch.setattr("symphony_workflow.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
     return Poller(
         client=JiraClient(config),
         runs=RunStore(),
@@ -126,7 +126,7 @@ async def test_tick_dispatches_plan_for_a_new_ticket(
     async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
         return AgentRunResult(text="auto-plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", fake_run_plan)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", fake_run_plan)
 
     dispatched = await poller.tick()
     assert len(dispatched) == 1
@@ -164,7 +164,7 @@ async def test_tick_no_max_turns_override_omits_kwarg(
         received_kwargs.update(kwargs)
         return AgentRunResult(text="auto-plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", fake_run_plan)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", fake_run_plan)
 
     dispatched = await poller.tick()
     assert len(dispatched) == 1
@@ -201,7 +201,7 @@ async def test_tick_max_turns_override_reaches_run_plan(
         received.update(kwargs)
         return AgentRunResult(text="auto-plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", fake_run_plan)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", fake_run_plan)
 
     dispatched = await max_turns_poller.tick()
     assert len(dispatched) == 1
@@ -236,7 +236,7 @@ async def test_tick_skips_a_ticket_already_dispatched(
         call_count += 1
         return AgentRunResult(text="auto-plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", fake_run_plan)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", fake_run_plan)
 
     first = await poller.tick()
     second = await poller.tick()
@@ -278,7 +278,7 @@ async def test_tick_logs_and_continues_when_one_ticket_fails(
             raise AgentRunError("boom")
         return AgentRunResult(text="ok", session_id="sess-1", cost_usd=0.01, num_turns=1)
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", flaky_run_plan)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", flaky_run_plan)
 
     dispatched = await poller.tick()
     # ADLC-97 failed and was logged, not raised; ADLC-98 still got planned.
@@ -320,7 +320,7 @@ async def test_failed_ticket_is_retried_on_a_later_tick(
             raise AgentRunError("boom")
         return AgentRunResult(text="ok", session_id="sess-1", cost_usd=0.01, num_turns=1)
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", flaky_then_ok)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", flaky_then_ok)
 
     first = await poller.tick()
     assert first == []  # failed, nothing dispatched yet
@@ -337,7 +337,7 @@ async def test_failed_ticket_is_retried_on_a_later_tick(
 async def test_ticket_stops_being_retried_after_max_attempts(
     config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr("jira_agent_cli.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
+    monkeypatch.setattr("symphony_workflow.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
     poller = Poller(
         client=JiraClient(config),
         runs=RunStore(),
@@ -363,7 +363,7 @@ async def test_ticket_stops_being_retried_after_max_attempts(
     async def always_fails(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
         raise AgentRunError("boom")
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", always_fails)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", always_fails)
 
     await poller.tick()  # attempt 1/2 — retried next tick
     assert "ADLC-97" not in poller._given_up
@@ -449,7 +449,7 @@ async def test_flag_off_by_default_dispatches_immediately_like_before(
     async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
         return AgentRunResult(text="auto-plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", fake_run_plan)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", fake_run_plan)
 
     dispatched = await poller.tick()
 
@@ -525,7 +525,7 @@ async def test_tick_queues_new_ticket_for_triage_instead_of_dispatching(
     triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-99"))
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", _fail_if_run_plan_called)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", _fail_if_run_plan_called)
 
     dispatched = await triage_poller.tick()
 
@@ -540,7 +540,7 @@ async def test_tick_does_not_requeue_an_already_queued_ticket(
     triage_poller: Poller, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-99"))
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", _fail_if_run_plan_called)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", _fail_if_run_plan_called)
 
     await triage_poller.tick()
     await triage_poller.tick()
@@ -556,7 +556,7 @@ async def test_triage_tick_is_a_noop_when_queue_is_empty(
     async def fail_if_called(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
         raise AssertionError("run_triage must not be called for an empty batch")
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fail_if_called)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fail_if_called)
 
     assert await triage_poller.triage_tick() == []
 
@@ -574,7 +574,7 @@ async def test_triage_plan_decision_then_next_regular_tick_dispatches(
         assert [c["key"] for c in candidates] == ["ADLC-99"]
         return [TriageDecision(issue_key="ADLC-99", action="plan", reason="well-formed")]
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fake_run_triage)
 
     triage_decisions = await triage_poller.triage_tick()
     assert [d.action for d in triage_decisions] == ["plan"]
@@ -585,7 +585,7 @@ async def test_triage_plan_decision_then_next_regular_tick_dispatches(
     async def fail_if_called_again(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
         raise AssertionError("must not re-triage an already-queued-and-drained batch")
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fail_if_called_again)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fail_if_called_again)
     assert await triage_poller.triage_tick() == []
 
     # Now the *regular* poll tick dispatches it -- exactly one Plan run, not
@@ -608,7 +608,7 @@ async def test_triage_plan_decision_then_next_regular_tick_dispatches(
     async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
         return AgentRunResult(text="auto-plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", fake_run_plan)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", fake_run_plan)
 
     dispatched = await triage_poller.tick()
     assert [r.issue_key for r in dispatched] == ["ADLC-99"]
@@ -626,10 +626,10 @@ async def test_triage_skip_decision_prevents_dispatch_forever(
     async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
         return [TriageDecision(issue_key="ADLC-97", action="skip", reason="placeholder text")]
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fake_run_triage)
     await triage_poller.triage_tick()
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", _fail_if_run_plan_called)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", _fail_if_run_plan_called)
 
     # Ticket is still "To Do" in Jira (skip doesn't transition anything), so
     # it keeps showing up in search results -- but must never be dispatched,
@@ -653,7 +653,7 @@ async def test_triage_flag_decision_posts_comment_not_status_change_and_prevents
     async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
         return [TriageDecision(issue_key="ADLC-96", action="flag", reason="ambiguous scope")]
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fake_run_triage)
     comment_route = respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-96/comment").mock(
         return_value=httpx.Response(201, json={})
     )
@@ -668,7 +668,7 @@ async def test_triage_flag_decision_posts_comment_not_status_change_and_prevents
     assert "ambiguous scope" in body
     assert not transitions_route.called  # no status transition -- comment-only by design
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", _fail_if_run_plan_called)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", _fail_if_run_plan_called)
     dispatched = await triage_poller.tick()
     assert dispatched == []
 
@@ -685,7 +685,7 @@ async def test_triage_agent_failure_requeues_batch_for_next_cycle(
     async def always_fails(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
         raise AgentRunError("error_max_turns")
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", always_fails)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", always_fails)
 
     decisions = await triage_poller.triage_tick()
 
@@ -723,7 +723,7 @@ async def test_bounded_retry_path_is_unaffected_by_triage(
     async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
         return [TriageDecision(issue_key="ADLC-94", action="plan", reason="well-formed")]
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fake_run_triage)
 
     attempts = {"count": 0}
 
@@ -733,7 +733,7 @@ async def test_bounded_retry_path_is_unaffected_by_triage(
             raise AgentRunError("boom")
         return AgentRunResult(text="ok", session_id="sess-1", cost_usd=0.01, num_turns=1)
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_plan", flaky_then_ok)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", flaky_then_ok)
 
     await triage_poller.tick()  # queues for triage
     await triage_poller.triage_tick()  # decides "plan"

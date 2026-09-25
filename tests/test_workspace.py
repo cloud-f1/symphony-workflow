@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from jira_agent_cli.workspace import (
+from symphony_workflow.workspace import (
     WorkspaceError,
     WorkspaceHooks,
     WorkspaceManager,
@@ -118,11 +118,11 @@ def test_ensure_uses_branch_slug_for_the_actual_git_branch(
 def test_hooks_from_env_reads_all_four_hook_points_and_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("JIRA_AGENT_CLI_HOOK_AFTER_CREATE", "echo created")
-    monkeypatch.setenv("JIRA_AGENT_CLI_HOOK_BEFORE_RUN", "echo before")
-    monkeypatch.setenv("JIRA_AGENT_CLI_HOOK_AFTER_RUN", "echo after")
-    monkeypatch.setenv("JIRA_AGENT_CLI_HOOK_BEFORE_REMOVE", "echo removing")
-    monkeypatch.setenv("JIRA_AGENT_CLI_HOOK_TIMEOUT_MS", "5000")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_HOOK_AFTER_CREATE", "echo created")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_HOOK_BEFORE_RUN", "echo before")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_HOOK_AFTER_RUN", "echo after")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_HOOK_BEFORE_REMOVE", "echo removing")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_HOOK_TIMEOUT_MS", "5000")
 
     hooks = WorkspaceHooks.from_env()
 
@@ -135,11 +135,11 @@ def test_hooks_from_env_reads_all_four_hook_points_and_timeout(
 
 def test_hooks_from_env_defaults_to_all_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     for var in (
-        "JIRA_AGENT_CLI_HOOK_AFTER_CREATE",
-        "JIRA_AGENT_CLI_HOOK_BEFORE_RUN",
-        "JIRA_AGENT_CLI_HOOK_AFTER_RUN",
-        "JIRA_AGENT_CLI_HOOK_BEFORE_REMOVE",
-        "JIRA_AGENT_CLI_HOOK_TIMEOUT_MS",
+        "SYMPHONY_WORKFLOW_HOOK_AFTER_CREATE",
+        "SYMPHONY_WORKFLOW_HOOK_BEFORE_RUN",
+        "SYMPHONY_WORKFLOW_HOOK_AFTER_RUN",
+        "SYMPHONY_WORKFLOW_HOOK_BEFORE_REMOVE",
+        "SYMPHONY_WORKFLOW_HOOK_TIMEOUT_MS",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -154,7 +154,7 @@ def test_ensure_runs_after_create_hook_with_issue_key_and_path_env_vars(
     marker = tmp_path / "after-create-marker.txt"
     hooks = WorkspaceHooks(
         after_create=(
-            f'echo "$JIRA_AGENT_CLI_ISSUE_KEY $JIRA_AGENT_CLI_WORKSPACE_PATH" > "{marker}"'
+            f'echo "$SYMPHONY_WORKFLOW_ISSUE_KEY $SYMPHONY_WORKFLOW_WORKSPACE_PATH" > "{marker}"'
         )
     )
     manager = WorkspaceManager(tmp_path / "workspaces", source_repo=source_repo, hooks=hooks)
@@ -215,7 +215,7 @@ def test_hook_nonzero_exit_is_logged_not_raised(
     manager = WorkspaceManager(tmp_path / "workspaces", source_repo=source_repo, hooks=hooks)
     path = manager.ensure("ADLC-1")
 
-    with caplog.at_level(logging.WARNING, logger="jira_agent_cli.workspace"):
+    with caplog.at_level(logging.WARNING, logger="symphony_workflow.workspace"):
         manager.run_before_run("ADLC-1", path)  # must not raise
 
     assert "before_run" in caplog.text
@@ -229,7 +229,7 @@ def test_hook_timeout_is_logged_not_raised(
     manager = WorkspaceManager(tmp_path / "workspaces", source_repo=source_repo, hooks=hooks)
     path = manager.ensure("ADLC-1")
 
-    with caplog.at_level(logging.WARNING, logger="jira_agent_cli.workspace"):
+    with caplog.at_level(logging.WARNING, logger="symphony_workflow.workspace"):
         manager.run_before_run("ADLC-1", path)  # must not raise
 
     assert "timed out" in caplog.text
@@ -272,7 +272,7 @@ def test_remove_fails_safe_on_a_dirty_worktree(
     path = manager.ensure("ADLC-1")
     (path / "untracked.txt").write_text("uncommitted work")
 
-    with caplog.at_level(logging.WARNING, logger="jira_agent_cli.workspace"):
+    with caplog.at_level(logging.WARNING, logger="symphony_workflow.workspace"):
         removed = manager.remove("ADLC-1")
 
     # `git worktree remove` (no --force) refuses when there are untracked

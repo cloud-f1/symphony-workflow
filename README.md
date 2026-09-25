@@ -1,16 +1,16 @@
-# jira-agent-cli
+# symphony-workflow
 
 A Python CLI for the Jira Cloud REST API where every operation is also exposed as a
 schema-described **tool call** — so an AI agent (Claude Code, Codex, a cron job) can shell out
 to it the same way it would call a function, instead of an engineer running it by hand.
 
 ```bash
-jira-agent list-tools                                    # every tool's JSON schema
-jira-agent call get_issue '{"key": "CF1-1"}'              # agent-style invocation
-jira-agent get CF1-1                                      # same thing, human-friendly
-jira-agent search 'project = CF1 AND status != Done'
-jira-agent comment CF1-1 "Looks good, merging."
-jira-agent transition CF1-1 Done
+symphony-workflow list-tools                                    # every tool's JSON schema
+symphony-workflow call get_issue '{"key": "CF1-1"}'              # agent-style invocation
+symphony-workflow get CF1-1                                      # same thing, human-friendly
+symphony-workflow search 'project = CF1 AND status != Done'
+symphony-workflow comment CF1-1 "Looks good, merging."
+symphony-workflow transition CF1-1 Done
 ```
 
 **New here?** `docs/QUICKSTART.md` is a linear walkthrough from `uv sync` to driving a real
@@ -63,7 +63,7 @@ Requires [`uv`](https://docs.astral.sh/uv/) and Python 3.11+.
 ```bash
 uv sync --extra dev
 cp .env.example .env   # fill in JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN
-uv run jira-agent list-tools
+uv run symphony-workflow list-tools
 ```
 
 Get a Jira API token: Atlassian account settings → Security → API tokens.
@@ -72,14 +72,14 @@ Get a Jira API token: Atlassian account settings → Security → API tokens.
 
 ```bash
 uv run pytest              # all HTTP calls mocked via respx — no live Jira access, no network
-uv run pytest --cov=jira_agent_cli
+uv run pytest --cov=symphony_workflow
 uv run ruff check .
 ```
 
 ## Project layout
 
 ```
-src/jira_agent_cli/
+src/symphony_workflow/
   config.py   # env-var config (JiraConfig, ConfigError)
   models.py   # pydantic response models (Issue, SearchResult, Transition, ...)
   client.py   # JiraClient — typed HTTP wrapper (JiraError on non-2xx)

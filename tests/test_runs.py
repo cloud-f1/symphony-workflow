@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from jira_agent_cli.runs import Run, RunState, RunStore, RunTransitionError
+from symphony_workflow.runs import Run, RunState, RunStore, RunTransitionError
 
 
 def test_create_starts_in_created_state() -> None:
@@ -18,7 +18,7 @@ def test_create_starts_in_created_state() -> None:
 
 def test_load_registers_an_already_built_run() -> None:
     # Simulates cli.py's `implement` rehydrating a Run a prior, separate
-    # `jira-agent plan` process saved to disk (RunStore is process-scoped).
+    # `symphony-workflow plan` process saved to disk (RunStore is process-scoped).
     store = RunStore()
     saved = Run(
         id="run-1",

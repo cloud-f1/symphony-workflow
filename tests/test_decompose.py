@@ -14,11 +14,11 @@ import httpx
 import pytest
 import respx
 
-import jira_agent_cli.decompose as decompose_module
-from jira_agent_cli.agent_runner import AgentRunResult
-from jira_agent_cli.client import JiraClient, JiraError
-from jira_agent_cli.config import JiraConfig
-from jira_agent_cli.decompose import (
+import symphony_workflow.decompose as decompose_module
+from symphony_workflow.agent_runner import AgentRunResult
+from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.config import JiraConfig
+from symphony_workflow.decompose import (
     DEFINITION_OF_DONE_TEMPLATE,
     DecomposeError,
     Decomposition,

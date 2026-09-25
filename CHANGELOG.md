@@ -1,9 +1,22 @@
 # Changelog
 
-All notable changes to `jira-agent-cli` are documented here. Format loosely follows
-[Keep a Changelog](https://keepachangelog.com/), and versions follow [semver](https://semver.org/).
-ADLC ticket numbers are cited for traceability — see the `ADLC` Jira board
-(`cloud-f1.atlassian.net`) for full history.
+All notable changes to `symphony-workflow` (formerly `jira-agent-cli`) are documented here.
+Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and versions follow
+[semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
+Jira board (`cloud-f1.atlassian.net`) for full history.
+
+## 0.3.0 — 2026-09-25
+
+**Renamed `jira-agent-cli` → `symphony-workflow`** (`ADLC-53`) — repo, Python package
+(`jira_agent_cli` → `symphony_workflow`), console command (`jira-agent` →
+`symphony-workflow`), and Claude Code plugin/skill (`jira-agent-cli-ops` →
+`symphony-workflow-ops`), all in one change to avoid a broken interim state. Breaking change
+for anyone with the old command/import in muscle memory or scripts. GitHub's rename redirect
+keeps `github.com/cloud-f1/jira-agent-cli` resolving to the new URL, so existing links (e.g.
+in past Jira comments) still work. Local checkout moved to
+`~/Documents/git_saas/symphony-workflow`. Historical docs (`docs/runs/**`, `docs/plans/**/
+implement.md`) were deliberately left referencing the old name — they're point-in-time logs of
+what actually happened, not living references.
 
 ## 0.2.0 — 2026-09-25
 

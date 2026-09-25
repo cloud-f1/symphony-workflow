@@ -1,13 +1,13 @@
 {
-  "name": "jira-agent-cli-marketplace",
+  "name": "symphony-workflow-marketplace",
   "owner": {
     "name": "cloud-f1"
   },
   "plugins": [
     {
-      "name": "jira-agent-cli-ops",
+      "name": "symphony-workflow-ops",
       "source": "./plugin",
-      "description": "Operational skill + SessionStart hook for jira-agent-cli's Plan/Implement loop.",
+      "description": "Operational skill + SessionStart hook for symphony-workflow's Plan/Implement loop.",
       "version": "0.1.0"
     }
   ]

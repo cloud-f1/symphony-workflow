@@ -15,12 +15,12 @@ import httpx
 import pytest
 import respx
 
-import jira_agent_cli.orchestrator as orchestrator_module
-from jira_agent_cli.agent_runner import AgentRunError, AgentRunResult
-from jira_agent_cli.client import JiraClient, JiraError
-from jira_agent_cli.config import JiraConfig
-from jira_agent_cli.models import Issue, TriageDecision
-from jira_agent_cli.orchestrator import (
+import symphony_workflow.orchestrator as orchestrator_module
+from symphony_workflow.agent_runner import AgentRunError, AgentRunResult
+from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.config import JiraConfig
+from symphony_workflow.models import Issue, TriageDecision
+from symphony_workflow.orchestrator import (
     cleanup_workspace_if_terminal,
     execute_plan,
     execute_triage,
@@ -28,7 +28,7 @@ from jira_agent_cli.orchestrator import (
     render_run_doc,
     sweep_terminal_workspaces,
 )
-from jira_agent_cli.runs import RunStore, TriageStore
+from symphony_workflow.runs import RunStore, TriageStore
 
 from .conftest import BASE_URL
 
@@ -39,8 +39,8 @@ def _clear_cleanup_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # vars at call time (see orchestrator._cleanup_enabled) — start every test
     # from the documented off-by-default state, same reasoning as
     # test_cli.py's env-clearing fixture.
-    monkeypatch.delenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", raising=False)
-    monkeypatch.delenv("JIRA_AGENT_CLI_TERMINAL_STATUSES", raising=False)
+    monkeypatch.delenv("SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED", raising=False)
+    monkeypatch.delenv("SYMPHONY_WORKFLOW_TERMINAL_STATUSES", raising=False)
 
 
 def _issue(status: str) -> MagicMock:
@@ -63,7 +63,7 @@ def test_cleanup_disabled_by_default_never_calls_jira() -> None:
 def test_cleanup_removes_workspace_when_status_is_terminal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", "true")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED", "true")
     client = MagicMock()
     client.get_issue.return_value = _issue("Done")
     workspaces = MagicMock()
@@ -76,7 +76,7 @@ def test_cleanup_removes_workspace_when_status_is_terminal(
 
 
 def test_cleanup_leaves_non_terminal_workspace_alone(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", "true")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED", "true")
     client = MagicMock()
     client.get_issue.return_value = _issue("In Progress")
     workspaces = MagicMock()
@@ -88,8 +88,8 @@ def test_cleanup_leaves_non_terminal_workspace_alone(monkeypatch: pytest.MonkeyP
 
 
 def test_cleanup_respects_custom_terminal_statuses(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", "true")
-    monkeypatch.setenv("JIRA_AGENT_CLI_TERMINAL_STATUSES", "Done, Won't Do")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED", "true")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_TERMINAL_STATUSES", "Done, Won't Do")
     client = MagicMock()
     client.get_issue.return_value = _issue("Won't Do")
     workspaces = MagicMock()
@@ -101,7 +101,7 @@ def test_cleanup_respects_custom_terminal_statuses(monkeypatch: pytest.MonkeyPat
 
 
 def test_cleanup_swallows_jira_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", "true")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED", "true")
     client = MagicMock()
     client.get_issue.side_effect = JiraError(500, "boom")
     workspaces = MagicMock()
@@ -127,7 +127,7 @@ def test_sweep_disabled_by_default_does_nothing(tmp_path: Path) -> None:
 def test_sweep_removes_only_terminal_issues_and_skips_non_directories(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", "true")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED", "true")
     (tmp_path / "ADLC-1").mkdir()
     (tmp_path / "ADLC-2").mkdir()
     (tmp_path / "not-a-workspace.txt").write_text("stray file")
@@ -149,7 +149,7 @@ def test_sweep_removes_only_terminal_issues_and_skips_non_directories(
 def test_sweep_returns_empty_list_when_workspace_root_does_not_exist(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("JIRA_AGENT_CLI_WORKSPACE_CLEANUP_ENABLED", "true")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED", "true")
     client = MagicMock()
     workspaces = MagicMock()
     workspaces.root = tmp_path / "does-not-exist"
@@ -212,7 +212,7 @@ async def test_execute_triage_empty_candidates_is_noop(monkeypatch: pytest.Monke
     async def fail_if_called(*args: object, **kwargs: object) -> None:
         raise AssertionError("run_triage should not be called for an empty batch")
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fail_if_called)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fail_if_called)
 
     decisions = await execute_triage([], client=MagicMock(), triage_store=TriageStore())
 
@@ -226,7 +226,7 @@ async def test_execute_triage_plan_decision_is_noop_here_but_recorded(
     async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
         return [TriageDecision(issue_key="ADLC-1", action="plan", reason="well-formed")]
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fake_run_triage)
     client = MagicMock()
     store = TriageStore()
 
@@ -248,7 +248,7 @@ async def test_execute_triage_flag_posts_a_comment(
     async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
         return [TriageDecision(issue_key="ADLC-2", action="flag", reason="ambiguous scope")]
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fake_run_triage)
     comment_route = respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-2/comment").mock(
         return_value=httpx.Response(201, json={})
     )
@@ -277,7 +277,7 @@ async def test_execute_triage_skip_records_and_is_not_re_triaged_on_second_call(
         call_count += 1
         return [TriageDecision(issue_key="ADLC-3", action="skip", reason="duplicate summary")]
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fake_run_triage)
     client = MagicMock()
     store = TriageStore()
 
@@ -301,7 +301,7 @@ async def test_execute_triage_flag_comment_post_failure_is_swallowed(
     async def fake_run_triage(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
         return [TriageDecision(issue_key="ADLC-4", action="flag", reason="risky")]
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", fake_run_triage)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", fake_run_triage)
     respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-4/comment").mock(
         return_value=httpx.Response(500, json={"errorMessages": ["boom"]})
     )
@@ -322,7 +322,7 @@ async def test_execute_triage_propagates_agent_run_error(monkeypatch: pytest.Mon
     async def always_fails(candidates: list[dict], *, cwd: str) -> list[TriageDecision]:
         raise AgentRunError("budget exceeded")
 
-    monkeypatch.setattr("jira_agent_cli.orchestrator.run_triage", always_fails)
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_triage", always_fails)
 
     with pytest.raises(AgentRunError):
         await execute_triage([_candidate("ADLC-5")], client=MagicMock(), triage_store=TriageStore())
@@ -394,7 +394,7 @@ async def test_execute_plan_falls_back_to_structured_render_when_text_is_empty(
 
     structured = {
         "summary": "Add a version constant to the poller module.",
-        "files_changed": ["src/jira_agent_cli/poller.py"],
+        "files_changed": ["src/symphony_workflow/poller.py"],
         "risks": ["None -- additive only."],
     }
 
@@ -420,14 +420,14 @@ async def test_execute_plan_falls_back_to_structured_render_when_text_is_empty(
     # plan.md must not be blank, and must carry the structured content.
     plan_md = (tmp_path / "runs" / "ADLC-56" / "plan.md").read_text(encoding="utf-8")
     assert "Add a version constant to the poller module." in plan_md
-    assert "src/jira_agent_cli/poller.py" in plan_md
+    assert "src/symphony_workflow/poller.py" in plan_md
     assert "None -- additive only." in plan_md
 
     # The Jira comment must not be blank either.
     assert comment_route.called
     comment_body = json.loads(comment_route.calls.last.request.content)["body"]
     assert "Add a version constant to the poller module." in comment_body
-    assert "src/jira_agent_cli/poller.py" in comment_body
+    assert "src/symphony_workflow/poller.py" in comment_body
 
 
 @pytest.mark.asyncio
