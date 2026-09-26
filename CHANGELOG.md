@@ -5,6 +5,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## 0.4.2 — 2026-09-26
+
+**`sync-decomposition --status` (`ADLC-121`)** — closes a real poller-race window hit twice this
+session (`ADLC-64`, `ADLC-89`): `sync-decomposition` intentionally creates new Stories in Jira's
+default "To Do" so the poller auto-Plans them — correct for a genuine forward-looking
+decomposition, but it raced a batch status-fix-up pass when used to retroactively document
+already-shipped work, twice flipping a Story to "In Review" via a real auto-Plan run. New optional
+`--status <name>` (`execute_sync_decomposition(..., initial_status=...)`) transitions each
+Story/Subtask immediately after creating it, inside the same loop iteration — tightening the race
+window from "create all N, then transition all N" down to one synchronous call per issue. Default
+behavior (no flag) is unchanged. 3 new tests (`test_sync_decomposition.py` ×2, `test_cli.py` ×1),
+217 total, `ruff check .` clean.
+
 ## 0.4.1 — 2026-09-26
 
 **Corrected the recommended Linear structure mapping** (`ADLC-87`) — the initial live demo built

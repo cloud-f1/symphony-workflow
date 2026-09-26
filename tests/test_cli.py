@@ -395,6 +395,37 @@ def test_sync_decomposition_command_without_decomposition_file_exits_with_helpfu
 
 
 @respx.mock
+def test_sync_decomposition_command_honors_status_option(monkeypatch, tmp_path: Path) -> None:
+    # ADLC-121: --status is the CLI-level escape hatch from the poller-race
+    # window -- assert it actually reaches execute_sync_decomposition's
+    # initial_status param and triggers a real transition call.
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+    _write_sync_decomposition(tmp_path)
+
+    responses = iter(
+        [
+            httpx.Response(201, json={"key": "ADLC-101", "id": "101"}),
+            httpx.Response(201, json={"key": "ADLC-102", "id": "102"}),
+        ]
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(side_effect=lambda request: next(responses))
+    respx.get(url__regex=rf"{BASE_URL}/rest/api/2/issue/[^/]+/transitions$").mock(
+        return_value=httpx.Response(200, json={"transitions": [{"id": "31", "name": "Done"}]})
+    )
+    transition_route = respx.post(
+        url__regex=rf"{BASE_URL}/rest/api/2/issue/[^/]+/transitions$"
+    ).mock(return_value=httpx.Response(204))
+
+    result = runner.invoke(app, ["sync-decomposition", "ADLC-27", "--status", "Done"])
+
+    assert result.exit_code == 0, result.output
+    assert transition_route.call_count == 2  # story + its one subtask
+
+
+@respx.mock
 def test_sync_decomposition_command_honors_project_option(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
     monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")

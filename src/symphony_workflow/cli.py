@@ -279,6 +279,17 @@ def sync_decomposition(
             "project (the prefix before the dash, e.g. 'ADLC' for 'ADLC-27')."
         ),
     ),
+    status: str | None = typer.Option(
+        None,
+        "--status",
+        help=(
+            "Transition each Story/Subtask to this status immediately after creating it, "
+            "instead of leaving the default 'To Do' for the poller to auto-Plan (ADLC-121). "
+            "Use this when retroactively documenting already-shipped work as real Jira "
+            "issues (this repo's own use case, e.g. --status Done) -- leave unset for a "
+            "real forward-looking decomposition you actually want the poller to pick up."
+        ),
+    ),
 ) -> None:
     """Materialize an already-reviewed docs/runs/<key>/decomposition.json as real
     Jira issues: one Story per decomposed story (parent=<key>) plus one Subtask per
@@ -293,6 +304,7 @@ def sync_decomposition(
                 client=client,
                 runs_docs_root=RUNS_DOCS_ROOT,
                 project_key=project,
+                initial_status=status,
             )
         except (JiraError, SyncDecompositionError) as exc:
             typer.echo(str(exc), err=True)

@@ -74,6 +74,20 @@ def _mock_create_issue() -> None:
     respx.post(f"{BASE_URL}/rest/api/2/issue").mock(side_effect=_respond)
 
 
+def _mock_transitions(status_name: str = "Done") -> None:
+    """Mocks the GET+POST pair JiraClient.transition_issue makes, for every
+    issue key -- a regex route since the key varies per created issue.
+    """
+    respx.get(url__regex=rf"{BASE_URL}/rest/api/2/issue/[^/]+/transitions$").mock(
+        return_value=httpx.Response(
+            200, json={"transitions": [{"id": "31", "name": status_name}]}
+        )
+    )
+    respx.post(url__regex=rf"{BASE_URL}/rest/api/2/issue/[^/]+/transitions$").mock(
+        return_value=httpx.Response(204)
+    )
+
+
 def test_project_key_from_issue_key() -> None:
     assert project_key_from_issue_key("ADLC-47") == "ADLC"
     assert project_key_from_issue_key("CF1-123") == "CF1"
@@ -127,6 +141,56 @@ def test_execute_sync_decomposition_creates_stories_and_subtasks_with_parent(
     assert task_call["fields"]["issuetype"] == {"name": "Subtask"}
     assert task_call["fields"]["parent"] == {"key": result.stories[0].key}
     assert task_call["fields"]["description"] == "In models.py"
+
+
+@respx.mock
+def test_execute_sync_decomposition_default_leaves_status_untouched(tmp_path: Path) -> None:
+    # ADLC-121: default (no initial_status) must be byte-for-byte the old
+    # behavior -- no transition calls at all, so a real forward-looking
+    # decomposition still lands in "To Do" for the poller to auto-Plan.
+    _write_decomposition(tmp_path)
+    _mock_create_issue()
+    transitions_route = respx.get(
+        url__regex=rf"{BASE_URL}/rest/api/2/issue/[^/]+/transitions$"
+    ).mock(return_value=httpx.Response(200, json={"transitions": []}))
+
+    with _client() as client:
+        execute_sync_decomposition("ADLC-27", client=client, runs_docs_root=tmp_path)
+
+    assert not transitions_route.called
+
+
+@respx.mock
+def test_execute_sync_decomposition_initial_status_transitions_each_issue_immediately(
+    tmp_path: Path,
+) -> None:
+    # ADLC-121: the whole point of initial_status is closing the poller-race
+    # window by transitioning each issue right after it's created, not in a
+    # separate batch pass afterward -- assert the actual call ORDER, not just
+    # that every transition eventually happened.
+    _write_decomposition(tmp_path)
+    _mock_create_issue()
+    _mock_transitions("Done")
+
+    with _client() as client:
+        result = execute_sync_decomposition(
+            "ADLC-27", client=client, runs_docs_root=tmp_path, initial_status="Done"
+        )
+
+    # 2 stories + 3 tasks = 5 issues, each followed immediately by its own
+    # transition GET+POST pair -- 5 creates + 5*2 transition calls = 15.
+    assert len(respx.calls) == 15
+
+    def _op(call: respx.models.Call) -> str:
+        path = call.request.url.path
+        if path.endswith("/transitions"):
+            return "GET-transitions" if call.request.method == "GET" else "POST-transition"
+        return "POST-create"
+
+    ops = [_op(c) for c in respx.calls]
+    # First story created, then transitioned, *before* its first task is created.
+    assert ops[:4] == ["POST-create", "GET-transitions", "POST-transition", "POST-create"]
+    assert result.stories[0].key is not None
 
 
 @respx.mock
