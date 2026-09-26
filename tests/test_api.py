@@ -166,6 +166,26 @@ def test_call_tool_jira_error_maps_to_matching_status(api_client: TestClient) ->
     assert response.status_code == 404
 
 
+def test_jira_only_endpoints_return_501_when_backend_is_linear(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # ADLC-106/57: a real, pre-existing gap -- this 501 path (get_jira_client's
+    # isinstance/require_jira check) had no test at all before this. Its own
+    # fixture, not `api_client`, since that one is hardcoded to Jira env vars.
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_TRACKER", "linear")
+    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_test")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_LINEAR_TEAM", "GAI")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_POLL_ENABLED", "false")
+
+    with TestClient(app) as client:
+        tools_response = client.get("/tools")
+        assert tools_response.status_code == 200  # schemas are static, not backend-gated
+
+        call_response = client.post("/tools/get_issue/call", json={"arguments": {"key": "GAI-1"}})
+        assert call_response.status_code == 501
+        assert "Jira-only" in call_response.json()["detail"]
+
+
 @respx.mock
 def test_get_issue_endpoint(api_client: TestClient) -> None:
     respx.get(f"{BASE_URL}/rest/api/2/issue/CF1-1").mock(

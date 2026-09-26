@@ -46,7 +46,7 @@ from symphony_workflow.poller import Poller
 from symphony_workflow.runs import Run, RunState, RunStore, RunTransitionError
 from symphony_workflow.tools import TOOLS, call_tool
 from symphony_workflow.tracker import ConfigError as BackendConfigError
-from symphony_workflow.tracker import TrackerClient, TrackerError, get_tracker_client
+from symphony_workflow.tracker import TrackerClient, TrackerError, get_tracker_client, require_jira
 from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
 
 
@@ -110,18 +110,13 @@ def get_jira_client(request: Request) -> JiraClient:
     """Dependency for the Jira-only endpoints (/tools, /tools/{name}/call --
     tools.py's field set is genuinely Jira-shaped, ADLC-57's non-goals). 501,
     not a silent pass-through of the wrong client type, when the configured
-    backend isn't Jira.
+    backend isn't Jira. Uses tracker.require_jira() (ADLC-106) -- the same
+    assertion cli.py's Jira-only commands use, worded the same way.
     """
-    client = request.app.state.tracker_client
-    if not isinstance(client, JiraClient):
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                "This endpoint is Jira-only; the configured SYMPHONY_WORKFLOW_TRACKER "
-                "backend is not Jira."
-            ),
-        )
-    return client
+    try:
+        return require_jira(request.app.state.tracker_client, context="This endpoint")
+    except BackendConfigError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
 
 
 def get_run_store(request: Request) -> RunStore:

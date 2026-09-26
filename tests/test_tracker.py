@@ -9,7 +9,7 @@ import pytest
 from symphony_workflow.client import JiraClient
 from symphony_workflow.config import JiraConfig, LinearConfig
 from symphony_workflow.linear_client import LinearClient
-from symphony_workflow.tracker import ConfigError, TrackerClient, get_tracker_client
+from symphony_workflow.tracker import ConfigError, TrackerClient, get_tracker_client, require_jira
 
 
 @pytest.fixture(autouse=True)
@@ -65,3 +65,17 @@ def test_linear_client_satisfies_tracker_client_protocol() -> None:
     config = LinearConfig(api_key="lin_api_test", team_key="GAI")
     with LinearClient(config) as client:
         assert isinstance(client, TrackerClient)
+
+
+def test_require_jira_returns_jira_client_unchanged() -> None:
+    # ADLC-106: the shared guard cli.py's Jira-only commands and api.py's
+    # /tools endpoints both use.
+    config = JiraConfig(base_url="https://example.atlassian.net", email="b@x.com", api_token="t")
+    with JiraClient(config) as client:
+        assert require_jira(client, context="test") is client
+
+
+def test_require_jira_rejects_linear_client_with_context_in_message() -> None:
+    config = LinearConfig(api_key="lin_api_test", team_key="GAI")
+    with LinearClient(config) as client, pytest.raises(ConfigError, match="the widget endpoint"):
+        require_jira(client, context="the widget endpoint")
