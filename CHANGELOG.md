@@ -5,6 +5,26 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## 0.4.4 — 2026-09-26
+
+**`scripts/release.sh`** (`ADLC-101`) — makes the git-tag step of a release unskippable.
+`v0.3.0`/`v0.4.0`'s CHANGELOG entries said "tagged" but `git tag -l` disagreed; a three-step
+manual process (bump `pyproject.toml`+`plugin.json` together, write the CHANGELOG entry, `git tag
+-a`+push) silently dropped the tag step, twice. Run it after a version-bump PR is already merged
+to `main`: it verifies `pyproject.toml`/`plugin.json`/`CHANGELOG.md` already agree on `<version>`,
+runs `tests/test_version.py`, and only then creates the annotated tag (never pushes — prints the
+command instead). `README.md` gains a "Releasing" section. **This very release (`v0.4.4`) is the
+script's own end-to-end validation** — used for real rather than a throwaway version, per
+`ADLC-105`.
+
+**Retroactive-tag decision** (`ADLC-104`): **not** retroactively tagging `v0.3.0` (commit
+`888f713`) or `v0.4.0` (commit `3dec254`). Both were superseded within the same day they shipped
+(`v0.4.1` landed hours after `v0.4.0`), this is still a POC repo with no external consumers
+pinning to those versions, and `scripts/release.sh` now prevents the underlying failure from
+recurring for every release going forward — tagging two dead, already-superseded historical
+points has no real value proportional to the small risk of tagging the wrong commit by hand.
+Recorded here, not silently dropped.
+
 ## 0.4.3 — 2026-09-26
 
 **Closed `cli.py`'s test coverage gap** (`ADLC-95`) — measured 70% (only happy paths tested)

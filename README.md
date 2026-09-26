@@ -135,6 +135,23 @@ uv run pytest --cov=symphony_workflow
 uv run ruff check .
 ```
 
+## Releasing
+
+Bump `pyproject.toml`'s `version` and `plugin/.claude-plugin/plugin.json`'s `version` to the same
+new value, add a `## <version>` entry to `CHANGELOG.md`, and land all three in one PR (this
+repo's existing pattern — see any past release commit). Once that PR is merged to `main`:
+
+```bash
+scripts/release.sh <version>   # e.g. scripts/release.sh 0.5.0
+git push origin v<version>     # the script tags locally but never pushes itself
+```
+
+`scripts/release.sh` exists because `v0.3.0`/`v0.4.0`'s CHANGELOG entries said "tagged" but
+`git tag -l` disagreed — a manual multi-step process silently dropped the tag step, twice. The
+script verifies (not bumps) `pyproject.toml`/`plugin.json`/`CHANGELOG.md` are already consistent
+for `<version>`, runs `tests/test_version.py`, and only then creates the annotated tag — it exits
+non-zero, tagging nothing, if any check fails or `v<version>` already exists.
+
 ## Project layout
 
 ```
