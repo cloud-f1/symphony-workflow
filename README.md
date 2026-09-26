@@ -176,3 +176,32 @@ tests/             # pytest + respx, one test file per module above
    `cli.py` + `test_cli.py`.
 
 See [`CLAUDE.md`](CLAUDE.md) for the fuller set of conventions this repo follows.
+
+## Adding a new tracker backend
+
+`LinearClient` (`ADLC-57`) is the one worked example — read it alongside `client.py` before
+starting a third backend.
+
+1. Implement `tracker.TrackerClient`'s Protocol surface (`get_myself`/`get_issue`/`add_comment`/
+   `transition_issue`/`search_ready_tickets`/`issue_url`/`close`/context-manager) in a new
+   `<backend>_client.py` — structural typing, no inheritance needed (`JiraClient` satisfies the
+   Protocol without ever importing it).
+2. Add a `<Backend>Config` to `config.py` (`.from_env()`, same pattern as `JiraConfig`/
+   `LinearConfig`).
+3. Add a branch to `tracker.get_tracker_client()`'s `if`/`elif` chain, importing the new backend's
+   module and config lazily inside that branch — not at module level (keeps `tracker.py` a leaf
+   that never requires a backend's dependencies unless it's the one actually selected).
+4. Add `test_<backend>_client.py` (mock the backend's own HTTP shape — `respx` either way, REST or
+   GraphQL) and a `TrackerClient` Protocol-conformance assertion in `test_tracker.py`
+   (`isinstance(<Backend>Client(config), TrackerClient)`).
+5. Update the tables in this README, `CLAUDE.md`, and `.claude/skills/symphony-workflow-ops/
+   SKILL.md` (**both** copies — see that skill's own note on keeping them in sync) — same edit in
+   three places, or the docs drift the way `ADLC-89` found and fixed.
+
+**Stays Jira-only regardless of how many backends exist** (`ADLC-57`'s non-goals — don't try to
+port these to a new backend without a real, separate design pass): `tools.py`'s AI-agent tool-call
+surface (`create_issue`'s Epic/parent-linking, sprint/story-points fields are Jira-shaped),
+`decompose.py`/`sync_decomposition.py` (Epic→Story→Subtask has no clean equivalent on a backend
+without an Epic issue type), and `cli.py`'s `search` command (raw JQL has no universal
+equivalent). See `docs/plans/0005-linear-tracker-backend/intent.md` for the fuller reasoning the
+first time this boundary was drawn.
