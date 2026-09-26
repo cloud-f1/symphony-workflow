@@ -29,9 +29,8 @@ from pydantic import BaseModel, ValidationError
 
 from symphony_workflow.agent_runner import AgentRunError
 from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.config import ConfigError as EnvConfigError
 from symphony_workflow.config import (
-    ConfigError,
-    JiraConfig,
     poll_plan_max_turns,
     triage_enabled,
     triage_interval_seconds,
@@ -46,6 +45,8 @@ from symphony_workflow.orchestrator import (
 from symphony_workflow.poller import Poller
 from symphony_workflow.runs import Run, RunState, RunStore, RunTransitionError
 from symphony_workflow.tools import TOOLS, call_tool
+from symphony_workflow.tracker import ConfigError as BackendConfigError
+from symphony_workflow.tracker import TrackerClient, TrackerError, get_tracker_client
 from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
 
 
@@ -58,19 +59,19 @@ def _poll_enabled() -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
-        config = JiraConfig.from_env()
-    except ConfigError as exc:
+        client = get_tracker_client()
+    except (EnvConfigError, BackendConfigError) as exc:
         raise RuntimeError(str(exc)) from exc
-    app.state.jira_client = JiraClient(config)
+    app.state.tracker_client = client
     app.state.runs = RunStore()
     app.state.workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=TARGET_REPO)
 
     # Symphony §8.6 startup sweep — opt-in (SYMPHONY_WORKFLOW_WORKSPACE_CLEANUP_ENABLED,
-    # default off), no-op and no Jira calls otherwise.
-    sweep_terminal_workspaces(client=app.state.jira_client, workspaces=app.state.workspaces)
+    # default off), no-op and no tracker calls otherwise.
+    sweep_terminal_workspaces(client=app.state.tracker_client, workspaces=app.state.workspaces)
 
     poller = Poller(
-        client=app.state.jira_client,
+        client=app.state.tracker_client,
         runs=app.state.runs,
         workspaces=app.state.workspaces,
         interval_seconds=float(os.environ.get("SYMPHONY_WORKFLOW_POLL_INTERVAL_SECONDS", "60")),
@@ -91,18 +92,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await poller.stop()
-        app.state.jira_client.close()
+        app.state.tracker_client.close()
 
 
 app = FastAPI(
     title="symphony-workflow",
-    description="Jira Cloud tool-call server — see docs/spec.md",
+    description="Jira Cloud + Linear tool-call server — see docs/spec.md",
     lifespan=lifespan,
 )
 
 
+def get_tracker(request: Request) -> TrackerClient:
+    return request.app.state.tracker_client
+
+
 def get_jira_client(request: Request) -> JiraClient:
-    return request.app.state.jira_client
+    """Dependency for the Jira-only endpoints (/tools, /tools/{name}/call --
+    tools.py's field set is genuinely Jira-shaped, ADLC-57's non-goals). 501,
+    not a silent pass-through of the wrong client type, when the configured
+    backend isn't Jira.
+    """
+    client = request.app.state.tracker_client
+    if not isinstance(client, JiraClient):
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "This endpoint is Jira-only; the configured SYMPHONY_WORKFLOW_TRACKER "
+                "backend is not Jira."
+            ),
+        )
+    return client
 
 
 def get_run_store(request: Request) -> RunStore:
@@ -113,12 +132,12 @@ def get_workspace_manager(request: Request) -> WorkspaceManager:
     return request.app.state.workspaces
 
 
-HEALTH_JIRA_TIMEOUT_SECONDS = 5.0
+HEALTH_TRACKER_TIMEOUT_SECONDS = 5.0
 
 
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
-    jira_reachable: bool
+    tracker_reachable: bool
     poller_running: bool
 
 
@@ -141,23 +160,28 @@ class PlanRunRequest(BaseModel):
 
 
 @app.get("/health")
-def health(request: Request, client: JiraClient = Depends(get_jira_client)) -> HealthResponse:
-    """Liveness + Jira connectivity + poller status. Always 200 while the server is
-    up; `jira_reachable` reflects a real `GET /rest/api/2/myself` call. A 401/403
+def health(request: Request, client: TrackerClient = Depends(get_tracker)) -> HealthResponse:
+    """Liveness + tracker connectivity + poller status. Always 200 while the server is
+    up; `tracker_reachable` reflects a real connectivity call to whichever backend is
+    configured (Jira `GET /rest/api/2/myself` or Linear's `viewer` query). A 401/403
     (bad credentials) also reports False. No user details are returned.
     """
     try:
-        client.get_myself(timeout=HEALTH_JIRA_TIMEOUT_SECONDS)
-        jira_reachable = True
-    except (JiraError, httpx.TransportError):
-        jira_reachable = False
+        client.get_myself(timeout=HEALTH_TRACKER_TIMEOUT_SECONDS)
+        tracker_reachable = True
+    except (TrackerError, httpx.TransportError):
+        tracker_reachable = False
     poller: Poller = request.app.state.poller
-    return HealthResponse(jira_reachable=jira_reachable, poller_running=poller.is_running)
+    return HealthResponse(tracker_reachable=tracker_reachable, poller_running=poller.is_running)
 
 
 @app.get("/tools")
 def list_tools() -> list[dict[str, Any]]:
-    """Every registered tool's JSON schema — the same payload as `symphony-workflow list-tools`."""
+    """Every registered tool's JSON schema — the same payload as `symphony-workflow
+    list-tools`. Jira-only (ADLC-57's non-goals) -- the schemas themselves don't change
+    based on the configured backend, but calling one via /tools/{name}/call does 501
+    when the backend isn't Jira.
+    """
     return [tool.json_schema() for tool in TOOLS.values()]
 
 
@@ -176,11 +200,11 @@ def call_tool_endpoint(
 
 
 @app.get("/issues/{key}")
-def get_issue(key: str, client: JiraClient = Depends(get_jira_client)) -> dict[str, Any]:
+def get_issue(key: str, client: TrackerClient = Depends(get_tracker)) -> dict[str, Any]:
     try:
         return client.get_issue(key).model_dump()
-    except JiraError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except TrackerError as exc:
+        raise HTTPException(status_code=getattr(exc, "status_code", 502), detail=str(exc)) from exc
 
 
 @app.post("/runs", status_code=201)
@@ -212,7 +236,7 @@ async def plan_run(
     run_id: str,
     body: PlanRunRequest | None = None,
     runs: RunStore = Depends(get_run_store),
-    client: JiraClient = Depends(get_jira_client),
+    client: TrackerClient = Depends(get_tracker),
     workspaces: WorkspaceManager = Depends(get_workspace_manager),
 ) -> Run:
     run = runs.get(run_id)
@@ -227,8 +251,8 @@ async def plan_run(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except WorkspaceError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    except JiraError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except TrackerError as exc:
+        raise HTTPException(status_code=getattr(exc, "status_code", 502), detail=str(exc)) from exc
     except AgentRunError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -237,7 +261,7 @@ async def plan_run(
 async def implement_run(
     run_id: str,
     runs: RunStore = Depends(get_run_store),
-    client: JiraClient = Depends(get_jira_client),
+    client: TrackerClient = Depends(get_tracker),
     workspaces: WorkspaceManager = Depends(get_workspace_manager),
 ) -> Run:
     run = runs.get(run_id)

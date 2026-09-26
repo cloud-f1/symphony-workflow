@@ -12,6 +12,7 @@ current before relying on them.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import httpx
@@ -24,9 +25,16 @@ from symphony_workflow.models import (
     SearchResult,
     Transition,
 )
+from symphony_workflow.tracker import TrackerError
+
+# Overridable per adopting repo/project — see docs/PORTABILITY.md. Defaults to
+# ADLC (this POC's own board) for backward compatibility. Lives here (not
+# poller.py) since ADLC-57: building the "ready ticket" query is this
+# backend's own concern now, not the poller's — see search_ready_tickets().
+JIRA_PROJECT_ENV = "SYMPHONY_WORKFLOW_JIRA_PROJECT"
 
 
-class JiraError(RuntimeError):
+class JiraError(TrackerError):
     """Raised when the Jira API returns a non-2xx response."""
 
     def __init__(self, status_code: int, message: str) -> None:
@@ -72,6 +80,23 @@ class JiraClient:
         response = self._client.get(f"/rest/api/2/issue/{key}")
         self._raise_for_status(response)
         return Issue.from_api(response.json())
+
+    def issue_url(self, key: str) -> str:
+        return f"{self._config.base_url}/browse/{key}"
+
+    def search_ready_tickets(self, *, max_results: int = 50) -> SearchResult:
+        """TrackerClient's backend-agnostic "what should the poller auto-Plan
+        next" query, built as JQL. Epic/Subtask excluded: you can't
+        "implement" an Epic, and a Subtask's parent Story is the actual unit
+        of work in this POC's model — moved here from poller.py (ADLC-57) so
+        the poller doesn't need to know JQL exists.
+        """
+        project = os.environ.get(JIRA_PROJECT_ENV, "ADLC")
+        jql = (
+            f'project = {project} AND status = "To Do" '
+            "AND issuetype not in (Epic, Subtask) ORDER BY created ASC"
+        )
+        return self.search_issues(jql, max_results=max_results)
 
     def search_issues(self, jql: str, max_results: int = 50) -> SearchResult:
         # Verified live 2026-09-24: the classic v2 `/rest/api/2/search` endpoint

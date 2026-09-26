@@ -7,6 +7,15 @@ self-referential setup; both are now environment-configurable, so this can run a
 something copied into every repo — closer to how Symphony itself is meant to run
 (one binary, configured per target via its own policy file).
 
+This document is written in terms of Jira (`JIRA_PROJECT`, `poller.py`'s JQL) since that's
+still the default and most-adopted backend. Everything below applies equally to a
+Linear-backed instance (`SYMPHONY_WORKFLOW_TRACKER=linear`, `ADLC-57`) with `SYMPHONY_WORKFLOW_JIRA_PROJECT`
+replaced by `SYMPHONY_WORKFLOW_LINEAR_TEAM` — see
+[docs/plans/0005-linear-tracker-backend/intent.md](plans/0005-linear-tracker-backend/intent.md).
+The one thing that does **not** carry over: the Claude Code plugin's `session-start-check-api.sh`
+hook and the CLI's `search`/`call`/`decompose`/`sync-decomposition` commands stay Jira-only
+regardless of this doc's guidance.
+
 ## What changed
 
 | Before | Now | Env var |

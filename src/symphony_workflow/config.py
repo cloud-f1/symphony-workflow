@@ -1,8 +1,15 @@
 """Runtime configuration loaded from environment variables.
 
-Only `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` are required. The three
-`JIRA_FIELD_*` variables are optional custom-field IDs — Jira custom field IDs
-are per-project, not global, so `create_issue` only sends them when set.
+Only `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` are required for the
+Jira backend. The three `JIRA_FIELD_*` variables are optional custom-field
+IDs — Jira custom field IDs are per-project, not global, so `create_issue`
+only sends them when set.
+
+`LinearConfig` (ADLC-57) backs the Linear tracker backend, selected via
+`SYMPHONY_WORKFLOW_TRACKER=linear` (see tracker.py). `LINEAR_API_KEY`
+deliberately reuses the same env var name content-asset-system's own `gaia
+linear` tooling already uses for the same credential — one Linear key per
+machine, not two differently-named ones.
 """
 
 from __future__ import annotations
@@ -48,6 +55,28 @@ class JiraConfig:
             sprint_field=os.environ.get("JIRA_FIELD_SPRINT") or None,
             story_points_field=os.environ.get("JIRA_FIELD_STORY_POINTS") or None,
         )
+
+
+@dataclass(frozen=True)
+class LinearConfig:
+    api_key: str
+    team_key: str
+
+    @classmethod
+    def from_env(cls) -> LinearConfig:
+        api_key = os.environ.get("LINEAR_API_KEY", "")
+        team_key = os.environ.get("SYMPHONY_WORKFLOW_LINEAR_TEAM", "")
+        missing = [
+            name
+            for name, value in (
+                ("LINEAR_API_KEY", api_key),
+                ("SYMPHONY_WORKFLOW_LINEAR_TEAM", team_key),
+            )
+            if not value
+        ]
+        if missing:
+            raise ConfigError(f"Missing required env var(s): {', '.join(missing)}")
+        return cls(api_key=api_key, team_key=team_key.upper())
 
 
 # ADLC-29 triage env vars (docs/plans/0002-richer-polling-triage/spec.md).

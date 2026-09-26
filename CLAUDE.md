@@ -10,9 +10,13 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 **symphony-workflow** is now two things, not one: a Python CLI for the Jira Cloud REST API where
 every operation is also a schema-described tool call, **and** a Symphony-inspired orchestration
-service (FastAPI server + background poller) that drives a Jira ticket through a Plan/Implement
-loop via the Claude Agent SDK. Both are first-class — the CLI didn't stay "just a CLI." See
-[README.md](README.md) for the CLI pitch and confirmed CF1 field IDs; see
+service (FastAPI server + background poller) that drives a ticket through a Plan/Implement
+loop via the Claude Agent SDK. Both are first-class — the CLI didn't stay "just a CLI." The
+Plan/Implement run-loop also works against **Linear**, selected via
+`SYMPHONY_WORKFLOW_TRACKER=jira|linear` (`ADLC-57`, `tracker.py`'s `TrackerClient` Protocol) — the
+tool-call layer (`tools.py`) and `decompose`/`sync-decomposition` stay Jira-only; see
+[docs/plans/0005-linear-tracker-backend/intent.md](docs/plans/0005-linear-tracker-backend/intent.md)
+for why. See [README.md](README.md) for the CLI pitch and confirmed CF1 field IDs; see
 [docs/plans/0001-symphony-poc/intent.md](docs/plans/0001-symphony-poc/intent.md) /
 [docs/plans/0001-symphony-poc/spec.md](docs/plans/0001-symphony-poc/spec.md) /
 [docs/plans/0001-symphony-poc/implement.md](docs/plans/0001-symphony-poc/implement.md)

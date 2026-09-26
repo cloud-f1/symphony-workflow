@@ -8,29 +8,29 @@ Plan->Implement chain would ship unverified code with nobody watching).
 
 Decided 2026-09-24: this runs as a background task inside the API server's
 own process (not /loop) — a real daemon independent of any open terminal.
-Ready signal: any ADLC ticket with status "To Do" (board default, not a
-label) — see docs/plans/0001-symphony-poc/intent.md's Tracking table for the
-decision log.
+Ready signal (originally: any ADLC ticket with status "To Do", board default,
+not a label — see docs/plans/0001-symphony-poc/intent.md's Tracking table for
+the decision log) is now `TrackerClient.search_ready_tickets()` (ADLC-57) —
+this module doesn't know or care whether that's JQL or a Linear filter.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 
 from symphony_workflow.agent_runner import AgentRunError
-from symphony_workflow.client import JiraClient, JiraError
 from symphony_workflow.config import DEFAULT_TRIAGE_INTERVAL_SECONDS
 from symphony_workflow.models import Issue, TriageDecision
 from symphony_workflow.orchestrator import execute_plan, execute_triage, jira_safe_comment_body
 from symphony_workflow.runs import Run, RunState, RunStore, RunTransitionError, TriageStore
+from symphony_workflow.tracker import TrackerClient, TrackerError
 from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
 
 # Errors execute_plan can raise per-ticket — caught individually below so an
 # unexpected exception type (a real bug) still surfaces loudly instead of
 # being swallowed as if it were just "this ticket's plan failed".
-_PLAN_FAILURE_TYPES = (JiraError, RunTransitionError, WorkspaceError, AgentRunError)
+_PLAN_FAILURE_TYPES = (TrackerError, RunTransitionError, WorkspaceError, AgentRunError)
 
 # execute_triage can raise AgentRunError (a genuine agent-run failure, e.g.
 # error_max_turns/budget exceeded) -- caught in triage_tick() below so one
@@ -52,16 +52,9 @@ DEFAULT_MAX_RESULTS = 25
 # deterministically forever.
 DEFAULT_MAX_PLAN_ATTEMPTS = 3
 
-# Overridable per adopting repo/project — see docs/PORTABILITY.md. Defaults to
-# ADLC (this POC's own board) for backward compatibility.
-JIRA_PROJECT = os.environ.get("SYMPHONY_WORKFLOW_JIRA_PROJECT", "ADLC")
-
-# Epic/Subtask excluded: you can't "implement" an Epic, and a Subtask's parent
-# Story is the actual unit of work in this POC's model.
-READY_JQL = (
-    f'project = {JIRA_PROJECT} AND status = "To Do" '
-    "AND issuetype not in (Epic, Subtask) ORDER BY created ASC"
-)
+# ADLC-57: the "ready ticket" query itself (JQL for Jira, a GraphQL filter for
+# Linear) now lives on each TrackerClient implementation's search_ready_tickets()
+# -- this module no longer knows or cares which query language is involved.
 
 
 class Poller:
@@ -89,7 +82,7 @@ class Poller:
     def __init__(
         self,
         *,
-        client: JiraClient,
+        client: TrackerClient,
         runs: RunStore,
         workspaces: WorkspaceManager,
         interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
@@ -153,8 +146,8 @@ class Poller:
         while True:
             try:
                 await self.tick()
-            except JiraError:
-                logger.warning("poll tick: search_issues failed", exc_info=True)
+            except TrackerError:
+                logger.warning("poll tick: search_ready_tickets failed", exc_info=True)
             await asyncio.sleep(self._interval)
 
     async def _triage_loop(self) -> None:
@@ -167,7 +160,7 @@ class Poller:
         Public (not `_tick`) so tests can call it directly instead of waiting
         on real asyncio timing.
         """
-        result = self._client.search_issues(READY_JQL, max_results=DEFAULT_MAX_RESULTS)
+        result = self._client.search_ready_tickets(max_results=DEFAULT_MAX_RESULTS)
 
         dispatched: list[Run] = []
         for issue in result.issues:
@@ -272,5 +265,5 @@ class Poller:
                     "(check the failure comments above), or POST /runs to retry manually."
                 ),
             )
-        except JiraError:
+        except TrackerError:
             logger.warning("could not post give-up comment for %s", issue_key, exc_info=True)

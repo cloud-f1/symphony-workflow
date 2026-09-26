@@ -5,6 +5,34 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## 0.4.0 — 2026-09-26
+
+**Linear as an alternative tracker backend** (`ADLC-57`) — the Plan/Implement run-loop
+(`get`/`comment`/`transition`/`plan`/`implement`, plus their HTTP equivalents) now works against
+Linear as well as Jira, selected via `SYMPHONY_WORKFLOW_TRACKER=jira|linear` (default `jira`,
+no behavior change for existing deployments that don't set it).
+
+- New `tracker.py`: a `TrackerClient` Protocol covering exactly the run-loop's real surface
+  (`get_myself`/`get_issue`/`add_comment`/`transition_issue`/`search_ready_tickets`/`issue_url`),
+  plus `TrackerError` (a new common base — `JiraError` now subclasses it) and
+  `get_tracker_client()`, the one place the env var is read.
+- New `linear_client.py`: `LinearClient`, a GraphQL wrapper implementing that surface. Confirmed
+  live (read-only) against a real Linear team, not just mocked tests.
+- New `LinearConfig` (`config.py`): `LINEAR_API_KEY` (same env var name as content-asset-system's
+  own `gaia linear` tooling) + `SYMPHONY_WORKFLOW_LINEAR_TEAM`.
+- **Two breaking-but-honest renames**: `docs/runs/<key>/plan.md`'s frontmatter key `jira_url:` →
+  `tracker_url:` (a Linear-backed run's plan claiming `jira_url` would be wrong, not just
+  imprecise); `GET /health`'s `jira_reachable` field → `tracker_reachable`. Historical
+  `docs/runs/**` files keep their original `jira_url:` unchanged.
+- **Explicitly NOT ported to Linear** (by design — see
+  `docs/plans/0005-linear-tracker-backend/intent.md`'s non-goals): the AI-agent tool-call layer
+  (`tools.py` — Epic/parent linking, sprint/story-points fields don't exist on Linear), raw-JQL
+  `search`, and `decompose`/`sync-decomposition`. `api.py`'s Jira-only endpoints (`/tools`,
+  `/tools/{name}/call`) now return `501` when the configured backend isn't Jira, instead of
+  silently misbehaving.
+- 20 new tests (`test_linear_client.py`, `test_tracker.py`, plus `LinearConfig` cases in
+  `test_config.py`) — 214 total, all passing, `ruff check .` clean.
+
 ## 0.3.0 — 2026-09-25
 
 **Renamed `jira-agent-cli` → `symphony-workflow`** (`ADLC-53`) — repo, Python package

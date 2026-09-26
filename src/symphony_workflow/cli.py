@@ -2,18 +2,23 @@
 
 Three ways to drive it:
   - Friendly subcommands (`get`, `search`, `comment`, `transition`) for a human at a terminal.
+    `get`/`comment`/`transition` work against either tracker backend
+    (`SYMPHONY_WORKFLOW_TRACKER=jira|linear`, see tracker.py). `search` (raw JQL) is
+    Jira-only — Linear has no JQL equivalent (ADLC-57).
   - `list-tools` / `call` for an AI agent: `list-tools` prints every tool's JSON schema,
     `call <name> '<json args>'` runs one by name. This is the integration surface meant for
-    another orchestrator (Claude Code, Codex, a cron job) to shell out to.
+    another orchestrator (Claude Code, Codex, a cron job) to shell out to. Jira-only —
+    `tools.py`'s field set (Epic/parent linking, sprint/story-points) is Jira-shaped
+    (ADLC-57's non-goals).
   - `plan` / `implement` for driving the Plan/Implement loop without a running server:
     calls orchestrator.py in-process, the same shared logic api.py/poller.py use, just
-    from a terminal instead of over HTTP. See ADLC-45.
+    from a terminal instead of over HTTP. See ADLC-45. Tracker-agnostic (ADLC-57).
   - `decompose` for breaking a Jira Epic into Stories/Tasks for human review: calls
     decompose.py in-process, reusing the Plan phase's agent wiring with a different
-    structured-output schema. Read-only, no Jira writes — see ADLC-46.
+    structured-output schema. Read-only, no Jira writes — see ADLC-46. Jira-only.
   - `sync-decomposition` for turning an already-reviewed decomposition.json into real
     Jira Story/Subtask issues: calls sync_decomposition.py in-process. Does not re-run
-    the decompose agent — see ADLC-47.
+    the decompose agent — see ADLC-47. Jira-only.
 """
 
 from __future__ import annotations
@@ -38,18 +43,37 @@ from symphony_workflow.orchestrator import (
 from symphony_workflow.runs import Run, RunStore, RunTransitionError
 from symphony_workflow.sync_decomposition import SyncDecompositionError, execute_sync_decomposition
 from symphony_workflow.tools import TOOLS, call_tool
+from symphony_workflow.tracker import ConfigError as TrackerConfigError
+from symphony_workflow.tracker import TrackerClient, TrackerError, get_tracker_client
 from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
 
 app = typer.Typer(
     help=(
-        "Python CLI for Jira Cloud — plain subcommands plus a schema-described "
+        "Python CLI for Jira Cloud and Linear — plain subcommands plus a schema-described "
         "tool-call interface (`list-tools` / `call`) for AI agent orchestration."
     ),
     no_args_is_help=True,
 )
 
 
-def _client() -> JiraClient:
+def _client() -> TrackerClient:
+    """Backs the tracker-agnostic commands (get/comment/transition/plan/implement) --
+    selects Jira or Linear per SYMPHONY_WORKFLOW_TRACKER. See _jira_client() for the
+    Jira-only commands (search/call/decompose/sync-decomposition).
+    """
+    try:
+        return get_tracker_client()
+    except (ConfigError, TrackerConfigError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _jira_client() -> JiraClient:
+    """Backs the commands that are genuinely Jira-only regardless of
+    SYMPHONY_WORKFLOW_TRACKER -- raw-JQL search, the AI-agent tool-call surface,
+    decompose/sync-decomposition. See tracker.py's TrackerClient docstring / ADLC-57's
+    non-goals for why these don't have a Linear equivalent yet.
+    """
     try:
         return JiraClient(JiraConfig.from_env())
     except ConfigError as exc:
@@ -69,14 +93,15 @@ def call(
     tool_name: str = typer.Argument(..., help="Tool name, e.g. get_issue"),
     args_json: str = typer.Argument("{}", help="Tool arguments as a JSON object"),
 ) -> None:
-    """Invoke one registered tool with JSON-encoded arguments."""
+    """Invoke one registered tool with JSON-encoded arguments. Jira-only -- see
+    tools.py's docstring / ADLC-57's non-goals."""
     try:
         raw_args = json.loads(args_json)
     except json.JSONDecodeError as exc:
         typer.echo(f"Invalid JSON arguments: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    with _client() as client:
+    with _jira_client() as client:
         try:
             result = call_tool(client, tool_name, raw_args)
         except (KeyError, JiraError) as exc:
@@ -87,11 +112,11 @@ def call(
 
 @app.command("get")
 def get_issue(key: str) -> None:
-    """Fetch a single issue."""
+    """Fetch a single issue. Works against either tracker backend."""
     with _client() as client:
         try:
             issue = client.get_issue(key)
-        except JiraError as exc:
+        except TrackerError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
     typer.echo(issue.model_dump_json(indent=2))
@@ -99,8 +124,8 @@ def get_issue(key: str) -> None:
 
 @app.command("search")
 def search_issues(jql: str, max_results: int = 50) -> None:
-    """Search issues with JQL."""
-    with _client() as client:
+    """Search issues with JQL. Jira-only -- Linear has no JQL equivalent (ADLC-57)."""
+    with _jira_client() as client:
         try:
             result = client.search_issues(jql, max_results)
         except JiraError as exc:
@@ -113,11 +138,11 @@ def search_issues(jql: str, max_results: int = 50) -> None:
 
 @app.command("comment")
 def add_comment(key: str, body: str) -> None:
-    """Add a comment to an issue."""
+    """Add a comment to an issue. Works against either tracker backend."""
     with _client() as client:
         try:
             client.add_comment(key, body)
-        except JiraError as exc:
+        except TrackerError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
     typer.echo(f"Comment added to {key}")
@@ -125,11 +150,12 @@ def add_comment(key: str, body: str) -> None:
 
 @app.command("transition")
 def transition_issue(key: str, transition_name: str) -> None:
-    """Move an issue through a named workflow transition."""
+    """Move an issue through a named workflow transition/state. Works against
+    either tracker backend."""
     with _client() as client:
         try:
             client.transition_issue(key, transition_name)
-        except JiraError as exc:
+        except TrackerError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
     typer.echo(f"{key} -> {transition_name}")
@@ -185,7 +211,7 @@ def plan(
                     run, runs=runs, client=client, workspaces=workspaces, max_turns=max_turns
                 )
             )
-        except (JiraError, WorkspaceError, AgentRunError) as exc:
+        except (TrackerError, WorkspaceError, AgentRunError) as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
     _save_run(updated)
@@ -198,7 +224,8 @@ def plan(
 @app.command("implement")
 def implement(key: str) -> None:
     """Run the Implement phase for an issue whose Plan is already approved
-    (state plan_ready, saved by a prior `symphony-workflow plan` run)."""
+    (state plan_ready, saved by a prior `symphony-workflow plan` run). Works
+    against either tracker backend."""
     run = _load_run(key)
     with _client() as client:
         runs = RunStore()
@@ -208,7 +235,7 @@ def implement(key: str) -> None:
             updated = asyncio.run(
                 execute_implement(run, runs=runs, client=client, workspaces=workspaces)
             )
-        except (JiraError, RunTransitionError, AgentRunError) as exc:
+        except (TrackerError, RunTransitionError, AgentRunError) as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
     _save_run(updated)
@@ -220,8 +247,9 @@ def decompose(key: str) -> None:
     """Break a Jira Epic into Stories/Tasks for human review -- read-only, no
     Jira writes. Renders docs/runs/<key>/decomposition.md; turning a reviewed
     decomposition into real Jira Stories/Subtasks is ADLC-47, not this command.
+    Jira-only (ADLC-57's non-goals).
     """
-    with _client() as client:
+    with _jira_client() as client:
         workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=TARGET_REPO)
         try:
             decomposition, md_path = asyncio.run(
@@ -255,9 +283,10 @@ def sync_decomposition(
     """Materialize an already-reviewed docs/runs/<key>/decomposition.json as real
     Jira issues: one Story per decomposed story (parent=<key>) plus one Subtask per
     story's tasks (parent=<story-key>). Does NOT re-run `symphony-workflow decompose` — run
-    that first and review decomposition.md. See ADLC-47.
+    that first and review decomposition.md. See ADLC-47. Jira-only (ADLC-57's
+    non-goals).
     """
-    with _client() as client:
+    with _jira_client() as client:
         try:
             result = execute_sync_decomposition(
                 key,
