@@ -8,6 +8,51 @@
 
 ---
 
+## Session close-out — 2026-09-26, part 3 (`ADLC-88` fully shipped, `ADLC-121` poller-race fix)
+
+**Continuation of the same 2026-09-26 session.** Part 2 (below) left `ADLC-88` decomposed but
+unbuilt, and flagged the poller-race incident as unresolved. Both are now closed.
+
+**`ADLC-121` — the poller-race fix, shipped first.** New `sync-decomposition --status <name>`
+(`execute_sync_decomposition`'s `initial_status` param) transitions each Story/Subtask immediately
+after creating it, inside the same loop iteration — closing the window that hit `ADLC-64`/`89`.
+Default (no flag) behavior is byte-for-byte unchanged; a real forward-looking decomposition still
+lands in "To Do" for the poller. 3 new tests. `v0.4.2`.
+
+**`ADLC-88`'s all 6 Stories shipped, one at a time, each independently merged + released** — per
+Alex's own advice, not in parallel:
+
+| Story | What shipped | Version |
+|---|---|---|
+| `ADLC-89` | Both `SKILL.md` copies now document the tracker switch/decompose rule/Linear mapping. Diffing them first surfaced 2 real stale bugs in the plugin mirror (missing `--env-file .env`, a stale GitHub-app-connection claim) — fixed both. | `v0.4.2` (no separate bump — landed same day as `121`) |
+| `ADLC-95` | `cli.py` coverage 70%→99% (every command's failure path was untested; `search`/`comment`/`transition`/`call` had *zero* coverage, happy path included). Plus `TrackerClient` Protocol-conformance assertions and a dedicated `test_models.py`. | `v0.4.3` |
+| `ADLC-101` | `scripts/release.sh` — verifies a version-bump PR is already merged (not itself bumping/committing, to avoid tagging the wrong commit), then tags. This release (`v0.4.4`) was the script's own real end-to-end validation, not a throwaway. Decided **not** to retroactively tag `v0.3.0`/`v0.4.0` (superseded same-day, no consumers) — recorded, not silently dropped. | `v0.4.4` |
+| `ADLC-106` | Consolidated `cli.py`'s and `api.py`'s independently-written Jira-only-backend guards into `tracker.require_jira()`. Confirmed first they weren't actually identical (CLI *constructs* fresh, API *checks* existing) — the fix genuinely unified them, and fixed a real inconsistency: `SYMPHONY_WORKFLOW_TRACKER=linear` now correctly rejects Jira-only CLI commands instead of silently using leftover `JIRA_*` vars. Also closed a real pre-existing gap: `/tools`'s 501 path had zero tests since `ADLC-57`. | `v0.4.5` (second real use of the release script) |
+| `ADLC-111` | Named the existing Strategy/Adapter pattern explicitly in `tracker.py`; documented the deferred registry (Open/Closed) and accepted `close()`/`__enter__`/`__exit__` duplication. Docstrings/comments only. | No bump |
+| `ADLC-116` | "Adding a new tracker backend" walkthrough in `README.md`, parallel to "Adding a new tool". | No bump |
+
+**Net result**: 214→252 tests, 92%→96% coverage, `v0.4.1` through `v0.4.5` all real `git tag`s
+(actually pushed, unlike the `v0.3.0`/`v0.4.0` gap this whole arc started from), one release
+script that makes that gap structurally hard to repeat, and one genuine behavior bug found and
+fixed along the way (the `SYMPHONY_WORKFLOW_TRACKER` inconsistency in `ADLC-106`).
+
+**Version-bump judgment call, worth remembering**: not every merged PR gets a version bump.
+Established pattern this session: bump for anything with a code/behavior change or a corrective
+action on a live system (`ADLC-87`'s Linear-mapping fix, `ADLC-95`/`101`/`106`); skip it for purely
+additive/internal documentation with zero behavioral surface (`ADLC-89`'s skill docs, `ADLC-111`'s
+docstrings, `ADLC-116`'s README section). Judgment, not a hard rule — when genuinely unsure, err
+toward bumping.
+
+**No new poller-race incidents this time** — `ADLC-121`'s `--status` flag wasn't even needed here
+(no bulk `sync-decomposition` runs happened in this part of the session, all work was direct code
+changes), but the fix is now in place and documented (`SKILL.md`'s Epic-decomposition section) for
+whenever the next bulk decomposition happens.
+
+Server/poller remains **off** at the end of this part too — same reasoning as before, restart
+deliberately.
+
+---
+
 ## Session close-out — 2026-09-26, part 2 (`ADLC-86`/`87`/`88` — decomposition rule, corrected Linear mapping, maintainability plan decomposed but NOT built)
 
 **Continuation of the same 2026-09-26 session below** (`ADLC-57`/`58`, v0.4.0→v0.4.1). Picks up
