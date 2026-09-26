@@ -37,11 +37,26 @@ what this file states.
 
 Work on this repo is tracked in Jira project **ADLC** (`cloud-f1.atlassian.net`, Kanban board
 74), not CF1 — CF1 is content/marketing work, ADLC is agent-driven dev work. Structure:
-**Epic `ADLC-2`** → one **Story per POC phase** → **Subtasks** per concrete work item. When
-you pick up a subtask, transition it as you go (`symphony-workflow transition <key> "In Progress"` /
-`"Done"`) — this repo's own agent-tool CLI is the thing doing the tracking, so use it. See
+**Epic** → **Story** (one per meaningful chunk of the epic's work) → **Subtask** per concrete
+work item. When you pick up a subtask, transition it as you go
+(`symphony-workflow transition <key> "In Progress"` / `"Done"`) — this repo's own agent-tool CLI
+is the thing doing the tracking, so use it. See
 [docs/plans/0001-symphony-poc/intent.md](docs/plans/0001-symphony-poc/intent.md)'s Tracking
-table for the current phase → ticket mapping.
+table for `ADLC-2`'s original phase → ticket mapping.
+
+**Hard rule (Alex, 2026-09-26): never build directly under an Epic ticket.** Every Epic gets
+decomposed into Stories (and Subtasks as needed) *before or while* the work happens —
+`symphony-workflow decompose <epic-key>` (read-only, writes `docs/runs/<epic>/decomposition.md`
+for review) then `symphony-workflow sync-decomposition <epic-key>` (materializes the reviewed
+decomposition as real Story/Subtask issues, `parent=<epic-key>`) exist exactly for this — see
+`ADLC-46`/`47`. Work happens against the Stories/Subtasks, each transitioned as it completes; the
+Epic itself only transitions to Done once its children are. **Real incident this rule fixes**:
+`ADLC-57` (issue type Epic) was built end-to-end and shipped with zero Story/Subtask children —
+caught only after the fact, then retroactively decomposed once this was noticed (see
+`docs/plans/0005-linear-tracker-backend/implement.md`'s closing entry). `ADLC-53`/`ADLC-58` were
+Story/Task, not Epics, so this specific rule didn't apply to them, but the same instinct — do the
+work directly under one ticket instead of breaking it down first — is what to watch for. Don't
+repeat this — decompose first.
 
 ## Claude Agent SDK usage (agent_runner.py)
 

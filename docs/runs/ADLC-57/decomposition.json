@@ -1,0 +1,175 @@
+{
+  "epic_key": "ADLC-57",
+  "stories": [
+    {
+      "title": "TrackerClient Protocol + get_tracker_client() factory",
+      "user_story": "As a symphony-workflow maintainer, I want a TrackerClient Protocol and a get_tracker_client() factory, so that orchestrator.py and poller.py can depend on a tracker-agnostic interface instead of being hardcoded to JiraClient.",
+      "acceptance_criteria": [
+        "tracker.py defines TrackerError (a common base exception), ConfigError, and a @runtime_checkable TrackerClient Protocol covering exactly the run-loop's real surface: get_myself, get_issue, add_comment, transition_issue, search_ready_tickets, issue_url, plus close()/context-manager support -- no more, no less.",
+        "get_tracker_client() reads SYMPHONY_WORKFLOW_TRACKER (jira|linear, default jira so existing deployments are unaffected) and lazily imports only the selected backend's module, so importing tracker.py never requires both backends' dependencies to be installed.",
+        "client.py's JiraError now subclasses tracker.TrackerError, and JiraClient satisfies TrackerClient structurally with zero changes to its class hierarchy (per spec.md: 'a Protocol, not a base class').",
+        "client.py gains issue_url() and search_ready_tickets(max_results) methods; the JQL READY_JQL/JIRA_PROJECT construction that previously lived in poller.py moves here.",
+        "test_tracker.py covers the factory's env-var switch (jira vs linear vs unset/default) and its lazy-import behavior; existing test_client.py tests still pass unmodified in spirit."
+      ],
+      "tasks": [
+        {
+          "title": "Write tracker.py",
+          "description": "Define TrackerError, ConfigError, and the @runtime_checkable TrackerClient Protocol with method signatures matching the actual client.* call sites read out of orchestrator.py/poller.py (get_issue, add_comment, transition_issue, get_myself, issue_url, search_ready_tickets, close/context-manager)."
+        },
+        {
+          "title": "Implement get_tracker_client() factory",
+          "description": "Read SYMPHONY_WORKFLOW_TRACKER from env (default 'jira'), lazily import client.py or linear_client.py based on the value, and raise ConfigError on an unrecognized value."
+        },
+        {
+          "title": "Extend client.py with issue_url() and search_ready_tickets()",
+          "description": "Add issue_url(key) (builds the /browse/{key} URL) and search_ready_tickets(max_results) (the JQL query moved out of poller.py's module-level READY_JQL/JIRA_PROJECT constants); make JiraError subclass tracker.TrackerError."
+        },
+        {
+          "title": "Add test_tracker.py",
+          "description": "Mocked/parametrized coverage of get_tracker_client()'s env-var branching and lazy-import behavior, plus a Protocol-conformance check that JiraClient satisfies TrackerClient."
+        }
+      ]
+    },
+    {
+      "title": "LinearClient implementation (Linear GraphQL backend)",
+      "user_story": "As a symphony-workflow operator whose issues live in Linear, I want a LinearClient that implements the TrackerClient surface, so that the Plan/Implement run-loop can drive a Linear team's issues the same way it already drives Jira issues.",
+      "acceptance_criteria": [
+        "linear_client.py implements get_myself, get_issue, add_comment, transition_issue, search_ready_tickets, issue_url, and close()/context-manager against Linear's GraphQL API -- explicitly no create_issue and no arbitrary search (out of scope per intent.md's non-goals).",
+        "config.py gains LinearConfig, reading LINEAR_API_KEY (deliberately reusing the same env var name CAS's own `gaia linear` tooling already uses -- one Linear key per machine) and SYMPHONY_WORKFLOW_LINEAR_TEAM (team key upper-cased on load).",
+        "models.py gains Issue.from_linear and CurrentUser.from_linear classmethods parsing Linear's GraphQL response shapes, added alongside (not replacing) the existing Jira from_api classmethods.",
+        "get_issue/add_comment/transition_issue each resolve the human-readable key to Linear's internal UUID via one extra GraphQL round-trip per call (LinearClient._resolve_issue_ids()), deliberately uncached given a Run's low call volume.",
+        "transition_issue additionally resolves the issue's team id to look up that team's workflow states, since Linear states are scoped per-team rather than effectively-global the way Jira's are.",
+        "search_ready_tickets expresses 'ready to work' as a state-category filter (state: {type: {eq: \"unstarted\"}}) plus parent: {null: true} to exclude sub-issues -- the structural analog of Jira's issuetype-exclusion JQL, per spec.md's comparison table, not a literal status-name match.",
+        "test_linear_client.py mocks every GraphQL call via respx and covers all six TrackerClient methods plus the UUID/team-id resolution round-trips; test_config.py gains LinearConfig test cases."
+      ],
+      "tasks": [
+        {
+          "title": "Add LinearConfig to config.py",
+          "description": "LINEAR_API_KEY and SYMPHONY_WORKFLOW_LINEAR_TEAM env vars, team key upper-cased on load, following the existing JiraConfig.from_env() pattern."
+        },
+        {
+          "title": "Add Issue.from_linear / CurrentUser.from_linear to models.py",
+          "description": "Classmethods parsing Linear's GraphQL issue/viewer response shapes into the existing pydantic models, confirmed against real GAI-5 response shape per spec.md."
+        },
+        {
+          "title": "Implement linear_client.py",
+          "description": "LinearClient class mirroring client.py's structure/docstring conventions: GraphQL queries/mutations for get_myself, get_issue, add_comment, transition_issue, search_ready_tickets, issue_url; _resolve_issue_ids() for key->UUID resolution; per-team workflow-state lookup for transition_issue."
+        },
+        {
+          "title": "Add test_linear_client.py",
+          "description": "respx-mocked tests for all six TrackerClient methods, the UUID resolution round-trip, and the team/workflow-state lookup used by transition_issue; add corresponding LinearConfig cases to test_config.py."
+        }
+      ]
+    },
+    {
+      "title": "Migrate orchestrator.py and poller.py to TrackerClient",
+      "user_story": "As a symphony-workflow maintainer, I want the shared Plan/Implement run-loop logic in orchestrator.py and poller.py to be typed against TrackerClient/TrackerError instead of JiraClient/JiraError, so that api.py and poller.py can drive either backend through the exact same run-loop code without drifting.",
+      "acceptance_criteria": [
+        "orchestrator.py's execute_plan/execute_implement (and any other client-typed signatures) are typed against TrackerClient and catch TrackerError, not JiraError specifically.",
+        "render_run_doc's client.base_url + hand-built /browse/{key} construction is replaced with client.issue_url(key); newly-written docs/runs/<key>/plan.md frontmatter renames its jira_url: key to tracker_url: (a deliberate breaking change to the local schema, per spec.md -- historical run docs keep their original jira_url: key unchanged).",
+        "poller.py is typed against TrackerClient/TrackerError; its module-level READY_JQL/JIRA_PROJECT constants are removed, and tick() calls self._client.search_ready_tickets(max_results=...) instead of assembling JQL itself.",
+        "Existing tests are updated in place, not skipped -- e.g. test_render_run_doc_prepends_jira_url_frontmatter becomes ..._tracker_url_frontmatter -- and continue to pass with JiraClient as the concrete implementation under test."
+      ],
+      "tasks": [
+        {
+          "title": "Retype orchestrator.py",
+          "description": "Swap JiraClient/JiraError type hints and except clauses for TrackerClient/TrackerError; replace the hand-built /browse/{key} URL with client.issue_url(key); rename the plan.md frontmatter key jira_url: to tracker_url: for newly-written docs."
+        },
+        {
+          "title": "Retype poller.py",
+          "description": "Remove the module-level READY_JQL/JIRA_PROJECT constants; call self._client.search_ready_tickets(max_results=...) in tick(); swap exception handling from JiraError to TrackerError."
+        },
+        {
+          "title": "Update test_orchestrator.py and test_poller.py",
+          "description": "Rename the frontmatter-assertion test(s) for tracker_url:, and update any exception-type assertions from JiraError to TrackerError, keeping JiraClient as the concrete client under test."
+        }
+      ]
+    },
+    {
+      "title": "cli.py tracker-agnostic / Jira-only command split",
+      "user_story": "As a symphony-workflow CLI user, I want get/comment/transition/plan/implement to work against whichever backend SYMPHONY_WORKFLOW_TRACKER selects, while search/call/list-tools/decompose/sync-decomposition stay explicitly Jira-only, so that I get a correct, tracker-agnostic CLI without silently pointing a Jira-only command at a Linear deployment.",
+      "acceptance_criteria": [
+        "cli.py splits its client-construction helper into a tracker-agnostic _client() (backed by get_tracker_client()) and a new _jira_client() (unconditionally JiraClient).",
+        "get, comment, transition, plan, and implement subcommands use _client() and behave identically regardless of SYMPHONY_WORKFLOW_TRACKER's value.",
+        "search, call, list-tools, decompose, and sync-decomposition subcommands use _jira_client() and remain explicitly Jira-typed, unaffected by SYMPHONY_WORKFLOW_TRACKER.",
+        "test_cli.py covers both helpers, including a SYMPHONY_WORKFLOW_TRACKER=linear scenario proving the tracker-agnostic commands don't require Jira-specific env vars to run."
+      ],
+      "tasks": [
+        {
+          "title": "Split cli.py's client helper",
+          "description": "Introduce _client() (get_tracker_client()-backed) alongside a new _jira_client() (unconditionally JiraClient), replacing the single prior helper."
+        },
+        {
+          "title": "Rewire each subcommand to the correct helper",
+          "description": "get/comment/transition/plan/implement -> _client(); search/call/list-tools/decompose/sync-decomposition -> _jira_client()."
+        },
+        {
+          "title": "Update test_cli.py",
+          "description": "Add/adjust tests covering both helpers, including exercising a tracker-agnostic command under SYMPHONY_WORKFLOW_TRACKER=linear and confirming the Jira-only commands are unaffected by the env var."
+        }
+      ]
+    },
+    {
+      "title": "api.py tracker-agnostic / Jira-only endpoint split + health rename",
+      "user_story": "As an operator of the FastAPI server, I want tracker-agnostic endpoints to work against either backend and the Jira-only endpoints to fail loudly with a 501 when the deployment isn't Jira, so that a Linear deployment can't be silently routed into tools.py's Jira-shaped handlers.",
+      "acceptance_criteria": [
+        "app.state.jira_client is renamed to app.state.tracker_client; a new get_tracker() dependency backs the tracker-agnostic endpoints (/health, /issues/{key}, /runs/{id}/plan, /runs/{id}/implement).",
+        "get_jira_client() performs an isinstance check and raises HTTP 501 for /tools and /tools/{name}/call when the configured backend isn't Jira, instead of passing the wrong client type into tools.py's handlers and failing confusingly deep inside a GraphQL client with no create_issue method.",
+        "HealthResponse.jira_reachable is renamed to tracker_reachable, and /health reports it based on whichever backend is actually configured (a deliberate breaking change to the response shape, not additive, per spec.md).",
+        "test_api.py covers tracker-agnostic endpoints under both jira and linear configuration, and asserts a 501 (not a 200 or an unhandled exception) from /tools and /tools/{name}/call when SYMPHONY_WORKFLOW_TRACKER=linear."
+      ],
+      "tasks": [
+        {
+          "title": "Rename app.state.jira_client -> tracker_client and add get_tracker()",
+          "description": "New FastAPI dependency backing /health, /issues/{key}, /runs/{id}/plan, /runs/{id}/implement."
+        },
+        {
+          "title": "Add isinstance-checked get_jira_client() for Jira-only endpoints",
+          "description": "Raise HTTP 501 from /tools and /tools/{name}/call when app.state.tracker_client isn't a JiraClient instance."
+        },
+        {
+          "title": "Rename HealthResponse.jira_reachable -> tracker_reachable",
+          "description": "Update the /health handler's reachability check to reflect whichever backend is actually configured."
+        },
+        {
+          "title": "Update test_api.py",
+          "description": "Add cases for tracker-agnostic endpoints under both jira and linear config, and for the 501 path on /tools and /tools/{name}/call under a linear config."
+        }
+      ]
+    },
+    {
+      "title": "Docs: describe the backend switch honestly",
+      "user_story": "As a new deployer of symphony-workflow, I want README.md, CLAUDE.md, and docs/PORTABILITY.md to accurately describe SYMPHONY_WORKFLOW_TRACKER and what does and doesn't work on each backend, so that I don't assume Linear feature parity (decompose, sync-decomposition, raw search) that this Epic explicitly didn't build.",
+      "acceptance_criteria": [
+        "README.md documents SYMPHONY_WORKFLOW_TRACKER=jira|linear and the Linear-specific env vars (LINEAR_API_KEY, SYMPHONY_WORKFLOW_LINEAR_TEAM) alongside the existing Jira env var table.",
+        "docs/PORTABILITY.md gains a Linear-specific walkthrough (pointing a deployment at a real Linear team) and explicitly restates intent.md's non-goals -- no decompose, no sync-decomposition, no raw search, no Epic/parent/sprint/story-points fields -- so operators don't assume feature parity with the Jira path.",
+        "CLAUDE.md's description of the tracker split (TrackerClient Protocol, tracker.py, the jira|linear switch) is checked against the actually-shipped code for accuracy, not left as an aspirational description written before implementation.",
+        "No doc references the old jira_reachable /health field name or the old jira_url: plan.md frontmatter key as if they were still current -- both are described using their renamed tracker_reachable / tracker_url: forms."
+      ],
+      "tasks": [
+        {
+          "title": "Update README.md",
+          "description": "Add the SYMPHONY_WORKFLOW_TRACKER env var and Linear-specific env vars to the existing env var documentation and CLI usage examples."
+        },
+        {
+          "title": "Update docs/PORTABILITY.md",
+          "description": "Add a Linear-backend walkthrough and an explicit non-goals callout matching intent.md's scope boundaries."
+        },
+        {
+          "title": "Cross-check CLAUDE.md against shipped code",
+          "description": "Verify the Project Overview's description of the TrackerClient split, tracker.py, and the jira|linear switch matches what actually merged, correcting any drift."
+        }
+      ]
+    }
+  ],
+  "definition_of_done": [
+    "Unit tests added for all new/changed code; HTTP calls mocked with respx — no live Jira access in tests (CLAUDE.md “the three non-negotiables” #3).",
+    "If a Jira operation was added or changed: a typed client.py method AND a matching tools.py Tool entry (pydantic args model), both reachable via `symphony-workflow list-tools`/`call` (CLAUDE.md “the three non-negotiables” #2).",
+    "A Typer CLI subcommand added only if a human needs a friendly entry point for it — not every tool needs one (CLAUDE.md “Adding a new tool”, step 4).",
+    "`uv run ruff check .` and `uv run ruff format --check .` both pass clean (CLAUDE.md “Code style”).",
+    "`uv run pytest` passes in full (CLAUDE.md “the three non-negotiables” #3).",
+    "Type hints on all new code; pydantic models for anything crossing a boundary such as an HTTP response or tool input (CLAUDE.md “Code style”).",
+    "No bare `except Exception: pass`; typed exceptions (e.g. JiraError) caught specifically (CLAUDE.md “Code style”).",
+    "No org-specific values (cloud-f1.atlassian.net, CF1 field IDs, ADLC, a hardcoded target-repo path) baked into client.py/orchestrator.py/poller.py — configuration goes through env vars (CLAUDE.md “What NOT to do here”)."
+  ]
+}
