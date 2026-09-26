@@ -12,6 +12,14 @@ intent.md's non-goals for why porting those isn't just more of the same work.
 everything else imports the Protocol, not a concrete backend, so adding a
 third backend later never touches orchestrator.py/poller.py/cli.py's
 tracker-agnostic commands.
+
+Named explicitly (`ADLC-111`), so a future reader recognizes the design
+instead of reverse-engineering it: this is a textbook **Strategy** pattern
+(`TrackerClient` = the strategy interface, `JiraClient`/`LinearClient` = the
+concrete strategies, `get_tracker_client()` = the selector) and each concrete
+client is also an **Adapter** (`JiraClient` adapts Jira's REST shape,
+`LinearClient` adapts Linear's GraphQL shape, to the one common interface
+callers actually use).
 """
 
 from __future__ import annotations
@@ -51,8 +59,18 @@ class TrackerClient(Protocol):
     """Structural (not nominal) interface -- JiraClient satisfies this without
     inheriting from it. `runtime_checkable` so `isinstance(client, TrackerClient)`
     works where that's useful, though the honest place for backend-specific
-    behavior (api.py's /tools endpoints) checks `isinstance(client, JiraClient)`
+    behavior (`require_jira()`, used by cli.py's Jira-only commands and
+    api.py's /tools endpoints, ADLC-106) checks `isinstance(client, JiraClient)`
     specifically, not the absence of this Protocol.
+
+    `close()`/`__enter__`/`__exit__` are hand-written identically on both
+    `JiraClient` and `LinearClient` (`ADLC-111`) -- an accepted duplication,
+    not an oversight. A shared mixin base class would remove ~6 duplicated
+    lines per client at the cost of both classes no longer being pure,
+    independent `TrackerClient` implementations (see this module's docstring
+    on why that independence matters: `JiraClient` predates this Protocol
+    entirely and needed zero changes to satisfy it). Revisit only if a third
+    backend makes the duplication three-way instead of two-way.
     """
 
     def close(self) -> None: ...
@@ -84,6 +102,15 @@ def get_tracker_client() -> TrackerClient:
     imported lazily, inside each branch, so importing tracker.py itself never
     requires both backends' dependencies to be configured -- only the one
     actually selected.
+
+    The if/elif chain below is NOT Open/Closed (`ADLC-111`) -- adding a third
+    backend means editing this function's body, not just adding a new file.
+    A small registry (`TRACKER_BACKENDS: dict[str, Callable[[], TrackerClient]]`,
+    each backend module registering itself) would fix that. Deliberately not
+    built for two backends -- same "don't build it preemptively" reasoning as
+    `docs/PORTABILITY.md`'s multi-tenant-poller decision. Revisit if a third
+    backend actually happens; documented here so that's not re-discovered
+    from scratch.
     """
     backend = os.environ.get(TRACKER_ENV, DEFAULT_TRACKER).strip().lower()
 
