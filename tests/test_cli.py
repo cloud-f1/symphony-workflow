@@ -73,6 +73,27 @@ def test_missing_env_vars_exit_with_helpful_message(monkeypatch) -> None:
     assert "Missing required env var" in result.output
 
 
+def test_jira_only_command_rejects_linear_tracker_setting(monkeypatch) -> None:
+    # ADLC-106: real, deliberate behavior fix -- _jira_client() used to
+    # construct a fresh JiraClient directly, silently ignoring
+    # SYMPHONY_WORKFLOW_TRACKER entirely. Now it goes through
+    # get_tracker_client() + require_jira(), so a Linear-configured
+    # deployment gets a clear error instead of quietly using Jira anyway.
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_TRACKER", "linear")
+    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_test")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_LINEAR_TEAM", "GAI")
+    # Valid Jira env vars are ALSO present -- the old behavior would have
+    # happily used them; the fixed behavior must reject this command anyway.
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
+    result = runner.invoke(app, ["search", "project = ADLC"])
+
+    assert result.exit_code == 1
+    assert "Jira-only" in result.output
+
+
 def test_jira_only_command_missing_env_vars_exits_with_helpful_message(monkeypatch) -> None:
     # ADLC-95: _jira_client()'s own ConfigError path -- distinct from
     # _client()'s (tested above via `get`). `search` is Jira-only regardless

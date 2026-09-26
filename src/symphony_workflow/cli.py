@@ -31,7 +31,7 @@ import typer
 
 from symphony_workflow.agent_runner import AgentRunError
 from symphony_workflow.client import JiraClient, JiraError
-from symphony_workflow.config import ConfigError, JiraConfig
+from symphony_workflow.config import ConfigError
 from symphony_workflow.decompose import DecomposeError, execute_decompose
 from symphony_workflow.orchestrator import (
     RUNS_DOCS_ROOT,
@@ -44,7 +44,7 @@ from symphony_workflow.runs import Run, RunStore, RunTransitionError
 from symphony_workflow.sync_decomposition import SyncDecompositionError, execute_sync_decomposition
 from symphony_workflow.tools import TOOLS, call_tool
 from symphony_workflow.tracker import ConfigError as TrackerConfigError
-from symphony_workflow.tracker import TrackerClient, TrackerError, get_tracker_client
+from symphony_workflow.tracker import TrackerClient, TrackerError, get_tracker_client, require_jira
 from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
 
 app = typer.Typer(
@@ -73,10 +73,18 @@ def _jira_client() -> JiraClient:
     SYMPHONY_WORKFLOW_TRACKER -- raw-JQL search, the AI-agent tool-call surface,
     decompose/sync-decomposition. See tracker.py's TrackerClient docstring / ADLC-57's
     non-goals for why these don't have a Linear equivalent yet.
+
+    Goes through get_tracker_client() + require_jira() (ADLC-106), not a
+    direct JiraClient(JiraConfig.from_env()) construction -- so this now
+    honors SYMPHONY_WORKFLOW_TRACKER too. A real, deliberate behavior fix:
+    previously SYMPHONY_WORKFLOW_TRACKER=linear was silently ignored by
+    these commands (they'd still try Jira, using whatever JIRA_* env vars
+    happened to be set); now they fail with a clear "Jira-only" message
+    instead. No change for the common case (tracker unset/jira).
     """
     try:
-        return JiraClient(JiraConfig.from_env())
-    except ConfigError as exc:
+        return require_jira(get_tracker_client(), context="This command")
+    except (ConfigError, TrackerConfigError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 

@@ -17,9 +17,14 @@ tracker-agnostic commands.
 from __future__ import annotations
 
 import os
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from symphony_workflow.models import CurrentUser, Issue, SearchResult
+
+if TYPE_CHECKING:
+    # Only for require_jira()'s return type annotation -- the actual runtime
+    # check does its own lazy import, same reasoning as get_tracker_client().
+    from symphony_workflow.client import JiraClient
 
 TRACKER_ENV = "SYMPHONY_WORKFLOW_TRACKER"
 DEFAULT_TRACKER = "jira"
@@ -96,4 +101,36 @@ def get_tracker_client() -> TrackerClient:
 
     raise ConfigError(
         f"Unknown {TRACKER_ENV}={backend!r} -- expected 'jira' or 'linear'"
+    )
+
+
+def require_jira(client: TrackerClient, *, context: str) -> JiraClient:
+    """Assert `client` is a `JiraClient`, raising `ConfigError` (naming
+    `context`) if not -- the shared half of the Jira-only guard both
+    `cli.py`'s Jira-only commands and `api.py`'s `/tools` endpoints need
+    (`ADLC-106`).
+
+    This only covers "check an already-selected client" -- `cli.py`'s
+    `_jira_client()` does something genuinely different for a one-shot CLI
+    invocation with no shared client to check: it calls `get_tracker_client()`
+    (so it still honors `SYMPHONY_WORKFLOW_TRACKER`, fixing a real
+    inconsistency -- previously it constructed a fresh `JiraClient` directly
+    from `JiraConfig.from_env()`, silently ignoring the env var entirely),
+    then passes the result through this same function. `api.py`'s
+    `get_jira_client()` passes the server's one already-constructed
+    `app.state.tracker_client` straight through. Both end up asserting the
+    exact same thing, worded the same way -- that's the actual consolidation,
+    not forcing two different construction mechanisms into one shape.
+
+    Import of `JiraClient` is local (not at module level) for the same
+    lazy-import reason `get_tracker_client()`'s branches are local -- this
+    module stays a leaf that never requires both backends' dependencies just
+    to be imported.
+    """
+    from symphony_workflow.client import JiraClient
+
+    if isinstance(client, JiraClient):
+        return client
+    raise ConfigError(
+        f"{context} is Jira-only; the configured {TRACKER_ENV} backend is not Jira."
     )

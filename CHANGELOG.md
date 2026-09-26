@@ -5,6 +5,27 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## 0.4.5 — 2026-09-26
+
+**Consolidated the duplicated Jira-only-backend guard** (`ADLC-106`) — `cli.py`'s Jira-only
+commands and `api.py`'s `/tools` endpoints each independently asserted "this client must be
+Jira," worded slightly differently. New `tracker.require_jira(client, *, context)` is the one
+shared assertion both now use.
+
+Confirmed first (`ADLC-107`) that the two guards weren't actually identical: `cli.py`'s
+`_jira_client()` *constructed* a fresh `JiraClient` directly from `JiraConfig.from_env()`,
+completely ignoring `SYMPHONY_WORKFLOW_TRACKER`; `api.py`'s `get_jira_client()` *checked* the
+server's one already-selected shared client. **Real, deliberate behavior fix along the way**:
+`_jira_client()` now goes through `get_tracker_client()` first (honoring the env var) before
+asserting Jira-ness — a deployment with `SYMPHONY_WORKFLOW_TRACKER=linear` now gets a clear
+"Jira-only" error from `search`/`call`/`decompose`/`sync-decomposition` instead of silently using
+leftover `JIRA_*` env vars anyway. No change for the common case (tracker unset/`jira`).
+
+Also closed a real, pre-existing test gap found while touching this code: `api.py`'s `/tools` 501
+path had zero test coverage since it was built in `ADLC-57` — now covered.
+
+4 new tests, 252 total, `ruff check .` clean.
+
 ## 0.4.4 — 2026-09-26
 
 **`scripts/release.sh`** (`ADLC-101`) — makes the git-tag step of a release unskippable.
