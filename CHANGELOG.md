@@ -5,6 +5,23 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## 0.4.3 — 2026-09-26
+
+**Closed `cli.py`'s test coverage gap** (`ADLC-95`) — measured 70% (only happy paths tested)
+vs. 90%+ everywhere else. Added a failure-path test for every command's `except`/`typer.Exit`
+branch (`get`/`comment`/`transition`/`plan`/`implement` raising `TrackerError`; `search`/`call`
+raising `JiraError`; `_client()`/`_jira_client()` raising `ConfigError`), plus previously-untested
+happy paths (`search`, `comment`, `transition`, `call` had zero coverage at all). `cli.py` now at
+99% (only the untestable `if __name__ == "__main__"` guard remains).
+
+Also added: explicit `TrackerClient` Protocol-conformance assertions (`test_tracker.py` —
+`isinstance(JiraClient(...), TrackerClient)` / `LinearClient`, catching a future signature drift
+instead of only failing silently at call time), and a dedicated `test_models.py` (previously
+100%-covered only incidentally through other tests' fixtures — now explicit edge-case + `from_api`/
+`from_linear` parity coverage).
+
+248 tests total (31 new), overall coverage 92%→96%, `ruff check .` clean.
+
 ## 0.4.2 — 2026-09-26
 
 **`sync-decomposition --status` (`ADLC-121`)** — closes a real poller-race window hit twice this

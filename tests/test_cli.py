@@ -73,6 +73,166 @@ def test_missing_env_vars_exit_with_helpful_message(monkeypatch) -> None:
     assert "Missing required env var" in result.output
 
 
+def test_jira_only_command_missing_env_vars_exits_with_helpful_message(monkeypatch) -> None:
+    # ADLC-95: _jira_client()'s own ConfigError path -- distinct from
+    # _client()'s (tested above via `get`). `search` is Jira-only regardless
+    # of SYMPHONY_WORKFLOW_TRACKER, so this exercises _jira_client() directly.
+    monkeypatch.delenv("JIRA_BASE_URL", raising=False)
+    monkeypatch.delenv("JIRA_EMAIL", raising=False)
+    monkeypatch.delenv("JIRA_API_TOKEN", raising=False)
+    result = runner.invoke(app, ["search", "project = ADLC"])
+    assert result.exit_code == 1
+    assert "Missing required env var" in result.output
+
+
+def _set_jira_env(monkeypatch) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
+
+@respx.mock
+def test_get_issue_happy_path(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "Do the thing", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    result = runner.invoke(app, ["get", "ADLC-1"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["key"] == "ADLC-1"
+
+
+@respx.mock
+def test_get_issue_tracker_error_exits_nonzero(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.get(f"{BASE_URL}/rest/api/2/issue/NOPE-1").mock(
+        return_value=httpx.Response(404, json={"errorMessages": ["not found"]})
+    )
+    result = runner.invoke(app, ["get", "NOPE-1"])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+@respx.mock
+def test_search_issues_happy_path(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "total": 1,
+                "issues": [
+                    {
+                        "key": "ADLC-1",
+                        "id": "1",
+                        "fields": {"summary": "Do the thing", "status": {"name": "To Do"}},
+                    }
+                ],
+            },
+        )
+    )
+    result = runner.invoke(app, ["search", "project = ADLC"])
+    assert result.exit_code == 0, result.output
+    assert "ADLC-1" in result.output
+    assert "1 total" in result.output
+
+
+@respx.mock
+def test_search_issues_jira_error_exits_nonzero(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(400, json={"errorMessages": ["bad jql"]})
+    )
+    result = runner.invoke(app, ["search", "not jql"])
+    assert result.exit_code == 1
+    assert "bad jql" in result.output
+
+
+@respx.mock
+def test_add_comment_happy_path(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-1/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    result = runner.invoke(app, ["comment", "ADLC-1", "Looks good"])
+    assert result.exit_code == 0, result.output
+    assert "Comment added to ADLC-1" in result.output
+
+
+@respx.mock
+def test_add_comment_tracker_error_exits_nonzero(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.post(f"{BASE_URL}/rest/api/2/issue/NOPE-1/comment").mock(
+        return_value=httpx.Response(404, json={"errorMessages": ["not found"]})
+    )
+    result = runner.invoke(app, ["comment", "NOPE-1", "x"])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+@respx.mock
+def test_transition_issue_happy_path(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_transition("ADLC-1", "Done")
+    result = runner.invoke(app, ["transition", "ADLC-1", "done"])
+    assert result.exit_code == 0, result.output
+    assert "ADLC-1 -> done" in result.output
+
+
+@respx.mock
+def test_transition_issue_tracker_error_exits_nonzero(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1/transitions").mock(
+        return_value=httpx.Response(200, json={"transitions": [{"id": "1", "name": "Done"}]})
+    )
+    result = runner.invoke(app, ["transition", "ADLC-1", "Cancelled"])
+    assert result.exit_code == 1
+    assert "No transition named" in result.output
+
+
+@respx.mock
+def test_call_invokes_registered_tool_successfully(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-1",
+                "id": "1",
+                "fields": {"summary": "Do the thing", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    result = runner.invoke(app, ["call", "get_issue", '{"key": "ADLC-1"}'])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["key"] == "ADLC-1"
+
+
+def test_call_unknown_tool_exits_nonzero(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    result = runner.invoke(app, ["call", "not_a_real_tool", "{}"])
+    assert result.exit_code == 1
+    assert "Unknown tool" in result.output
+
+
+@respx.mock
+def test_call_jira_error_exits_nonzero(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.get(f"{BASE_URL}/rest/api/2/issue/NOPE-1").mock(
+        return_value=httpx.Response(404, json={"errorMessages": ["not found"]})
+    )
+    result = runner.invoke(app, ["call", "get_issue", '{"key": "NOPE-1"}'])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
 def test_no_args_shows_help() -> None:
     result = runner.invoke(app, [])
     assert "Python CLI for Jira Cloud" in result.output
@@ -199,6 +359,28 @@ def test_plan_command_no_max_turns_option_omits_override(monkeypatch, tmp_path: 
 
 
 @respx.mock
+def test_plan_command_tracker_error_exits_nonzero(monkeypatch, tmp_path: Path) -> None:
+    # ADLC-95: execute_plan's very first call is client.get_issue -- a 404
+    # there raises TrackerError before any workspace/agent work happens,
+    # the cheapest real way to exercise cli.py's plan-command except branch.
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+    monkeypatch.setattr(cli_module, "WorkspaceManager", _FakeWorkspaceManager)
+
+    respx.get(f"{BASE_URL}/rest/api/2/issue/NOPE-1").mock(
+        return_value=httpx.Response(404, json={"errorMessages": ["not found"]})
+    )
+
+    result = runner.invoke(app, ["plan", "NOPE-1"])
+
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+@respx.mock
 def test_implement_command_resumes_from_saved_run(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
     monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
@@ -251,6 +433,39 @@ def test_implement_command_without_saved_run_exits_with_helpful_message(
     assert result.exit_code == 1
     assert "No saved run for ADLC-99" in result.output
     assert "symphony-workflow plan ADLC-99" in result.output
+
+
+def test_implement_command_wrong_run_state_exits_nonzero(monkeypatch, tmp_path: Path) -> None:
+    # ADLC-95: cli.py's implement except clause also catches RunTransitionError
+    # -- the realistic one execute_implement actually raises (its own
+    # TrackerError-raising calls are all best-effort/swallowed internally,
+    # see orchestrator.execute_implement); a saved run not in plan_ready
+    # triggers RunStore.mark_implementing's own guard.
+    _set_jira_env(monkeypatch)
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+
+    sidecar_dir = tmp_path / "ADLC-1"
+    sidecar_dir.mkdir(parents=True)
+    (sidecar_dir / "run.json").write_text(
+        json.dumps(
+            {
+                "id": "run-1",
+                "issue_key": "ADLC-1",
+                "state": "created",
+                "created_at": "2026-01-01T00:00:00Z",
+                "plan": None,
+                "session_id": None,
+                "workspace_path": None,
+                "result": None,
+                "error": None,
+            }
+        )
+    )
+
+    result = runner.invoke(app, ["implement", "ADLC-1"])
+
+    assert result.exit_code == 1
+    assert "expected 'plan_ready'" in result.output
 
 
 @respx.mock
