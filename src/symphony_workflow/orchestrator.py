@@ -19,10 +19,10 @@ from symphony_workflow.agent_runner import (
     run_plan,
     run_triage,
 )
-from symphony_workflow.client import JiraClient, JiraError
 from symphony_workflow.models import Issue, TriageDecision
 from symphony_workflow.prompts import render_implement_prompt, render_plan_prompt
 from symphony_workflow.runs import Run, RunState, RunStore, RunTransitionError, TriageStore
+from symphony_workflow.tracker import TrackerClient, TrackerError
 from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
 
 logger = logging.getLogger("symphony_workflow.orchestrator")
@@ -61,7 +61,7 @@ def _terminal_statuses() -> frozenset[str]:
 
 
 def cleanup_workspace_if_terminal(
-    issue_key: str, *, client: JiraClient, workspaces: WorkspaceManager
+    issue_key: str, *, client: TrackerClient, workspaces: WorkspaceManager
 ) -> bool:
     """Remove `issue_key`'s workspace if its *live* Jira status is terminal
     (Symphony §8.6). Opt-in (see WORKSPACE_CLEANUP_ENV) and best-effort — never
@@ -74,7 +74,7 @@ def cleanup_workspace_if_terminal(
         return False
     try:
         issue = client.get_issue(issue_key)
-    except JiraError:
+    except TrackerError:
         logger.warning("cleanup: could not fetch status for %s", issue_key, exc_info=True)
         return False
     if issue.status not in _terminal_statuses():
@@ -83,7 +83,7 @@ def cleanup_workspace_if_terminal(
     return workspaces.remove(issue_key)
 
 
-def sweep_terminal_workspaces(*, client: JiraClient, workspaces: WorkspaceManager) -> list[str]:
+def sweep_terminal_workspaces(*, client: TrackerClient, workspaces: WorkspaceManager) -> list[str]:
     """Startup sweep (Symphony §8.6): check every existing workspace directory
     against live Jira status and remove the ones whose issue is terminal.
     Called from `api.py`'s `lifespan`. Opt-in via the same env var as
@@ -101,16 +101,22 @@ def sweep_terminal_workspaces(*, client: JiraClient, workspaces: WorkspaceManage
     return removed
 
 
-def render_run_doc(client: JiraClient, issue_key: str, body: str) -> str:
-    """Prepends a `jira_url` frontmatter line — the local-md-to-Jira half of
-    linking (see CLAUDE.md's "Local md <-> Jira" section). The other half
-    (Jira -> local, a remotelink pointing back at the merged GitHub file) can't
-    happen here: the file doesn't exist on GitHub until it's committed and
-    pushed, well after this function returns — see the `create_remote_link`
-    tool, called separately once that's true.
+def render_run_doc(client: TrackerClient, issue_key: str, body: str) -> str:
+    """Prepends a `tracker_url` frontmatter line — the local-md-to-tracker half
+    of linking (see CLAUDE.md's "Local md <-> Jira" section). Named
+    `tracker_url`, not `jira_url` (ADLC-57) — this function is shared by both
+    backends now, and a Linear-backed run's frontmatter calling itself
+    `jira_url` would be actively wrong. Historical docs/runs/**/plan.md files
+    written before this rename keep their original `jira_url` key unchanged
+    (point-in-time record, not a live reference — see docs/plans/0005-linear-
+    tracker-backend/intent.md). The other half (tracker -> local, a link
+    pointing back at the merged GitHub file) can't happen here: the file
+    doesn't exist on GitHub until it's committed and pushed, well after this
+    function returns — see the `create_remote_link` tool (Jira-only, ADLC-57's
+    non-goals), called separately once that's true.
     """
-    jira_url = f"{client.base_url}/browse/{issue_key}"
-    return f"---\njira_url: {jira_url}\n---\n\n{body}"
+    tracker_url = client.issue_url(issue_key)
+    return f"---\ntracker_url: {tracker_url}\n---\n\n{body}"
 
 
 _MARKDOWN_ATX_HEADER = re.compile(r"^#{1,6}[ \t]+(.*)$", re.MULTILINE)
@@ -129,7 +135,7 @@ def jira_safe_comment_body(text: str) -> str:
     return _MARKDOWN_ATX_HEADER.sub(r"**\1**", text)
 
 
-def _post_failure_comment(client: JiraClient, issue_key: str, phase: str, error: str) -> None:
+def _post_failure_comment(client: TrackerClient, issue_key: str, phase: str, error: str) -> None:
     """Best-effort visibility for a failed Plan/Implement run — without this,
     a failure was previously silent: the ticket just sat at its current
     status with no indication anything was attempted (confirmed live,
@@ -141,7 +147,7 @@ def _post_failure_comment(client: JiraClient, issue_key: str, phase: str, error:
             issue_key,
             jira_safe_comment_body(f"[symphony-workflow {phase}] FAILED: {error}"),
         )
-    except JiraError:
+    except TrackerError:
         logger.warning("could not post failure comment for %s", issue_key, exc_info=True)
 
 
@@ -207,11 +213,11 @@ async def execute_plan(
     run: Run,
     *,
     runs: RunStore,
-    client: JiraClient,
+    client: TrackerClient,
     workspaces: WorkspaceManager,
     max_turns: int | None = None,
 ) -> Run:
-    """Read-only: no repo writes. Raises JiraError / RunTransitionError /
+    """Read-only: no repo writes. Raises TrackerError / RunTransitionError /
     WorkspaceError / AgentRunError on failure — the run is marked failed
     first wherever the failure happened after a state change, so GET
     /runs/{id} always reflects what actually happened.
@@ -283,14 +289,14 @@ async def execute_plan(
     # Best-effort — a failed status transition shouldn't undo a successful plan.
     try:
         client.transition_issue(run.issue_key, "In Review")
-    except JiraError:
+    except TrackerError:
         logger.warning("could not transition %s to 'In Review'", run.issue_key, exc_info=True)
 
     return updated
 
 
 async def execute_implement(
-    run: Run, *, runs: RunStore, client: JiraClient, workspaces: WorkspaceManager
+    run: Run, *, runs: RunStore, client: TrackerClient, workspaces: WorkspaceManager
 ) -> Run:
     """Hard-gated on state == plan_ready (RunTransitionError otherwise, raised
     by mark_implementing — the same check RunStore enforces everywhere else).
@@ -325,7 +331,7 @@ async def execute_implement(
 
     try:
         client.transition_issue(run.issue_key, "In Progress")
-    except JiraError:
+    except TrackerError:
         logger.warning("could not transition %s to 'In Progress'", run.issue_key, exc_info=True)
 
     # Best-effort — e.g. the ticket was already Done before Implement ran, or
@@ -337,7 +343,7 @@ async def execute_implement(
 
 
 async def execute_triage(
-    candidates: list[Issue], *, client: JiraClient, triage_store: TriageStore
+    candidates: list[Issue], *, client: TrackerClient, triage_store: TriageStore
 ) -> list[TriageDecision]:
     """ADLC-29: one triage agent turn for a whole batch of newly-discovered
     candidate issues, then code (not the agent) applies each decision:
@@ -392,7 +398,7 @@ async def execute_triage(
                         f"auto-Plan: {decision.reason}"
                     ),
                 )
-            except JiraError:
+            except TrackerError:
                 logger.warning(
                     "triage: could not post flag comment for %s", decision.issue_key, exc_info=True
                 )

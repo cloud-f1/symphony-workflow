@@ -10,6 +10,8 @@ import pytest
 
 from symphony_workflow.config import (
     DEFAULT_TRIAGE_INTERVAL_SECONDS,
+    ConfigError,
+    LinearConfig,
     poll_plan_max_turns,
     triage_enabled,
     triage_interval_seconds,
@@ -64,3 +66,21 @@ def test_poll_plan_max_turns_parses_as_int(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("SYMPHONY_WORKFLOW_POLL_PLAN_MAX_TURNS", "15")
     assert poll_plan_max_turns() == 15
     assert isinstance(poll_plan_max_turns(), int)
+
+
+def test_linear_config_from_env_reads_required_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_abc")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_LINEAR_TEAM", "gai")
+    config = LinearConfig.from_env()
+    assert config.api_key == "lin_api_abc"
+    # Team key is upper-cased -- Linear team keys are conventionally uppercase
+    # (e.g. "GAI"), and a lowercase env var value shouldn't silently produce a
+    # different, non-matching key.
+    assert config.team_key == "GAI"
+
+
+def test_linear_config_from_env_missing_vars_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LINEAR_API_KEY", raising=False)
+    monkeypatch.delenv("SYMPHONY_WORKFLOW_LINEAR_TEAM", raising=False)
+    with pytest.raises(ConfigError, match="LINEAR_API_KEY"):
+        LinearConfig.from_env()

@@ -84,7 +84,7 @@ def api_client(
 
 
 @respx.mock
-def test_health_reports_jira_reachable(api_client: TestClient) -> None:
+def test_health_reports_tracker_reachable(api_client: TestClient) -> None:
     route = respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
         return_value=httpx.Response(200, json={"accountId": "abc", "displayName": "Bot"})
     )
@@ -93,7 +93,7 @@ def test_health_reports_jira_reachable(api_client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert body["jira_reachable"] is True
+    assert body["tracker_reachable"] is True
     assert body["poller_running"] is False  # disabled for this fixture
 
 
@@ -107,7 +107,7 @@ def test_health_reports_unreachable_on_jira_error_status(
     )
     response = api_client.get("/health")
     assert response.status_code == 200
-    assert response.json()["jira_reachable"] is False
+    assert response.json()["tracker_reachable"] is False
 
 
 @pytest.mark.parametrize(
@@ -120,7 +120,7 @@ def test_health_reports_unreachable_on_transport_error(
     respx.get(f"{BASE_URL}/rest/api/2/myself").mock(side_effect=error)
     response = api_client.get("/health")
     assert response.status_code == 200
-    assert response.json()["jira_reachable"] is False
+    assert response.json()["tracker_reachable"] is False
 
 
 def test_list_tools_returns_every_registered_schema(api_client: TestClient) -> None:

@@ -1,4 +1,12 @@
-"""Pydantic models for Jira API request/response payloads."""
+"""Pydantic models for tracker API request/response payloads.
+
+Shared by both backends (ADLC-57) -- `Issue`/`SearchResult`/`CurrentUser` are
+generic enough that Jira's REST shape and Linear's GraphQL shape both parse
+into the same fields (`Issue.key` is Jira's `key` / Linear's `identifier`,
+both human-readable "PREFIX-123"; `Issue.id` is each API's own internal id).
+`IssueCreateResult`/`Transition` stay Jira-only -- Linear's create/transition
+paths don't go through these types (see client.py vs linear_client.py).
+"""
 
 from __future__ import annotations
 
@@ -28,6 +36,24 @@ class Issue(BaseModel):
             assignee=assignee.get("displayName") if assignee else None,
             # v2 API returns description as plain text (not ADF) — see client.py.
             description=fields.get("description") or None,
+        )
+
+    @classmethod
+    def from_linear(cls, payload: dict[str, Any]) -> Issue:
+        """`payload` is one node from a Linear `issue`/`issues` GraphQL query
+        (see linear_client.py's ISSUE_FIELDS) -- `identifier` is the
+        human-readable "TEAM-123" (Jira's `key` equivalent), `id` is Linear's
+        internal UUID (Jira's `id` equivalent, also internal/numeric there).
+        """
+        state = payload.get("state") or {}
+        assignee = payload.get("assignee")
+        return cls(
+            key=payload["identifier"],
+            id=payload["id"],
+            summary=payload.get("title", ""),
+            status=state.get("name", ""),
+            assignee=assignee.get("name") if assignee else None,
+            description=payload.get("description") or None,
         )
 
 
@@ -77,4 +103,17 @@ class CurrentUser(BaseModel):
             # Jira Cloud omits emailAddress when the user's profile visibility hides it.
             email_address=payload.get("emailAddress") or None,
             active=payload.get("active", True),
+        )
+
+    @classmethod
+    def from_linear(cls, payload: dict[str, Any]) -> CurrentUser:
+        """`payload` is Linear's `viewer` GraphQL query result. Linear has no
+        `active` concept for the viewer (you can't authenticate as a
+        deactivated user) -- always True, matching Jira's own default.
+        """
+        return cls(
+            account_id=payload["id"],
+            display_name=payload.get("name", ""),
+            email_address=payload.get("email") or None,
+            active=True,
         )

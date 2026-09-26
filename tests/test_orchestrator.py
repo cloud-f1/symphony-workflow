@@ -157,26 +157,27 @@ def test_sweep_returns_empty_list_when_workspace_root_does_not_exist(
     assert sweep_terminal_workspaces(client=client, workspaces=workspaces) == []
 
 
-def test_render_run_doc_prepends_jira_url_frontmatter() -> None:
+def test_render_run_doc_prepends_tracker_url_frontmatter() -> None:
     client = MagicMock()
-    client.base_url = "https://cloud-f1.atlassian.net"
+    client.issue_url.return_value = "https://cloud-f1.atlassian.net/browse/ADLC-17"
 
     doc = render_run_doc(client, "ADLC-17", "Here is the plan.")
 
     assert doc == (
-        "---\njira_url: https://cloud-f1.atlassian.net/browse/ADLC-17\n---\n\nHere is the plan."
+        "---\ntracker_url: https://cloud-f1.atlassian.net/browse/ADLC-17\n---\n\nHere is the plan."
     )
+    client.issue_url.assert_called_once_with("ADLC-17")
 
 
 def test_render_run_doc_frontmatter_is_parseable_yaml_prefix() -> None:
     client = MagicMock()
-    client.base_url = "https://cloud-f1.atlassian.net"
+    client.issue_url.return_value = "https://cloud-f1.atlassian.net/browse/ADLC-24"
 
     doc = render_run_doc(client, "ADLC-24", "body text")
     lines = doc.splitlines()
 
     assert lines[0] == "---"
-    assert lines[1] == "jira_url: https://cloud-f1.atlassian.net/browse/ADLC-24"
+    assert lines[1] == "tracker_url: https://cloud-f1.atlassian.net/browse/ADLC-24"
     assert lines[2] == "---"
 
 
