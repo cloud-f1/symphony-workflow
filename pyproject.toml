@@ -1,6 +1,6 @@
 [project]
 name = "symphony-workflow"
-version = "0.4.1"
+version = "0.4.2"
 description = "Python CLI for Jira Cloud that exposes every operation as a schema-described tool call an AI agent can invoke by name."
 readme = "README.md"
 requires-python = ">=3.11"

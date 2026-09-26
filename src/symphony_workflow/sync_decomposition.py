@@ -12,13 +12,28 @@ mechanism Subtask->Story linking uses).
 
 This module does NOT re-run the decompose agent -- it only reads the
 already-generated `decomposition.json` (never the Markdown; that file is for
-human review only). Created issues land in Jira's default "To Do" state
-untouched, so the existing poller / manual `symphony-workflow plan`+`implement` flow
-picks up the new Stories unchanged -- this is a new front stage, not a
-replacement. Subtasks are deliberately invisible to the poller's `READY_JQL`
-(it excludes `issuetype in (Epic, Subtask)`, same as every other Subtask this
-repo creates for its own tracking) -- planning/implementing happens at the
-Story level, Subtasks are the finer-grained checklist underneath.
+human review only). By default, created issues land in Jira's default "To
+Do" state untouched, so the existing poller / manual `symphony-workflow
+plan`+`implement` flow picks up the new Stories unchanged -- this is a new
+front stage, not a replacement. Subtasks are deliberately invisible to the
+poller's `READY_JQL` (it excludes `issuetype in (Epic, Subtask)`, same as
+every other Subtask this repo creates for its own tracking) -- planning/
+implementing happens at the Story level, Subtasks are the finer-grained
+checklist underneath.
+
+`initial_status` (`ADLC-121`) is the escape hatch from that default, for a
+different use case entirely: retroactively documenting an Epic's worth of
+*already-shipped* work as real Stories/Subtasks (this repo's own `ADLC-53`/
+`57` needed exactly this after the fact -- see `ADLC-86`'s decompose-first
+rule). Left in the default "To Do", a freshly-synced Story is real bait for
+a running poller: it auto-Plans the ticket for work that's already done and
+merged, and won that race against a human trying to set the "correct" status
+right after sync -- confirmed live, twice (`ADLC-64`, `ADLC-89`), both
+requiring a server kill and manual cleanup. Passing `initial_status`
+transitions each Story (and its Subtasks) immediately inside the same loop
+iteration that creates it -- there's still a window between "created" and
+"transitioned", but it's one synchronous call wide instead of "create all N,
+then transition all N in a second pass," which is what actually raced.
 
 No client.py/tools.py changes needed: this reuses the existing
 `client.create_issue(..., parent=...)` path in a loop, the same mechanism
@@ -123,6 +138,7 @@ def execute_sync_decomposition(
     client: JiraClient,
     runs_docs_root: Path,
     project_key: str | None = None,
+    initial_status: str | None = None,
 ) -> SyncResult:
     """Read the already-reviewed `decomposition.json` for `epic_key` and
     create one real Story per entry (`parent=epic_key`) plus one real
@@ -132,12 +148,23 @@ def execute_sync_decomposition(
     the dash) -- pass it explicitly only to target a different project than
     the epic's.
 
+    `initial_status` (`ADLC-121`): when given, transitions each Story and its
+    Subtasks to that status immediately after creating them (same loop
+    iteration), instead of leaving them in Jira's default "To Do" for the
+    poller to auto-Plan. See this module's docstring for why -- the default
+    (`None`, unchanged) is still correct for a real forward-looking
+    decomposition. Best-effort per issue: a transition failure (e.g. the
+    named status doesn't exist on this project's workflow) raises
+    `JiraError` immediately, the same as a create-issue failure -- issues
+    already created/transitioned before that point stay as they are, same
+    no-transaction caveat as the rest of this function.
+
     Raises `SyncDecompositionError` if `decomposition.json` is missing,
     stale (epic_key mismatch), empty, or fails schema validation, and
-    `JiraError` if any issue-creation call fails partway through. Jira has
-    no create-issue transaction, so issues already created before a failure
-    stay created -- the caller (CLI layer) is responsible for telling the
-    human what was and wasn't created.
+    `JiraError` if any issue-creation or -transition call fails partway
+    through. Jira has no create-issue transaction, so issues already created
+    before a failure stay created -- the caller (CLI layer) is responsible
+    for telling the human what was and wasn't created.
     """
     decomposition = _load_decomposition(epic_key, runs_docs_root)
     resolved_project_key = project_key or project_key_from_issue_key(epic_key)
@@ -151,6 +178,8 @@ def execute_sync_decomposition(
             "Story",
             parent=epic_key,
         )
+        if initial_status:
+            client.transition_issue(story_result.key, initial_status)
         synced_tasks: list[SyncedTask] = []
         for task in story.tasks:
             task_result = client.create_issue(
@@ -160,6 +189,8 @@ def execute_sync_decomposition(
                 "Subtask",
                 parent=story_result.key,
             )
+            if initial_status:
+                client.transition_issue(task_result.key, initial_status)
             synced_tasks.append(
                 SyncedTask(title=task.title, key=task_result.key, url=task_result.url)
             )
