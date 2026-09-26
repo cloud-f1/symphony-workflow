@@ -34,11 +34,11 @@ cp .env.example .env   # fill in JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN
 uv run --env-file .env uvicorn symphony_workflow.api:app --port 8811
 ```
 
-`GET /health` reports Jira connectivity and whether the poller is running.
+`GET /health` reports tracker connectivity and whether the poller is running.
 Note: `config.py` reads `os.environ` directly, no `python-dotenv` — plain `uv
 run symphony-workflow ...` will NOT pick up `.env` and fails with "Missing required
 env var(s)". Either pass `--env-file .env` to `uv run` (confirmed working,
-uv 0.12.3+) or export the three `JIRA_*` vars into the shell yourself.
+uv 0.12.3+) or export the required vars into the shell yourself.
 
 ## The four ways to drive a ticket
 
@@ -64,6 +64,40 @@ uv 0.12.3+) or export the three `JIRA_*` vars into the shell yourself.
    (ADLC-47) turns an already-reviewed `decomposition.json` into real Jira
    Story/Subtask issues; it does not re-run the decompose agent. See
    `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for design detail.
+
+## Tracker backend — Jira or Linear
+
+`SYMPHONY_WORKFLOW_TRACKER=jira` (default) or `linear` picks the backend for ways 1/2/4 above
+(`get`/`comment`/`transition`/`plan`/`implement`, the poller, `/health`, `/issues/{key}`,
+`/runs/*`). **Not** tracker-agnostic — stay Jira-only regardless of the env var: `search` (raw
+JQL, no Linear equivalent), `call`/`list-tools` (`tools.py`'s field set — Epic/parent linking,
+sprint/story-points — is Jira-shaped), `decompose`/`sync-decomposition`. `api.py`'s `/tools` and
+`/tools/{name}/call` return `501` when the configured backend isn't Jira, rather than silently
+misrouting. See `ADLC-57` / `docs/plans/0005-linear-tracker-backend/intent.md`'s non-goals for why
+those don't have a Linear equivalent yet.
+
+**Linear structure mapping** (`ADLC-87`, confirmed against Linear's live GraphQL schema): don't
+map Jira's Project→Epic→Story→Task onto Linear Team→Project→Issue — Linear Team count is capped
+by plan (this workspace: 2, already at `GAI`+`CLO`), so "one Team per repo" can't scale. Use
+instead: Linear **Project** = one repo, **`ProjectMilestone`** (inside that Project) = Epic,
+**Issue** = Story, **sub-issue** (`parentId`) = Task. Full detail + English/繁體中文 write-up in
+`README.md`'s "Recommended Linear structure" section.
+
+## Epic decomposition — required, not optional
+
+**Never build directly under an Epic ticket.** `symphony-workflow decompose <epic-key>` (read-only,
+writes `docs/runs/<epic>/decomposition.md` for review) then `symphony-workflow sync-decomposition
+<epic-key>` (materializes the reviewed decomposition as real Story/Subtask issues,
+`parent=<epic-key>`) exist exactly for this — `ADLC-46`/`47`. Work happens against the
+Stories/Subtasks, each transitioned as it completes; the Epic itself only transitions to Done once
+its children are. **Real incident this rule fixes** (`ADLC-86`): `ADLC-57` (an Epic) shipped
+end-to-end with zero children — caught only after the fact, then retroactively decomposed. If
+you're about to `create_issue` an Epic and start writing code, stop and decompose first instead.
+
+If a bulk `sync-decomposition` pass is retroactively documenting already-*shipped* work (not real
+forward-looking planning), pass `--status <name>` (`ADLC-121`) — otherwise the newly-created
+Stories sit in Jira's default "To Do" and the poller races your own status fix-up with a real
+auto-Plan run (confirmed live, twice: `ADLC-64`, `ADLC-89`).
 
 ## Branch naming — required, not optional
 
