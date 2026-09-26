@@ -8,6 +8,54 @@
 
 ---
 
+## Session close-out — 2026-09-26 (`ADLC-57`: Linear tracker backend shipped, v0.4.0 tagged; `ADLC-58`: cloud deployment architecture recorded, paused)
+
+**`ADLC-57` — Linear as an alternative tracker backend, shipped.** Alex asked (after a research
+detour into `content-asset-system`'s own separate `gaia linear` integration — confirmed healthy,
+but explicitly not what got extended) to give this repo its own, independent Linear client so the
+Plan/Implement run-loop can drive Linear tickets as well as Jira ones. Built in one pass: a new
+`tracker.py` (`TrackerClient` Protocol, `TrackerError`, `get_tracker_client()` reading
+`SYMPHONY_WORKFLOW_TRACKER=jira|linear`) and `linear_client.py` (`LinearClient`, GraphQL).
+`orchestrator.py`/`poller.py` are now typed against the Protocol, not `JiraClient` directly.
+Scope was deliberately bounded to the run-loop's real surface (`get_issue`/`add_comment`/
+`transition_issue`/`get_myself`/`issue_url`/`search_ready_tickets`) — the AI-agent tool-call layer
+(`tools.py`), `decompose`/`sync-decomposition`, and raw-JQL `search` stay Jira-only by design
+(Linear has no Epic type, no JQL, a different field model — see `docs/plans/0005-linear-tracker-
+backend/intent.md`'s non-goals). Two honest breaking renames shipped alongside: `plan.md`'s
+`jira_url:` frontmatter → `tracker_url:`, `/health`'s `jira_reachable` → `tracker_reachable`.
+Confirmed live (read-only) against the real `Gaia`/`GAI` Linear team, not just mocked tests — the
+GraphQL response shapes matched `models.py`'s parsing on the first real call. 214 tests (20 new),
+`ruff` clean. `v0.4.0` tagged. PR #14, squash-merged.
+
+**`ADLC-58` — cloud deployment architecture, documented and paused.** A genuine mid-session
+interruption: Alex asked whether the API server should be deployed as one shared multi-tenant
+cloud instance (different Claude Code sessions connecting via a per-request "target tag") or one
+instance per repo. Answer, grounded in `docs/PORTABILITY.md`'s already-decided 2026-09-24
+multi-repo policy (which explicitly rejected a shared multi-tenant poller for reasons that apply
+unchanged to a cloud deployment): **per-repo, yes; shared multi-tenant, no.** Also surfaced a real
+gap along the way — `api.py` has zero authentication, safe only because it's bound to
+`127.0.0.1` today. Recorded as `docs/plans/0004-cloud-deployment/{intent,spec}.md` (PR #13,
+merged) and paused (`planning` status) since no real deployment target/provider has been chosen
+yet — a follow-up ticket picks this up once one is.
+
+**A real numbering collision, caught and fixed**: both tickets were drafted in parallel
+(`ADLC-57`'s intent.md written first as `0004-linear-tracker-backend`, then `ADLC-58` interrupted
+and needed its own folder). Since `ADLC-58` merged to `main` first, it kept `0004`
+(`0004-cloud-deployment`) and `ADLC-57`'s folder was renamed to `0005-linear-tracker-backend`
+after rebasing — numbering follows merge order into `main`, not draft-start order. Worth
+remembering if a future session juggles two `docs/plans/` folders concurrently again.
+
+**A real credential-handling incident, unrelated to either ticket's code**: while wiring up a
+freshly-shared Linear API key for testing, a `sed`-based redaction command used a GNU-only `\|`
+alternation regex that BSD/macOS `sed` silently doesn't support — the redaction pattern matched
+nothing, and the real key printed in plaintext into the session transcript instead of being
+masked. Flagged immediately with a rotation recommendation. Lesson for any future secret-handling
+one-liner in this repo (macOS is the dev machine): verify BSD `sed`'s regex dialect before relying
+on it for anything security-sensitive — `-E`/ERE mode or a different tool (`python3 -c`, `awk`)
+avoids this class of silent failure.
+
+---
+
 ## Session close-out — 2026-09-25 (`ADLC-53`: repo renamed to symphony-workflow, v0.3.0 tagged)
 
 **Executed `ADLC-53`**, the rename flagged in the previous close-out as needing explicit
