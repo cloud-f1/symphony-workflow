@@ -31,10 +31,22 @@ duplicate them.
 ```bash
 uv sync --extra dev
 cp .env.example .env   # fill in JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN
-uv run uvicorn symphony_workflow.api:app --port 8811
+uv run --env-file .env uvicorn symphony_workflow.api:app --port 8811
 ```
 
-`GET /health` reports Jira connectivity and whether the poller is running.
+`GET /health` reports tracker connectivity and whether the poller is running.
+Note: `config.py` reads `os.environ` directly, no `python-dotenv` — plain `uv
+run symphony-workflow ...` will NOT pick up `.env` and fails with "Missing required
+env var(s)". Either pass `--env-file .env` to `uv run` (confirmed working,
+uv 0.12.3+) or export the required vars into the shell yourself.
+
+No "Session start — check before you start a server" section here (unlike the
+canonical copy) — this plugin's own `SessionStart` hook
+(`plugin/hooks/session-start-check-api.sh`) already runs that same `/health`
+check and auto-starts the server whenever `$CLAUDE_PROJECT_DIR` is actually a
+symphony-workflow checkout (it exits silently otherwise, safe to enable
+globally), so a human reading this skill doesn't need to do it by hand. This
+is an intentional difference, not drift.
 
 ## The four ways to drive a ticket
 
@@ -61,6 +73,40 @@ uv run uvicorn symphony_workflow.api:app --port 8811
    Story/Subtask issues; it does not re-run the decompose agent. See
    `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for design detail.
 
+## Tracker backend — Jira or Linear
+
+`SYMPHONY_WORKFLOW_TRACKER=jira` (default) or `linear` picks the backend for ways 1/2/4 above
+(`get`/`comment`/`transition`/`plan`/`implement`, the poller, `/health`, `/issues/{key}`,
+`/runs/*`). **Not** tracker-agnostic — stay Jira-only regardless of the env var: `search` (raw
+JQL, no Linear equivalent), `call`/`list-tools` (`tools.py`'s field set — Epic/parent linking,
+sprint/story-points — is Jira-shaped), `decompose`/`sync-decomposition`. `api.py`'s `/tools` and
+`/tools/{name}/call` return `501` when the configured backend isn't Jira, rather than silently
+misrouting. See `ADLC-57` / `docs/plans/0005-linear-tracker-backend/intent.md`'s non-goals for why
+those don't have a Linear equivalent yet.
+
+**Linear structure mapping** (`ADLC-87`, confirmed against Linear's live GraphQL schema): don't
+map Jira's Project→Epic→Story→Task onto Linear Team→Project→Issue — Linear Team count is capped
+by plan (this workspace: 2, already at `GAI`+`CLO`), so "one Team per repo" can't scale. Use
+instead: Linear **Project** = one repo, **`ProjectMilestone`** (inside that Project) = Epic,
+**Issue** = Story, **sub-issue** (`parentId`) = Task. Full detail + English/繁體中文 write-up in
+`README.md`'s "Recommended Linear structure" section.
+
+## Epic decomposition — required, not optional
+
+**Never build directly under an Epic ticket.** `symphony-workflow decompose <epic-key>` (read-only,
+writes `docs/runs/<epic>/decomposition.md` for review) then `symphony-workflow sync-decomposition
+<epic-key>` (materializes the reviewed decomposition as real Story/Subtask issues,
+`parent=<epic-key>`) exist exactly for this — `ADLC-46`/`47`. Work happens against the
+Stories/Subtasks, each transitioned as it completes; the Epic itself only transitions to Done once
+its children are. **Real incident this rule fixes** (`ADLC-86`): `ADLC-57` (an Epic) shipped
+end-to-end with zero children — caught only after the fact, then retroactively decomposed. If
+you're about to `create_issue` an Epic and start writing code, stop and decompose first instead.
+
+If a bulk `sync-decomposition` pass is retroactively documenting already-*shipped* work (not real
+forward-looking planning), pass `--status <name>` (`ADLC-121`) — otherwise the newly-created
+Stories sit in Jira's default "To Do" and the poller races your own status fix-up with a real
+auto-Plan run (confirmed live, twice: `ADLC-64`, `ADLC-89`).
+
 ## Branch naming — required, not optional
 
 Every workspace's branch is `{ISSUE-KEY}-{slug-of-summary}` (built by
@@ -72,11 +118,15 @@ path, use the same pattern by hand:
 ```bash
 git checkout -b ADLC-24-poller-live-verify-add-a-version-constant
 ```
-Confirmed this convention is correct but not sufficient on `cloud-f1.atlassian.net`
-as of 2026-09-25 — no GitHub-for-Jira app is connected to that site at all
-(`GET /rest/dev-status/1.0/issue/summary` returns `byInstanceType: {}` for
-every data type). Get the app installed and connected before expecting
-auto-linking to actually show up in Jira, even with a correctly-named branch.
+Confirmed 2026-09-24: the GitHub-for-Jira app is now installed and connected
+(`ADLC-30`, Done) — `repository.byInstanceType` is populated where it used to be
+`{}`. **Branch-level linking is still unverified**, though: nothing has actually
+pushed a correctly-named branch to GitHub since the app connected (Plan-phase
+worktrees never commit), so `branch.byInstanceType` hasn't been exercised
+end-to-end yet. Don't assume the Development panel populates until a real push
+confirms it. (Adopting this for a *different* Jira site: check its own
+GitHub-for-Jira connection the same way — don't assume it's connected just
+because `cloud-f1.atlassian.net` now is.)
 
 ## Safety invariants — don't "helpfully" remove these
 
