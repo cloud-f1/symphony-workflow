@@ -76,6 +76,45 @@ SYMPHONY_WORKFLOW_TRACKER=linear    # LINEAR_API_KEY + SYMPHONY_WORKFLOW_LINEAR_
 just more of the same work (Linear has no Epic issue type, no JQL, a different field model
 entirely).
 
+### Recommended Linear structure: mapping Jira's Project → Epic → Story → Task
+
+Jira gives you this hierarchy for free: one **Project** per repo, **Epic**s inside it, **Story**/
+**Task** issues inside each Epic. Linear has no `issuetype` field at all, so the naive mapping
+(one Linear **Team** per repo, one Linear **Project** per Epic) breaks down fast — Linear plans
+cap the number of **Team**s (often just 2), so "one Team per repo" can't scale past a couple of
+repos. The mapping that actually works, confirmed against Linear's real GraphQL schema:
+
+| Jira | Linear | Why |
+|---|---|---|
+| (org) | Workspace | 1:1 |
+| **Project** (= one repo) | **Project** (not Team) | Projects aren't capped like Teams are — this is what actually scales to N repos |
+| **Epic** | **`ProjectMilestone`** (inside that Project) | `ProjectMilestone.project` scopes it to one Project; `issues` lists everything under it |
+| **Story** | **Issue**, with `projectMilestoneId` set | `IssueCreateInput`/`IssueUpdateInput` both take `projectMilestoneId` directly |
+| **Task** | **sub-issue** (an Issue with `parentId` set to the Story's issue id) | Linear's only hierarchy primitive below Issue — no separate "Task" type exists |
+
+Keep using one shared Team (or your existing one) across every repo; give each repo its own
+Project; use Milestones inside that Project for Epics. This is exactly the 3-layer Epic → Story →
+Task breakdown Jira gives natively, reconstructed from Linear's actual primitives instead of
+guessed at.
+
+**繁體中文版**：Jira 天生就有這個層級：每個 repo 一個 **Project**，裡面有 **Epic**，Epic 裡面
+再有 **Story**/**Task**。Linear 完全沒有 `issuetype` 這個欄位，所以直覺的對應方式（每個 repo
+對一個 Linear **Team**，每個 Epic 對一個 Linear **Project**）很快就會出問題——Linear 的方案
+通常會限制 **Team** 的數量（常見是 2 個），所以「一個 repo 一個 Team」沒辦法擴展到超過兩個
+repo。真正可行、且已對照 Linear 實際 GraphQL schema 確認過的對應方式：
+
+| Jira | Linear | 為什麼 |
+|---|---|---|
+| （組織層級） | Workspace | 一對一 |
+| **Project**（＝一個 repo） | **Project**（不是 Team） | Project 不像 Team 會被方案上限卡住——這才是真正能撐到 N 個 repo 的做法 |
+| **Epic** | **`ProjectMilestone`**（在該 Project 底下） | `ProjectMilestone.project` 把它限定在單一 Project；`issues` 會列出底下所有工作項目 |
+| **Story** | **Issue**，設定 `projectMilestoneId` | `IssueCreateInput`／`IssueUpdateInput` 都直接支援 `projectMilestoneId` 欄位 |
+| **Task** | **sub-issue**（把某個 Issue 的 `parentId` 指向 Story 那個 Issue） | Linear 在 Issue 之下唯一的階層機制——沒有獨立的「Task」類型 |
+
+做法：維持共用同一個 Team（沿用現有的就好），每個 repo 各自開一個 Project，Epic 則用該
+Project 底下的 Milestone 來表達。這樣就重建出 Jira 原生的 Epic → Story → Task 三層結構——
+不是憑空猜測，而是照著 Linear 實際的物件模型組出來的。
+
 ## Setup
 
 Requires [`uv`](https://docs.astral.sh/uv/) and Python 3.11+.

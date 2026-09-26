@@ -5,6 +5,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## 0.4.1 — 2026-09-26
+
+**Corrected the recommended Linear structure mapping** (`ADLC-87`) — the initial live demo built
+while validating `ADLC-57`'s write path used the wrong mapping (Linear Team = repo, Linear
+Project = Epic), which doesn't scale: Linear plans cap the number of Teams (2, in the account
+this was tested against), so "one Team per repo" can't extend past a couple of repos. Corrected,
+confirmed against Linear's real GraphQL schema: **Project = repo** (not capped the way Teams
+are), **`ProjectMilestone` = Epic** (a real Linear object for exactly this, previously unused),
+**Issue = Story**, **sub-issue = Task**. README.md documents this mapping in full, in both
+English and Traditional Chinese. No source code changes — documentation + a live Linear
+workspace correction only (the existing demo project was renamed and its 27 issues reassigned
+onto a real Milestone in place, not duplicated).
+
 ## 0.4.0 — 2026-09-26
 
 **Linear as an alternative tracker backend** (`ADLC-57`) — the Plan/Implement run-loop
