@@ -85,6 +85,21 @@ actual operational pain.
 | `symphony-workflow` (this repo, self-referential) | `ADLC` | 8811 | Yes — the owning instance for `ADLC` |
 | `ai-coding-nexjs-template` | `NXJS` (dedicated, `ADLC-40`, Done — team-managed Kanban, matching `ADLC`'s own style) | 8812 (planned) | Yes, once `ADLC-41` stands up the instance |
 | `ai-rc-engineer-pm` | TBD | TBD | TBD |
+| `course-checkin` (forked from `ai-coding-nexjs-template`, 2026-09-28) | `CKIN` (dedicated, team-managed Kanban, matching `ADLC`'s style — created via `POST /rest/api/3/project`) | 8813 | No — driven by hand/Agent-tool dispatch so far, not this repo's Plan/Implement (see note below) |
+
+**`course-checkin` note (2026-09-28):** Phase 1 (E1-E4) and Phase 2's decomposition (CKIN-1..16)
+were built via manual `POST /rest/api/3/*` calls and Agent-tool subagents in hand-made git
+worktrees, **not** via this repo's `decompose`/`sync-decomposition`/`plan`/`implement` commands —
+found out about those only after the fact. Two real misses from not knowing this doc existed
+first: (1) branches didn't follow `{ISSUE-KEY}-{slug}`, so Jira auto-linking never engaged;
+(2) the Epic→Story→Subtask hierarchy was hand-built with two failed attempts (Jira rejects
+converting an existing Task/Story into a Subtask — must be created as one) before landing on the
+right shape, exactly what `decompose`+`sync-decomposition` (with `--status Done` for the
+retroactive case) would have produced correctly the first time. Poller is off because `prompts.py`
+doesn't yet know this repo's `docs/epics/eN-*.md` spec convention (no `WORKFLOW.md` support yet,
+per the section below) — a generic auto-Plan would compete with, not use, the real spec. Going
+forward: use `decompose`/`sync-decomposition` for any new Epic breakdown, and `{CKIN-N}-{slug}`
+branch names, even though this instance is manual-only.
 
 ### Sharing one Jira project across repos (interim/exception case)
 
