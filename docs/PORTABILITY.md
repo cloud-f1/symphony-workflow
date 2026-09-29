@@ -84,7 +84,7 @@ actual operational pain.
 |---|---|---|---|
 | `symphony-workflow` (this repo, self-referential) | `ADLC` | 8811 | Yes — the owning instance for `ADLC` |
 | `ai-coding-nexjs-template` | `NXJS` (dedicated, `ADLC-40`, Done — team-managed Kanban, matching `ADLC`'s own style) | 8812 (planned) | Yes, once `ADLC-41` stands up the instance |
-| `ai-rc-engineer-pm` | TBD | TBD | TBD |
+| `ai-rc-engineer-pm` | `RCPM` (dedicated, created 2026-09-29 via this doc's playbook — team-managed Kanban `gh-simplified-agility-kanban`, matching `ADLC`/`NXJS`'s style; `RCPM-1` Epic = Phase 79 with 6 Stories E328–E333, all `Done`, PR remote-links attached) | 8813 (planned, not yet started) | Not yet started — `.env.ai-rc-engineer-pm` has `SYMPHONY_WORKFLOW_POLL_ENABLED=false`; flip once someone deliberately runs the server for this repo |
 
 ### Sharing one Jira project across repos (interim/exception case)
 
