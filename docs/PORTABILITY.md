@@ -84,7 +84,9 @@ actual operational pain.
 |---|---|---|---|
 | `symphony-workflow` (this repo, self-referential) | `ADLC` | 8811 | Yes — the owning instance for `ADLC` |
 | `ai-coding-nexjs-template` | `NXJS` (dedicated, `ADLC-40`, Done — team-managed Kanban, matching `ADLC`'s own style) | 8812 (planned) | Yes, once `ADLC-41` stands up the instance |
-| `ai-rc-engineer-pm` | `RCPM` (dedicated, created 2026-09-29 via this doc's playbook — team-managed Kanban `gh-simplified-agility-kanban`, matching `ADLC`/`NXJS`'s style; `RCPM-1` Epic = Phase 79 with 6 Stories E328–E333, all `Done`, PR remote-links attached) | 8813 (planned, not yet started) | Not yet started — `.env.ai-rc-engineer-pm` has `SYMPHONY_WORKFLOW_POLL_ENABLED=false`; flip once someone deliberately runs the server for this repo |
+| `course-checkin` | `CKIN` (dedicated, team-managed Kanban) | **8813 — actually running** (confirmed live 2026-09-29, `.env.course-checkin`) | No — `SYMPHONY_WORKFLOW_POLL_ENABLED=false`; Jira sync done manually per-epic via the tool-call API, not the poller |
+| `ai-rc-engineer-pm` | `RCPM` (dedicated, created 2026-09-29 via this doc's playbook — team-managed Kanban `gh-simplified-agility-kanban`, matching `ADLC`/`NXJS`'s style; `RCPM-1` Epic = Phase 79 with 6 Stories E328–E333, all `Done`, PR remote-links attached) | ~~8813~~ **reassign before starting — collides with `course-checkin`'s real instance above, this doc's own table had both claim it** (planned, not yet started) | Not yet started — `.env.ai-rc-engineer-pm` has `SYMPHONY_WORKFLOW_POLL_ENABLED=false`; flip once someone deliberately runs the server for this repo, on a free port |
+| `ai-workmate-salon` | `SALON` (dedicated, created 2026-09-29 — team-managed Kanban `gh-simplified-agility-kanban`, matching `CKIN`'s style; verified `simplified: true` / `style: next-gen` before use, per this doc's own template-key trap warning) | 8814 — actually running (confirmed live 2026-09-29, `.env.ai-workmate-salon`) | No — same manual-sync posture as `course-checkin` |
 
 ### Sharing one Jira project across repos (interim/exception case)
 
