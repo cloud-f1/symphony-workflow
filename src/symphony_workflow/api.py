@@ -31,6 +31,7 @@ from symphony_workflow.agent_runner import AgentRunError
 from symphony_workflow.client import JiraClient, JiraError
 from symphony_workflow.config import ConfigError as EnvConfigError
 from symphony_workflow.config import (
+    poll_plan_max_budget_usd,
     poll_plan_max_turns,
     triage_enabled,
     triage_interval_seconds,
@@ -83,6 +84,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # ADLC-55 — unset by default (config.poll_plan_max_turns() returns
         # None), so this is a no-op for anyone who hasn't opted in.
         plan_max_turns=poll_plan_max_turns(),
+        # 2026-09-30 — same shape, unset by default, no-op unless opted in.
+        plan_max_budget_usd=poll_plan_max_budget_usd(),
     )
     app.state.poller = poller
     if _poll_enabled():
@@ -145,13 +148,15 @@ class CreateRunRequest(BaseModel):
 
 
 class PlanRunRequest(BaseModel):
-    """Optional body for `POST /runs/{id}/plan` (ADLC-55). `max_turns` unset
-    (the default) preserves today's behavior — `execute_plan` falls through
-    to `agent_runner.DEFAULT_PLAN_MAX_TURNS`. Every existing caller that
-    posts no body (or an empty `{}`) is unaffected.
+    """Optional body for `POST /runs/{id}/plan` (ADLC-55, `max_budget_usd`
+    2026-09-30). Both unset (the default) preserve today's behavior —
+    `execute_plan` falls through to `agent_runner.DEFAULT_PLAN_MAX_TURNS`/
+    `DEFAULT_MAX_BUDGET_USD`. Every existing caller that posts no body (or
+    an empty `{}`) is unaffected.
     """
 
     max_turns: int | None = None
+    max_budget_usd: float | None = None
 
 
 @app.get("/health")
@@ -238,9 +243,11 @@ async def plan_run(
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
     max_turns = body.max_turns if body is not None else None
+    max_budget_usd = body.max_budget_usd if body is not None else None
     try:
         return await execute_plan(
-            run, runs=runs, client=client, workspaces=workspaces, max_turns=max_turns
+            run, runs=runs, client=client, workspaces=workspaces,
+            max_turns=max_turns, max_budget_usd=max_budget_usd,
         )
     except RunTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

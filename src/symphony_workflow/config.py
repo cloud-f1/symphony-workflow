@@ -129,3 +129,26 @@ def poll_plan_max_turns() -> int | None:
     if not raw:
         return None
     return int(raw)
+
+
+# **2026-09-30, data-clarity live test**: raising `POLL_PLAN_MAX_TURNS_ENV`
+# alone changed the failure from `error_max_turns` to `error_max_budget_usd`
+# -- `agent_runner.DEFAULT_MAX_BUDGET_USD` ($2.00) is a second, independent
+# ceiling with no override anywhere (no CLI flag, no config function), unlike
+# max_turns. A target repo whose tickets need real investigation before a
+# Plan is even possible (data-clarity's are data-investigation tickets, not
+# small code-change ones) can need both raised together -- raising only
+# turns just moves the wall from one budget to the other.
+POLL_PLAN_MAX_BUDGET_USD_ENV = "SYMPHONY_WORKFLOW_POLL_PLAN_MAX_BUDGET_USD"
+
+
+def poll_plan_max_budget_usd() -> float | None:
+    """`None` (unset) means "use agent_runner.DEFAULT_MAX_BUDGET_USD",
+    exactly today's behavior -- same optional/default-preserving shape as
+    `poll_plan_max_turns()` above, for the same reason: this must never
+    change an existing poller deployment's spend ceiling unless it opts in.
+    """
+    raw = os.environ.get(POLL_PLAN_MAX_BUDGET_USD_ENV)
+    if not raw:
+        return None
+    return float(raw)

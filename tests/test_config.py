@@ -12,6 +12,7 @@ from symphony_workflow.config import (
     DEFAULT_TRIAGE_INTERVAL_SECONDS,
     ConfigError,
     LinearConfig,
+    poll_plan_max_budget_usd,
     poll_plan_max_turns,
     triage_enabled,
     triage_interval_seconds,
@@ -23,6 +24,7 @@ def _clear_triage_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SYMPHONY_WORKFLOW_TRIAGE_ENABLED", raising=False)
     monkeypatch.delenv("SYMPHONY_WORKFLOW_TRIAGE_INTERVAL_SECONDS", raising=False)
     monkeypatch.delenv("SYMPHONY_WORKFLOW_POLL_PLAN_MAX_TURNS", raising=False)
+    monkeypatch.delenv("SYMPHONY_WORKFLOW_POLL_PLAN_MAX_BUDGET_USD", raising=False)
 
 
 def test_triage_enabled_defaults_false() -> None:
@@ -66,6 +68,19 @@ def test_poll_plan_max_turns_parses_as_int(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("SYMPHONY_WORKFLOW_POLL_PLAN_MAX_TURNS", "15")
     assert poll_plan_max_turns() == 15
     assert isinstance(poll_plan_max_turns(), int)
+
+
+def test_poll_plan_max_budget_usd_defaults_to_none() -> None:
+    # Same definition of done as poll_plan_max_turns: unset must preserve
+    # today's behavior, i.e. execute_plan/run_plan fall back to
+    # agent_runner.DEFAULT_MAX_BUDGET_USD.
+    assert poll_plan_max_budget_usd() is None
+
+
+def test_poll_plan_max_budget_usd_parses_as_float(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_POLL_PLAN_MAX_BUDGET_USD", "10")
+    assert poll_plan_max_budget_usd() == 10.0
+    assert isinstance(poll_plan_max_budget_usd(), float)
 
 
 def test_linear_config_from_env_reads_required_vars(monkeypatch: pytest.MonkeyPatch) -> None:

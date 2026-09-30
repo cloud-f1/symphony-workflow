@@ -207,6 +207,19 @@ def plan(
             "large target repo that hits error_max_turns at the default (ADLC-55)."
         ),
     ),
+    max_budget_usd: float | None = typer.Option(
+        None,
+        "--max-budget",
+        help=(
+            "Override the Plan phase's dollar budget ceiling "
+            "(default: agent_runner.DEFAULT_MAX_BUDGET_USD, $2.00). Raising "
+            "--max-turns alone doesn't touch this second, independent wall -- "
+            "a target repo whose tickets need real investigation before a "
+            "Plan is possible can hit error_max_budget_usd right after "
+            "clearing error_max_turns (confirmed live 2026-09-30 against "
+            "data-clarity's DCSYS-34)."
+        ),
+    ),
 ) -> None:
     """Run the Plan phase for an issue in-process -- no server required."""
     with _client() as client:
@@ -216,7 +229,8 @@ def plan(
         try:
             updated = asyncio.run(
                 execute_plan(
-                    run, runs=runs, client=client, workspaces=workspaces, max_turns=max_turns
+                    run, runs=runs, client=client, workspaces=workspaces,
+                    max_turns=max_turns, max_budget_usd=max_budget_usd,
                 )
             )
         except (TrackerError, WorkspaceError, AgentRunError) as exc:

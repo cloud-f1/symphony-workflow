@@ -91,6 +91,7 @@ class Poller:
         triage_interval_seconds: float = DEFAULT_TRIAGE_INTERVAL_SECONDS,
         triage_store: TriageStore | None = None,
         plan_max_turns: int | None = None,
+        plan_max_budget_usd: float | None = None,
     ) -> None:
         self._client = client
         self._runs = runs
@@ -101,6 +102,11 @@ class Poller:
         # None (the default, see config.poll_plan_max_turns()) preserves
         # today's behavior (agent_runner.DEFAULT_PLAN_MAX_TURNS).
         self._plan_max_turns = plan_max_turns
+        # 2026-09-30: same shape for the dollar budget ceiling (see
+        # config.poll_plan_max_budget_usd()) -- raising turns alone doesn't
+        # touch this second, independent wall (agent_runner.
+        # DEFAULT_MAX_BUDGET_USD, confirmed live against data-clarity).
+        self._plan_max_budget_usd = plan_max_budget_usd
         self._seen: set[str] = set()
         self._attempts: dict[str, int] = {}
         self._given_up: set[str] = set()
@@ -214,6 +220,7 @@ class Poller:
                         client=self._client,
                         workspaces=self._workspaces,
                         max_turns=self._plan_max_turns,
+                        max_budget_usd=self._plan_max_budget_usd,
                     )
                 )
                 self._seen.add(issue.key)

@@ -216,6 +216,7 @@ async def execute_plan(
     client: TrackerClient,
     workspaces: WorkspaceManager,
     max_turns: int | None = None,
+    max_budget_usd: float | None = None,
 ) -> Run:
     """Read-only: no repo writes. Raises TrackerError / RunTransitionError /
     WorkspaceError / AgentRunError on failure — the run is marked failed
@@ -230,6 +231,14 @@ async def execute_plan(
     means "don't override" — `run_plan` falls back to its own default,
     exactly today's behavior, so every existing caller is unaffected unless
     it explicitly opts in.
+
+    `max_budget_usd` (2026-09-30, data-clarity live test) is the same shape
+    for `agent_runner.DEFAULT_MAX_BUDGET_USD` ($2.00) — a second, independent
+    ceiling that raising `max_turns` alone doesn't touch. A target repo whose
+    tickets need real investigation before a Plan is even possible can hit
+    this wall right after clearing the turns one: confirmed live against
+    data-clarity's DCSYS-34 (`error_max_turns` at the default turns, then
+    `error_max_budget_usd` once turns alone were raised).
     """
     issue = client.get_issue(run.issue_key)
     runs.mark_planning(run.id)
@@ -242,9 +251,11 @@ async def execute_plan(
 
     prompt = render_plan_prompt(issue)
     workspaces.run_before_run(run.issue_key, workspace_path)
-    run_plan_kwargs: dict[str, int] = {}
+    run_plan_kwargs: dict[str, int | float] = {}
     if max_turns is not None:
         run_plan_kwargs["max_turns"] = max_turns
+    if max_budget_usd is not None:
+        run_plan_kwargs["max_budget_usd"] = max_budget_usd
     try:
         result = await run_plan(prompt, cwd=str(workspace_path), **run_plan_kwargs)
     except AgentRunError as exc:

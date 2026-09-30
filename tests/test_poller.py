@@ -64,6 +64,19 @@ def max_turns_poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_pa
 
 
 @pytest.fixture
+def max_budget_poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Poller:
+    # 2026-09-30: same shape as max_turns_poller above but for the dollar
+    # budget ceiling override.
+    monkeypatch.setattr("symphony_workflow.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
+    return Poller(
+        client=JiraClient(config),
+        runs=RunStore(),
+        workspaces=_FakeWorkspaceManager(),
+        plan_max_budget_usd=10.0,
+    )
+
+
+@pytest.fixture
 def triage_poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Poller:
     # Same as `poller` above but with triage (ADLC-29) turned on -- the
     # opt-in path, used only by the triage-specific tests below.
@@ -206,6 +219,80 @@ async def test_tick_max_turns_override_reaches_run_plan(
     dispatched = await max_turns_poller.tick()
     assert len(dispatched) == 1
     assert received.get("max_turns") == 15
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_tick_no_max_budget_override_omits_kwarg(
+    poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Today's behavior (no `plan_max_budget_usd` passed to `Poller`) must
+    not pass a `max_budget_usd` kwarg to `run_plan` at all.
+    """
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-99"))
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-99").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-99",
+                "id": "1",
+                "fields": {"summary": "New work", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-99/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-99", "In Review")
+
+    received_kwargs: dict[str, object] = {}
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        received_kwargs.update(kwargs)
+        return AgentRunResult(text="auto-plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", fake_run_plan)
+
+    dispatched = await poller.tick()
+    assert len(dispatched) == 1
+    assert "max_budget_usd" not in received_kwargs
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_tick_max_budget_override_reaches_run_plan(
+    max_budget_poller: Poller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `plan_max_budget_usd` override passed to `Poller` must reach
+    `run_plan` on auto-Plan dispatch.
+    """
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_response("ADLC-99"))
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-99").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "ADLC-99",
+                "id": "1",
+                "fields": {"summary": "New work", "status": {"name": "To Do"}},
+            },
+        )
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue/ADLC-99/comment").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    _mock_transition("ADLC-99", "In Review")
+
+    received: dict[str, object] = {}
+
+    async def fake_run_plan(prompt: str, *, cwd: str, **kwargs: object) -> AgentRunResult:
+        received.update(kwargs)
+        return AgentRunResult(text="auto-plan", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr("symphony_workflow.orchestrator.run_plan", fake_run_plan)
+
+    dispatched = await max_budget_poller.tick()
+    assert len(dispatched) == 1
+    assert received.get("max_budget_usd") == 10.0
 
 
 @pytest.mark.asyncio
