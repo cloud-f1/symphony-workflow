@@ -297,3 +297,50 @@ def test_transition_issue_raises_when_transition_missing(config: JiraConfig) -> 
     )
     with JiraClient(config) as client, pytest.raises(JiraError, match="No transition named"):
         client.transition_issue("CF1-1", "Cancelled")
+
+
+@respx.mock
+def test_search_ready_tickets_defaults_to_excluding_epic_and_subtask(
+        config: JiraConfig, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset `READY_ISSUETYPES_ENV` must keep today's exact JQL — this is
+    ADLC's (and every other unmigrated consumer's) behavior, and it must not
+    change just because a different repo now sets the env var."""
+    monkeypatch.delenv("SYMPHONY_WORKFLOW_READY_ISSUETYPES", raising=False)
+    route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"total": 0, "issues": []}))
+    with JiraClient(config) as client:
+        client.search_ready_tickets()
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["jql"] == (
+        'project = ADLC AND status = "To Do" '
+        "AND issuetype not in (Epic, Subtask) ORDER BY created ASC")
+
+
+@respx.mock
+def test_search_ready_tickets_honors_an_issuetype_allowlist(
+        config: JiraConfig, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A repo whose real work items are Subtasks (data-clarity's
+    Phase->Epic->Story->Subtask mirror into Jira) needs an inclusion list,
+    not a shorter exclusion list — the default query finds zero tickets for
+    a repo shaped this way no matter how much backlog exists."""
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_READY_ISSUETYPES", "Subtask")
+    route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"total": 0, "issues": []}))
+    with JiraClient(config) as client:
+        client.search_ready_tickets()
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["jql"] == (
+        'project = ADLC AND status = "To Do" '
+        'AND issuetype in ("Subtask") ORDER BY created ASC')
+
+
+@respx.mock
+def test_search_ready_tickets_allowlist_supports_multiple_types(
+        config: JiraConfig, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_READY_ISSUETYPES", "Subtask, Task")
+    route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"total": 0, "issues": []}))
+    with JiraClient(config) as client:
+        client.search_ready_tickets()
+    sent = json.loads(route.calls.last.request.content)
+    assert 'issuetype in ("Subtask", "Task")' in sent["jql"]

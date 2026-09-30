@@ -33,6 +33,22 @@ from symphony_workflow.tracker import TrackerError
 # backend's own concern now, not the poller's — see search_ready_tickets().
 JIRA_PROJECT_ENV = "SYMPHONY_WORKFLOW_JIRA_PROJECT"
 
+# **2026-09-30, data-clarity adoption**: the default `issuetype not in
+# (Epic, Subtask)` assumes each ticket IS the atomic unit of work — true for
+# ADLC's flat Task/Story backlog, false for a repo that mirrors its own
+# Phase->Epic->Story->Subtask hierarchy into Jira (Epic->Epic, epic->Story,
+# dev_task->Subtask — data-clarity's `sync_phase_to_jira.py` does exactly
+# this). There, every real unit of work IS a Subtask, so the default query
+# finds zero ready tickets no matter how much backlog exists.
+#
+# **Opt-in, not a behavior change**: unset (`""`) keeps today's exact JQL
+# (`issuetype not in (Epic, Subtask)`) for ADLC and any other existing
+# consumer. Set it to a comma-separated allowlist to search by inclusion
+# instead of exclusion — the two are different questions ("what's NOT an
+# epic" vs "what IS our atomic work item") and a repo whose real work lives
+# on Subtasks needs the inclusion form, not a shorter exclusion list.
+READY_ISSUETYPES_ENV = "SYMPHONY_WORKFLOW_READY_ISSUETYPES"
+
 
 class JiraError(TrackerError):
     """Raised when the Jira API returns a non-2xx response."""
@@ -86,15 +102,26 @@ class JiraClient:
 
     def search_ready_tickets(self, *, max_results: int = 50) -> SearchResult:
         """TrackerClient's backend-agnostic "what should the poller auto-Plan
-        next" query, built as JQL. Epic/Subtask excluded: you can't
-        "implement" an Epic, and a Subtask's parent Story is the actual unit
-        of work in this POC's model — moved here from poller.py (ADLC-57) so
-        the poller doesn't need to know JQL exists.
+        next" query, built as JQL. Default: Epic/Subtask excluded — you
+        can't "implement" an Epic, and a Subtask's parent Story is the
+        actual unit of work in this POC's model — moved here from poller.py
+        (ADLC-57) so the poller doesn't need to know JQL exists.
+
+        `READY_ISSUETYPES_ENV` switches this to an inclusion list instead
+        (see its own comment for why some adopting repos need that) — set,
+        it becomes `issuetype in (...)`; unset, behavior is unchanged.
         """
         project = os.environ.get(JIRA_PROJECT_ENV, "ADLC")
+        included = os.environ.get(READY_ISSUETYPES_ENV, "").strip()
+        if included:
+            names = ", ".join(
+                f'"{name.strip()}"' for name in included.split(",") if name.strip())
+            type_clause = f"issuetype in ({names})"
+        else:
+            type_clause = "issuetype not in (Epic, Subtask)"
         jql = (
             f'project = {project} AND status = "To Do" '
-            "AND issuetype not in (Epic, Subtask) ORDER BY created ASC"
+            f"AND {type_clause} ORDER BY created ASC"
         )
         return self.search_issues(jql, max_results=max_results)
 
