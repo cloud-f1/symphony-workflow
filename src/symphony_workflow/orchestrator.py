@@ -307,11 +307,26 @@ async def execute_plan(
 
 
 async def execute_implement(
-    run: Run, *, runs: RunStore, client: TrackerClient, workspaces: WorkspaceManager
+    run: Run,
+    *,
+    runs: RunStore,
+    client: TrackerClient,
+    workspaces: WorkspaceManager,
+    max_turns: int | None = None,
+    max_budget_usd: float | None = None,
 ) -> Run:
     """Hard-gated on state == plan_ready (RunTransitionError otherwise, raised
     by mark_implementing — the same check RunStore enforces everywhere else).
     Never opens a PR or pushes; a human reviews the diff next.
+
+    `max_turns`/`max_budget_usd` are the same shape as `execute_plan`'s
+    overrides (ADLC-55 / 2026-09-30 data-clarity live test): `None` means
+    "don't override", so `run_implement` falls back to its own
+    `DEFAULT_IMPLEMENT_MAX_TURNS`/`DEFAULT_MAX_BUDGET_USD` exactly as before.
+    Needed for the same reason Plan needed it — a target repo whose tickets
+    are real investigation work, not a small code change, can exhaust the
+    default Implement turn budget (20) before finishing (confirmed live
+    2026-10-01 against data-clarity's DCSYS-671).
     """
     if run.state != RunState.PLAN_READY:
         raise RunTransitionError(
@@ -326,9 +341,17 @@ async def execute_implement(
 
     prompt = render_implement_prompt(run.issue_key)
     workspaces.run_before_run(run.issue_key, workspace_path)
+    run_implement_kwargs: dict[str, int | float] = {}
+    if max_turns is not None:
+        run_implement_kwargs["max_turns"] = max_turns
+    if max_budget_usd is not None:
+        run_implement_kwargs["max_budget_usd"] = max_budget_usd
     try:
         result = await run_implement(
-            prompt, cwd=run.workspace_path, resume_session_id=run.session_id
+            prompt,
+            cwd=run.workspace_path,
+            resume_session_id=run.session_id,
+            **run_implement_kwargs,
         )
     except AgentRunError as exc:
         runs.mark_failed(run.id, error=str(exc))
