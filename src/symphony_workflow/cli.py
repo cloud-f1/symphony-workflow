@@ -16,6 +16,8 @@ Three ways to drive it:
   - `decompose` for breaking a Jira Epic into Stories/Tasks for human review: calls
     decompose.py in-process, reusing the Plan phase's agent wiring with a different
     structured-output schema. Read-only, no Jira writes — see ADLC-46. Jira-only.
+  - `rollup` for closing out a finished Subtask's Story and Epic once all their children are
+    Done (forward-only, idempotent, `--dry-run`). Jira-only (needs the `parent` field).
   - `sync-decomposition` for turning an already-reviewed decomposition.json into real
     Jira Story/Subtask issues: calls sync_decomposition.py in-process. Does not re-run
     the decompose agent — see ADLC-47. Jira-only.
@@ -40,6 +42,7 @@ from symphony_workflow.orchestrator import (
     execute_implement,
     execute_plan,
 )
+from symphony_workflow.rollup import RollupAborted, RollupNotFound, RollupResult, rollup
 from symphony_workflow.runs import Run, RunStore, RunTransitionError
 from symphony_workflow.sync_decomposition import SyncDecompositionError, execute_sync_decomposition
 from symphony_workflow.tools import TOOLS, call_tool
@@ -116,6 +119,51 @@ def call(
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
     typer.echo(json.dumps(result, indent=2, default=str))
+
+
+def _print_rollup(result: RollupResult, *, as_json: bool) -> None:
+    if as_json:
+        typer.echo(json.dumps(result.as_dict(), indent=2))
+        return
+    verb = "would transition" if result.dry_run else "transitioned"
+    for t in result.transitions:
+        typer.echo(f"{verb} {t.key}: {t.from_status} -> {t.to}")
+    if result.stopped_at:
+        typer.echo(f"stopped at {result.stopped_at['key']}: {result.stopped_at['reason']}")
+    elif not result.transitions:
+        typer.echo(f"nothing to do for {result.key} (already rolled up)")
+
+
+@app.command("rollup")
+def rollup_command(
+    key: str = typer.Argument(..., help="The Subtask just completed (a Story or Epic also works)"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would change; transition nothing"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+) -> None:
+    """Mark a finished Subtask Done, then roll up: all of the Story's Subtasks Done -> Story
+    Done; all of the Epic's Stories Done -> Epic Done. Forward-only, stops at the first level
+    that is not fully done, safe to re-run. Given a Story/Epic key it re-evaluates that issue
+    and upward. Jira-only -- needs the `parent` field (Linear has no equivalent).
+
+    Exit codes: 0 ok (including "nothing to do"), 2 key not found/invalid, 3 Jira API error
+    (anything already transitioned is printed, never hidden).
+    """
+    with _jira_client() as client:
+        try:
+            result = rollup(client, key, dry_run=dry_run)
+        except RollupNotFound as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=2) from exc
+        except RollupAborted as exc:
+            _print_rollup(exc.result, as_json=as_json)
+            typer.echo(f"Roll-up aborted: {exc.cause}", err=True)
+            raise typer.Exit(code=3) from exc
+        except JiraError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=3) from exc
+    _print_rollup(result, as_json=as_json)
 
 
 @app.command("get")

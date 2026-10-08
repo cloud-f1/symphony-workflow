@@ -14,7 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from symphony_workflow.client import JiraClient
+from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.rollup import RollupAborted, RollupNotFound, rollup
 
 
 class GetIssueArgs(BaseModel):
@@ -53,6 +54,11 @@ class AddCommentArgs(BaseModel):
 class TransitionIssueArgs(BaseModel):
     key: str
     transition_name: str
+
+
+class RollupIssueArgs(BaseModel):
+    key: str
+    dry_run: bool = False
 
 
 class GetMyselfArgs(BaseModel):
@@ -119,6 +125,18 @@ def _transition_issue(client: JiraClient, args: TransitionIssueArgs) -> dict[str
     return {"ok": True, "key": args.key, "transition": args.transition_name}
 
 
+def _rollup_issue(client: JiraClient, args: RollupIssueArgs) -> dict[str, Any]:
+    try:
+        return rollup(client, args.key, dry_run=args.dry_run).as_dict()
+    except RollupNotFound as exc:
+        raise JiraError(404, str(exc)) from exc
+    except RollupAborted as exc:
+        done = ", ".join(f"{t.key} -> {t.to}" for t in exc.result.transitions) or "nothing"
+        raise JiraError(
+            exc.cause.status_code, f"{exc.cause}; transitioned before the failure: {done}"
+        ) from exc
+
+
 def _get_myself(client: JiraClient, args: GetMyselfArgs) -> dict[str, Any]:
     return client.get_myself().model_dump()
 
@@ -151,6 +169,15 @@ TOOLS: dict[str, Tool] = {
             "Move an issue through a named workflow transition (e.g. 'In Progress', 'Done').",
             TransitionIssueArgs,
             _transition_issue,
+        ),
+        Tool(
+            "rollup_issue",
+            "Mark a finished Subtask Done, then roll up: if all of its Story's Subtasks are "
+            "Done, mark the Story Done; if all of the Epic's Stories are Done, mark the Epic "
+            "Done. Also accepts a Story or Epic key (re-evaluates it and upward). Forward-only, "
+            "idempotent; dry_run=true reports what would change without transitioning.",
+            RollupIssueArgs,
+            _rollup_issue,
         ),
         Tool(
             "get_myself",

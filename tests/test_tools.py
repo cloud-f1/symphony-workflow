@@ -21,6 +21,7 @@ def test_tools_registry_has_expected_names() -> None:
         "transition_issue",
         "get_myself",
         "create_remote_link",
+        "rollup_issue",
     }
 
 
@@ -152,3 +153,43 @@ def test_call_tool_validates_args_against_schema() -> None:
     with pytest.raises(ValidationError):
         call_tool(client, "get_issue", {})  # missing required "key"
     client.get_issue.assert_not_called()
+
+
+def test_call_tool_dispatches_rollup_issue_dry_run(monkeypatch) -> None:
+    from symphony_workflow import tools as tools_module
+    from symphony_workflow.rollup import RollupResult
+
+    seen: dict[str, object] = {}
+
+    def fake_rollup(client, key, *, dry_run=False):
+        seen.update(key=key, dry_run=dry_run)
+        return RollupResult(key=key, dry_run=dry_run)
+
+    monkeypatch.setattr(tools_module, "rollup", fake_rollup)
+    result = call_tool(MagicMock(), "rollup_issue", {"key": "SALON-44", "dry_run": True})
+    assert seen == {"key": "SALON-44", "dry_run": True}
+    assert result == {"key": "SALON-44", "dry_run": True, "transitions": [], "stopped_at": None}
+
+
+def test_rollup_issue_tool_maps_not_found_and_abort_to_jira_error(monkeypatch) -> None:
+    from symphony_workflow import tools as tools_module
+    from symphony_workflow.client import JiraError
+    from symphony_workflow.rollup import RollupAborted, RollupNotFound, RollupResult, Transition
+
+    def not_found(client, key, *, dry_run=False):
+        raise RollupNotFound("X-1: gone")
+
+    monkeypatch.setattr(tools_module, "rollup", not_found)
+    with pytest.raises(JiraError) as nf:
+        call_tool(MagicMock(), "rollup_issue", {"key": "X-1"})
+    assert nf.value.status_code == 404
+
+    def aborted(client, key, *, dry_run=False):
+        partial = RollupResult(key=key, transitions=[Transition("SUB-1", "To Do")])
+        raise RollupAborted(partial, JiraError(500, "boom"))
+
+    monkeypatch.setattr(tools_module, "rollup", aborted)
+    with pytest.raises(JiraError) as ab:
+        call_tool(MagicMock(), "rollup_issue", {"key": "SUB-1"})
+    assert ab.value.status_code == 500
+    assert "SUB-1 -> Done" in str(ab.value)

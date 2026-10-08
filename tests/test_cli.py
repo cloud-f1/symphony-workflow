@@ -683,3 +683,138 @@ def test_sync_decomposition_command_honors_project_option(monkeypatch, tmp_path:
     assert "into project OTHER" in result.output
     story_call = json.loads(respx.calls[0].request.content)
     assert story_call["fields"]["project"] == {"key": "OTHER"}
+
+
+def _hier(key: str, kind: str, level: int, status: str, parent: str | None = None) -> dict:
+    fields: dict = {
+        "summary": key,
+        "status": {
+            "name": status,
+            "statusCategory": {"key": "done" if status == "Done" else "new"},
+        },
+        "issuetype": {"name": kind, "hierarchyLevel": level},
+    }
+    if parent:
+        fields["parent"] = {"key": parent}
+    return {"key": key, "id": key, "fields": fields}
+
+
+def _mock_issue(payload: dict) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/issue/{payload['key']}").mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+
+@respx.mock
+def test_rollup_command_chain_and_json_output(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    sub = _hier("S-3", "Subtask", -1, "To Do", "ST-1")
+    _mock_issue(sub)
+    _mock_issue(_hier("ST-1", "Story", 0, "To Do", "EP-1"))
+    _mock_issue(_hier("EP-1", "Epic", 1, "To Do"))
+    children = {
+        "ST-1": [sub, _hier("S-4", "Subtask", -1, "Done", "ST-1")],
+        "EP-1": [_hier("ST-1", "Story", 0, "To Do", "EP-1")],
+    }
+
+    def search(request: httpx.Request) -> httpx.Response:
+        jql = json.loads(request.content)["jql"]
+        parent = jql.split("parent = ")[1].split(" ")[0]
+        return httpx.Response(200, json={"issues": children[parent], "isLast": True})
+
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(side_effect=search)
+    for key in ("S-3", "ST-1", "EP-1"):
+        _mock_transition(key, "Done")
+    result = runner.invoke(app, ["rollup", "S-3", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert [t["key"] for t in payload["transitions"]] == ["S-3", "ST-1", "EP-1"]
+    assert payload["stopped_at"] is None
+    assert payload["dry_run"] is False
+
+
+@respx.mock
+def test_rollup_command_dry_run_does_not_post_transitions(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_issue(_hier("S-3", "Subtask", -1, "To Do", "ST-1"))
+    _mock_issue(_hier("ST-1", "Story", 0, "To Do", "EP-1"))
+    _mock_issue(_hier("EP-1", "Epic", 1, "To Do"))
+    kids = {
+        "ST-1": [_hier("S-3", "Subtask", -1, "To Do", "ST-1")],
+        "EP-1": [_hier("ST-1", "Story", 0, "To Do", "EP-1")],
+    }
+
+    def search(request: httpx.Request) -> httpx.Response:
+        parent = json.loads(request.content)["jql"].split("parent = ")[1].split(" ")[0]
+        return httpx.Response(200, json={"issues": kids[parent], "isLast": True})
+
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(side_effect=search)
+    transition_post = respx.post(f"{BASE_URL}/rest/api/2/issue/S-3/transitions").mock(
+        return_value=httpx.Response(204)
+    )
+    result = runner.invoke(app, ["rollup", "S-3", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "would transition S-3: To Do -> Done" in result.output
+    assert "would transition ST-1" in result.output
+    assert "would transition EP-1" in result.output
+    assert not transition_post.called
+
+
+@respx.mock
+def test_rollup_command_nothing_to_do_exits_zero(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_issue(_hier("EP-1", "Epic", 1, "Done"))
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200, json={"issues": [_hier("ST-1", "Story", 0, "Done", "EP-1")], "isLast": True}
+        )
+    )
+    result = runner.invoke(app, ["rollup", "EP-1"])
+    assert result.exit_code == 0, result.output
+    assert "nothing to do" in result.output
+
+
+@respx.mock
+def test_rollup_command_unknown_key_exits_2(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.get(f"{BASE_URL}/rest/api/2/issue/NOPE-1").mock(
+        return_value=httpx.Response(404, json={"errorMessages": ["Issue does not exist"]})
+    )
+    result = runner.invoke(app, ["rollup", "NOPE-1"])
+    assert result.exit_code == 2
+    assert "NOPE-1" in result.output
+
+
+@respx.mock
+def test_rollup_command_jira_error_exits_3_and_reports_partial_work(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_issue(_hier("S-3", "Subtask", -1, "To Do", "ST-1"))
+    _mock_issue(_hier("ST-1", "Story", 0, "To Do", "EP-1"))
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200,
+            json={"issues": [_hier("S-3", "Subtask", -1, "To Do", "ST-1")], "isLast": True},
+        )
+    )
+    _mock_transition("S-3", "Done")
+    # the Story's own transition fails
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ST-1/transitions").mock(
+        return_value=httpx.Response(500, json={"errorMessages": ["boom"]})
+    )
+    result = runner.invoke(app, ["rollup", "S-3"])
+    assert result.exit_code == 3
+    assert "transitioned S-3: To Do -> Done" in result.output
+    assert "Roll-up aborted" in result.output
+
+
+def test_rollup_command_requires_a_key() -> None:
+    assert runner.invoke(app, ["rollup"]).exit_code == 2
+
+
+def test_rollup_is_jira_only(monkeypatch) -> None:
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_TRACKER", "linear")
+    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_x")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_LINEAR_TEAM", "GAI")
+    result = runner.invoke(app, ["rollup", "GAI-1"])
+    assert result.exit_code == 1
+    assert "Jira" in result.output

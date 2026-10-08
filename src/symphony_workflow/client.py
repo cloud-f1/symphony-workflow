@@ -20,6 +20,7 @@ import httpx
 from symphony_workflow.config import JiraConfig
 from symphony_workflow.models import (
     CurrentUser,
+    HierarchyIssue,
     Issue,
     IssueCreateResult,
     SearchResult,
@@ -96,6 +97,44 @@ class JiraClient:
         response = self._client.get(f"/rest/api/2/issue/{key}")
         self._raise_for_status(response)
         return Issue.from_api(response.json())
+
+    def get_hierarchy_issue(self, key: str) -> HierarchyIssue:
+        """Like `get_issue` but with the fields roll-up needs: issue type (+ its
+        hierarchy level), status category, and `parent`. Raises `JiraError` (404 for an
+        unknown key, 400 for a malformed one).
+        """
+        response = self._client.get(
+            f"/rest/api/2/issue/{key}",
+            params={"fields": "summary,status,issuetype,parent"},
+        )
+        self._raise_for_status(response)
+        return HierarchyIssue.from_api(response.json())
+
+    def list_children(self, parent_key: str, *, page_size: int = 100) -> list[HierarchyIssue]:
+        """Every issue whose `parent` is `parent_key` (Subtasks of a Story, Stories of an
+        Epic in a team-managed project; also Epic children in company-managed projects on
+        current Jira). Pages through `/rest/api/3/search/jql`'s `nextPageToken` so an Epic
+        with more than one page of Stories is still fully counted -- a partial list would
+        make "all children done" a false positive.
+        """
+        children: list[HierarchyIssue] = []
+        token: str | None = None
+        for _ in range(100):  # hard stop: 10k children is a bug, not a real tree
+            body: dict[str, Any] = {
+                "jql": f"parent = {parent_key} ORDER BY key ASC",
+                "maxResults": page_size,
+                "fields": ["summary", "status", "issuetype"],
+            }
+            if token:
+                body["nextPageToken"] = token
+            response = self._client.post("/rest/api/3/search/jql", json=body)
+            self._raise_for_status(response)
+            payload = response.json()
+            children.extend(HierarchyIssue.from_api(item) for item in payload.get("issues", []))
+            token = payload.get("nextPageToken")
+            if payload.get("isLast", not token) or not token:
+                return children
+        raise JiraError(500, f"Child search for {parent_key} did not terminate (pagination)")
 
     def issue_url(self, key: str) -> str:
         return f"{self._config.base_url}/browse/{key}"
