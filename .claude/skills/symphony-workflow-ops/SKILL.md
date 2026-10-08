@@ -94,6 +94,11 @@ its children are. **Real incident this rule fixes** (`ADLC-86`): `ADLC-57` (an E
 end-to-end with zero children — caught only after the fact, then retroactively decomposed. If
 you're about to `create_issue` an Epic and start writing code, stop and decompose first instead.
 
+When a Subtask finishes, `symphony-workflow rollup <subtask-key>` does the bookkeeping the rule
+above implies: Subtask Done → Story Done if all its Subtasks are → Epic Done if all its Stories
+are (forward-only, idempotent, `--dry-run` first if unsure; exit 2 = key not found, 3 = Jira error
+with the partial work printed). Jira-only.
+
 If a bulk `sync-decomposition` pass is retroactively documenting already-*shipped* work (not real
 forward-looking planning), pass `--status <name>` (`ADLC-121`) — otherwise the newly-created
 Stories sit in Jira's default "To Do" and the poller races your own status fix-up with a real

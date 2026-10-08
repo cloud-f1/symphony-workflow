@@ -185,6 +185,7 @@ src/symphony_workflow/
   prompts.py      # Plan/Implement prompt templates (docs/WORKFLOW.md is the policy summary)
   runs.py         # Run/RunState/RunStore — the Plan/Implement human-gate state machine
   orchestrator.py # execute_plan/execute_implement — shared by api.py AND poller.py
+  rollup.py       # Subtask -> Story -> Epic roll-up: all children Done -> parent Done (forward-only)
   decompose.py    # Epic -> Stories/Tasks, read-only, reuses run_plan()'s output_format wiring
   sync_decomposition.py # decomposition.json -> real Jira Story/Subtask issues
   poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements.

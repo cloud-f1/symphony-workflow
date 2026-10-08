@@ -5,6 +5,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## Unreleased
+
+**`symphony-workflow rollup <key> [--dry-run] [--json]`** and the `rollup_issue` tool — close out
+a finished Subtask's Story and Epic once *all* their children are Done: Subtask → Done, then the
+Story if every Subtask is Done, then the Epic if every Story is Done. Forward-only, idempotent,
+stops at the first level that isn't fully done; also accepts a Story or Epic key. Exit codes `0`
+ok / `2` not found / `3` Jira error (partial work is always reported). Jira-only (needs the
+`parent` field). New `JiraClient.get_hierarchy_issue()` / `list_children()` (paged through
+`nextPageToken`) and `models.HierarchyIssue`; "is it done" uses Jira's `statusCategory`, not the
+free-form status name, and keys just transitioned are remembered so Jira's eventually
+consistent search can't make a finished Subtask look unfinished.
+
+Requested by the `ai-workmate-salon` project, whose own Story/Epic bookkeeping was being closed
+by hand. 39 new tests, 298 total, `rollup.py` 100% covered, `ruff check` clean on the new code.
+No version bump — cutting a release is a separate decision.
+
 ## 0.4.5 — 2026-09-26
 
 **Consolidated the duplicated Jira-only-backend guard** (`ADLC-106`) — `cli.py`'s Jira-only
