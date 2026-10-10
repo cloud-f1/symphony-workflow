@@ -14,7 +14,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from symphony_workflow.client import JiraClient
+from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.hierarchy import AddSubtasksAborted, PlanError, add_subtasks, audit
+from symphony_workflow.rollup import RollupAborted, RollupNotFound, rollup
 
 
 class GetIssueArgs(BaseModel):
@@ -53,6 +55,23 @@ class AddCommentArgs(BaseModel):
 class TransitionIssueArgs(BaseModel):
     key: str
     transition_name: str
+
+
+class RollupIssueArgs(BaseModel):
+    key: str
+    dry_run: bool = False
+
+
+class AuditHierarchyArgs(BaseModel):
+    project: str
+    open_only: bool = False
+    assignee: str | None = None
+
+
+class AddSubtasksArgs(BaseModel):
+    plan: dict[str, list[str]]
+    dry_run: bool = False
+    assign_to_me: bool = False
 
 
 class GetMyselfArgs(BaseModel):
@@ -119,6 +138,39 @@ def _transition_issue(client: JiraClient, args: TransitionIssueArgs) -> dict[str
     return {"ok": True, "key": args.key, "transition": args.transition_name}
 
 
+def _audit_hierarchy(client: JiraClient, args: AuditHierarchyArgs) -> dict[str, Any]:
+    return audit(
+        client, args.project, open_only=args.open_only, assignee=args.assignee
+    ).as_dict()
+
+
+def _add_subtasks(client: JiraClient, args: AddSubtasksArgs) -> dict[str, Any]:
+    account = client.get_myself().account_id if args.assign_to_me else None
+    try:
+        return add_subtasks(
+            client, args.plan, dry_run=args.dry_run, assignee_account_id=account
+        ).as_dict()
+    except PlanError as exc:
+        raise JiraError(400, f"invalid plan: {exc}") from exc
+    except AddSubtasksAborted as exc:
+        made = ", ".join(c for s in exc.result.stories for c in s.created) or "nothing"
+        raise JiraError(
+            exc.cause.status_code, f"{exc.cause}; created before the failure: {made}"
+        ) from exc
+
+
+def _rollup_issue(client: JiraClient, args: RollupIssueArgs) -> dict[str, Any]:
+    try:
+        return rollup(client, args.key, dry_run=args.dry_run).as_dict()
+    except RollupNotFound as exc:
+        raise JiraError(404, str(exc)) from exc
+    except RollupAborted as exc:
+        done = ", ".join(f"{t.key} -> {t.to}" for t in exc.result.transitions) or "nothing"
+        raise JiraError(
+            exc.cause.status_code, f"{exc.cause}; transitioned before the failure: {done}"
+        ) from exc
+
+
 def _get_myself(client: JiraClient, args: GetMyselfArgs) -> dict[str, Any]:
     return client.get_myself().model_dump()
 
@@ -151,6 +203,33 @@ TOOLS: dict[str, Tool] = {
             "Move an issue through a named workflow transition (e.g. 'In Progress', 'Done').",
             TransitionIssueArgs,
             _transition_issue,
+        ),
+        Tool(
+            "rollup_issue",
+            "Mark a finished Subtask Done, then roll up: if all of its Story's Subtasks are "
+            "Done, mark the Story Done; if all of the Epic's Stories are Done, mark the Epic "
+            "Done. Also accepts a Story or Epic key (re-evaluates it and upward). Forward-only, "
+            "idempotent; dry_run=true reports what would change without transitioning.",
+            RollupIssueArgs,
+            _rollup_issue,
+        ),
+        Tool(
+            "audit_hierarchy",
+            "Check a Jira project against the Epic -> Story -> Subtask rules and report problems "
+            "without changing anything: Stories with no Subtasks, Stories under no Epic, "
+            "Epics with no Stories, Done Stories with open Subtasks, and (if `assignee` is given, "
+            "a display name) cards not assigned to that person. `open_only` skips Done Stories.",
+            AuditHierarchyArgs,
+            _audit_hierarchy,
+        ),
+        Tool(
+            "add_subtasks",
+            "Add Subtasks under existing Stories from a plan {story key: [subtask summaries]}. "
+            "Idempotent: a Story that already has Subtasks is skipped; a Done Story gets its new "
+            "Subtasks rolled to Done. dry_run=true creates nothing; assign_to_me=true assigns the "
+            "new Subtasks to the token's user.",
+            AddSubtasksArgs,
+            _add_subtasks,
         ),
         Tool(
             "get_myself",

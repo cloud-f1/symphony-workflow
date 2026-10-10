@@ -14,6 +14,7 @@ symphony-workflow get CF1-1                                      # same thing, h
 symphony-workflow search 'project = CF1 AND status != Done'
 symphony-workflow comment CF1-1 "Looks good, merging."
 symphony-workflow transition CF1-1 Done
+symphony-workflow rollup CF1-7 --dry-run                         # Subtask done -> close Story/Epic when all children are
 ```
 
 **New here?** `docs/QUICKSTART.md` is a linear walkthrough from `uv sync` to driving a real
@@ -59,6 +60,34 @@ v2's classic `/rest/api/2/search` is now HTTP 410 (retired), so `search_issues` 
 tests still only exercise mocked HTTP (`respx`); re-verify against a different Jira instance
 before trusting either endpoint there.
 
+## Keeping the hierarchy honest: `audit` and `add-subtasks`
+
+The Epic -> Story -> Subtask rules are in [docs/JIRA_HIERARCHY.md](docs/JIRA_HIERARCHY.md). Two commands
+keep a project's *existing* cards true to them (`decompose` / `sync-decomposition` only help for an Epic you
+have not built yet):
+
+```bash
+symphony-workflow audit ADLC --open --assignee-me     # Stories with no Subtasks, Stories under no Epic, Epics with no Stories, Done Stories with open Subtasks, unassigned cards; exit 1 on any error
+symphony-workflow add-subtasks plan.json --dry-run    # {"ADLC-12": ["Add X", "Tests: unit"], ...}; idempotent; a Done Story's new Subtasks go Done too
+```
+
+Also the `audit_hierarchy` and `add_subtasks` tools. Read-only `audit`; `add-subtasks` writes and has `--dry-run`.
+
+## Rolling a finished Subtask up the tree
+
+`symphony-workflow rollup <subtask-key>` (also the `rollup_issue` tool) marks the Subtask Done,
+then marks its Story Done if *all* the Story's Subtasks are Done, then the Epic Done if *all* the
+Epic's Stories are Done. Forward-only (never reopens anything), stops at the first level that
+isn't fully done, safe to re-run, and `--dry-run` shows what it would do without transitioning.
+It also takes a Story or Epic key (re-evaluates that issue and upward).
+
+- `--json` prints `{"key", "dry_run", "transitions": [{"key","from","to"}], "stopped_at": {"key","reason"}|null}`.
+- Exit codes: `0` ok (including "nothing to do"), `2` key not found/invalid, `3` Jira API error
+  (anything already transitioned is printed first, never hidden).
+- A Story/Epic with no children is judged on its own status and never closed by the roll-up.
+- Children are found with `parent = <key>` (how team-managed projects link Subtask→Story→Epic),
+  "done" means Jira's `statusCategory` is done, and Jira-only (Linear has no such hierarchy).
+
 ## Tracker backends
 
 `get`/`comment`/`transition`/`plan`/`implement` (and the HTTP equivalents in `api.py`) work
@@ -70,8 +99,8 @@ SYMPHONY_WORKFLOW_TRACKER=linear    # LINEAR_API_KEY + SYMPHONY_WORKFLOW_LINEAR_
 ```
 
 **Not** tracker-agnostic: `search` (raw JQL — Linear has no equivalent), `call`/`list-tools`
-(`tools.py`'s field set is Jira-shaped: Epic/parent linking, sprint/story-points), and
-`decompose`/`sync-decomposition`. These stay Jira-only regardless of `SYMPHONY_WORKFLOW_TRACKER`
+(`tools.py`'s field set is Jira-shaped: Epic/parent linking, sprint/story-points), `rollup`
+(needs the `parent` field), and `decompose`/`sync-decomposition`. These stay Jira-only regardless of `SYMPHONY_WORKFLOW_TRACKER`
 — see `docs/plans/0005-linear-tracker-backend/intent.md`'s non-goals for why porting them isn't
 just more of the same work (Linear has no Epic issue type, no JQL, a different field model
 entirely).
@@ -162,6 +191,8 @@ src/symphony_workflow/
   client.py        # JiraClient — typed HTTP wrapper (JiraError on non-2xx)
   linear_client.py # LinearClient — GraphQL wrapper, TrackerClient surface only (ADLC-57)
   tools.py         # Tool registry + call_tool() dispatcher — the agent-facing surface, Jira-only
+  rollup.py        # Subtask -> Story -> Epic roll-up (Jira-only), behind `rollup` / the rollup_issue tool
+  hierarchy.py     # audit a project's Epic -> Story -> Subtask shape + add Subtasks to Stories (Jira-only), behind `audit` / `add-subtasks`
   cli.py           # Typer app: friendly subcommands + list-tools/call
 tests/             # pytest + respx, one test file per module above
 ```
