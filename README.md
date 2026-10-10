@@ -60,6 +60,19 @@ v2's classic `/rest/api/2/search` is now HTTP 410 (retired), so `search_issues` 
 tests still only exercise mocked HTTP (`respx`); re-verify against a different Jira instance
 before trusting either endpoint there.
 
+## Keeping the hierarchy honest: `audit` and `add-subtasks`
+
+The Epic -> Story -> Subtask rules are in [docs/JIRA_HIERARCHY.md](docs/JIRA_HIERARCHY.md). Two commands
+keep a project's *existing* cards true to them (`decompose` / `sync-decomposition` only help for an Epic you
+have not built yet):
+
+```bash
+symphony-workflow audit ADLC --open --assignee-me     # Stories with no Subtasks, Stories under no Epic, Epics with no Stories, Done Stories with open Subtasks, unassigned cards; exit 1 on any error
+symphony-workflow add-subtasks plan.json --dry-run    # {"ADLC-12": ["Add X", "Tests: unit"], ...}; idempotent; a Done Story's new Subtasks go Done too
+```
+
+Also the `audit_hierarchy` and `add_subtasks` tools. Read-only `audit`; `add-subtasks` writes and has `--dry-run`.
+
 ## Rolling a finished Subtask up the tree
 
 `symphony-workflow rollup <subtask-key>` (also the `rollup_issue` tool) marks the Subtask Done,
@@ -179,6 +192,7 @@ src/symphony_workflow/
   linear_client.py # LinearClient — GraphQL wrapper, TrackerClient surface only (ADLC-57)
   tools.py         # Tool registry + call_tool() dispatcher — the agent-facing surface, Jira-only
   rollup.py        # Subtask -> Story -> Epic roll-up (Jira-only), behind `rollup` / the rollup_issue tool
+  hierarchy.py     # audit a project's Epic -> Story -> Subtask shape + add Subtasks to Stories (Jira-only), behind `audit` / `add-subtasks`
   cli.py           # Typer app: friendly subcommands + list-tools/call
 tests/             # pytest + respx, one test file per module above
 ```

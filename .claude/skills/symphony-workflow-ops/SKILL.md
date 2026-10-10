@@ -99,6 +99,12 @@ above implies: Subtask Done → Story Done if all its Subtasks are → Epic Done
 are (forward-only, idempotent, `--dry-run` first if unsure; exit 2 = key not found, 3 = Jira error
 with the partial work printed). Jira-only.
 
+To check a project's *existing* cards (not an Epic you are about to build): `symphony-workflow audit <PROJECT> --open`
+(read-only; exit 1 on a Story with no Subtasks, a Story under no Epic, an Epic with no Stories, or a Done Story
+with open Subtasks; `--assignee-me` also requires everything assigned to the token's user). Fix with
+`symphony-workflow add-subtasks <plan.json> --dry-run`, then without `--dry-run` (idempotent). Rules and naming:
+`docs/JIRA_HIERARCHY.md`. Jira-only.
+
 If a bulk `sync-decomposition` pass is retroactively documenting already-*shipped* work (not real
 forward-looking planning), pass `--status <name>` (`ADLC-121`) — otherwise the newly-created
 Stories sit in Jira's default "To Do" and the poller races your own status fix-up with a real

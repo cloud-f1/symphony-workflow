@@ -105,10 +105,35 @@ class JiraClient:
         """
         response = self._client.get(
             f"/rest/api/2/issue/{key}",
-            params={"fields": "summary,status,issuetype,parent"},
+            params={"fields": "summary,status,issuetype,parent,assignee,subtasks"},
         )
         self._raise_for_status(response)
         return HierarchyIssue.from_api(response.json())
+
+    def search_hierarchy(self, jql: str, *, page_size: int = 100) -> list[HierarchyIssue]:
+        """Every issue matching `jql`, with the fields the hierarchy audit needs (type + level,
+        status category, parent, assignee, and the list of Subtasks). Pages through
+        `/rest/api/3/search/jql`'s `nextPageToken`, so a big project is fully counted: a partial
+        list would make "no story is missing subtasks" a false positive.
+        """
+        found: list[HierarchyIssue] = []
+        token: str | None = None
+        for _ in range(100):  # hard stop: 10k issues in one audit query is a bug
+            body: dict[str, Any] = {
+                "jql": jql,
+                "maxResults": page_size,
+                "fields": ["summary", "status", "issuetype", "parent", "assignee", "subtasks"],
+            }
+            if token:
+                body["nextPageToken"] = token
+            response = self._client.post("/rest/api/3/search/jql", json=body)
+            self._raise_for_status(response)
+            payload = response.json()
+            found.extend(HierarchyIssue.from_api(item) for item in payload.get("issues", []))
+            token = payload.get("nextPageToken")
+            if payload.get("isLast", not token) or not token:
+                return found
+        raise JiraError(500, f"Search did not terminate (pagination): {jql}")
 
     def list_children(self, parent_key: str, *, page_size: int = 100) -> list[HierarchyIssue]:
         """Every issue whose `parent` is `parent_key` (Subtasks of a Story, Stories of an

@@ -7,6 +7,24 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+**`symphony-workflow audit <PROJECT> [--open] [--assignee NAME | --assignee-me] [--json]`** and
+**`symphony-workflow add-subtasks <plan.json> [--dry-run] [--assign-to-me] [--json]`** (tools
+`audit_hierarchy`, `add_subtasks`) — keep an existing project's Epic -> Story -> Subtask hierarchy
+honest. `audit` is read-only and exits 1 on: a Story-level issue (Story/Task/Bug) with no Subtasks or no
+Epic, an Epic with no Stories, a Done Story with open Subtasks, and (opt-in) a card not assigned to a
+named person; one Subtask, or more than 8, is a warning. `add-subtasks` adds Subtasks to Stories from a
+plan file, idempotently (a Story that already has Subtasks is skipped), rolls a Done Story's new Subtasks
+to Done, validates the whole plan before creating anything, reports partial work if Jira fails, and tries
+`Sub-task` if `Subtask` is rejected. New `JiraClient.search_hierarchy()` (paged) and `HierarchyIssue`
+fields `assignee` / `subtask_count`; `get_hierarchy_issue` now also requests them. New
+[docs/JIRA_HIERARCHY.md](docs/JIRA_HIERARCHY.md) states the rules (naming, size, done-when, roll-up,
+ownership).
+
+Why: `course-crm` found 33 of 73 Stories with no Subtasks (the board showed no progress), and
+`jev-agent-kit` had 36 cards with no Subtasks and no assignee; `decompose` only covers an Epic not yet
+built. The commands are ported from `course-crm`'s `jira-add-subtasks.py`, which stays as that repo's own
+copy. 24 new tests (322 total); `ruff check` clean on the new code. No version bump.
+
 **`symphony-workflow rollup <key> [--dry-run] [--json]`** and the `rollup_issue` tool — close out
 a finished Subtask's Story and Epic once *all* their children are Done: Subtask → Done, then the
 Story if every Subtask is Done, then the Epic if every Story is Done. Forward-only, idempotent,

@@ -365,7 +365,8 @@ def test_get_hierarchy_issue_parses_type_status_category_and_parent(config: Jira
     )
     with JiraClient(config) as client:
         issue = client.get_hierarchy_issue("SALON-44")
-    assert route.calls.last.request.url.params["fields"] == "summary,status,issuetype,parent"
+    fields = route.calls.last.request.url.params["fields"]
+    assert fields == "summary,status,issuetype,parent,assignee,subtasks"
     assert issue.key == "SALON-44"
     assert issue.is_done is True
     assert issue.issue_type == "Subtask"
@@ -445,3 +446,66 @@ def test_list_children_empty_and_error(config: JiraConfig) -> None:
     )
     with JiraClient(config) as client, pytest.raises(JiraError):
         client.list_children("SALON-1")
+
+
+# ---- search_hierarchy (the audit's one query) and the extra HierarchyIssue fields
+
+
+def _audit_issue(
+    key: str, kind: str, level: int, *, subtasks=None, assignee=None, parent=None
+) -> dict:
+    fields: dict = {
+        "summary": key,
+        "status": {"name": "To Do", "statusCategory": {"key": "new"}},
+        "issuetype": {"name": kind, "hierarchyLevel": level},
+    }
+    if subtasks is not None:
+        fields["subtasks"] = [{"key": f"{key}-s{i}"} for i in range(subtasks)]
+    if assignee:
+        fields["assignee"] = {"displayName": assignee}
+    if parent:
+        fields["parent"] = {"key": parent}
+    return {"key": key, "id": key, "fields": fields}
+
+
+def test_hierarchy_issue_parses_assignee_and_subtask_count() -> None:
+    from symphony_workflow.models import HierarchyIssue
+
+    full = HierarchyIssue.from_api(
+        _audit_issue("A-1", "Story", 0, subtasks=3, assignee="alex", parent="A-0")
+    )
+    assert (full.assignee, full.subtask_count, full.parent_key) == ("alex", 3, "A-0")
+    bare = HierarchyIssue.from_api(_audit_issue("A-2", "Story", 0))
+    # fields not requested: unknown, not zero
+    assert (bare.assignee, bare.subtask_count) == (None, None)
+    empty = HierarchyIssue.from_api(_audit_issue("A-3", "Story", 0, subtasks=0))
+    assert empty.subtask_count == 0
+
+
+@respx.mock
+def test_search_hierarchy_pages_through_next_page_token(config: JiraConfig) -> None:
+    pages = [
+        {
+            "issues": [_audit_issue("A-1", "Story", 0, subtasks=2)],
+            "nextPageToken": "t2",
+            "isLast": False,
+        },
+        {"issues": [_audit_issue("A-2", "Story", 0, subtasks=0)], "isLast": True},
+    ]
+    route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        side_effect=[httpx.Response(200, json=p) for p in pages]
+    )
+    with JiraClient(config) as client:
+        found = client.search_hierarchy("project = A")
+    assert [i.key for i in found] == ["A-1", "A-2"]
+    first = json.loads(route.calls[0].request.content)
+    assert first["jql"] == "project = A"
+    assert {"parent", "assignee", "subtasks", "issuetype", "status"} <= set(first["fields"])
+    assert json.loads(route.calls[1].request.content)["nextPageToken"] == "t2"
+
+
+@respx.mock
+def test_search_hierarchy_raises_on_http_error(config: JiraConfig) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=httpx.Response(400, json={}))
+    with JiraClient(config) as client, pytest.raises(JiraError):
+        client.search_hierarchy("bad jql")

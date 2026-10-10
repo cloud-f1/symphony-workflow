@@ -818,3 +818,132 @@ def test_rollup_is_jira_only(monkeypatch) -> None:
     result = runner.invoke(app, ["rollup", "GAI-1"])
     assert result.exit_code == 1
     assert "Jira" in result.output
+
+
+# ---- audit / add-subtasks
+
+
+def _audit_payload(key, kind, level, *, subtasks=None, assignee=None, parent=None, status="To Do"):
+    fields = {
+        "summary": f"{key} title",
+        "status": {
+            "name": status,
+            "statusCategory": {"key": "done" if status == "Done" else "new"},
+        },
+        "issuetype": {"name": kind, "hierarchyLevel": level},
+    }
+    if subtasks is not None:
+        fields["subtasks"] = [{"key": f"{key}-s{i}"} for i in range(subtasks)]
+    if assignee:
+        fields["assignee"] = {"displayName": assignee}
+    if parent:
+        fields["parent"] = {"key": parent}
+    return {"key": key, "id": key, "fields": fields}
+
+
+def _mock_audit_search(epics, stories, children=None):
+    children = children or {}
+
+    def search(request: httpx.Request) -> httpx.Response:
+        jql = json.loads(request.content)["jql"]
+        if "parent = " in jql:
+            parent = jql.split("parent = ")[1].split(" ")[0]
+            return httpx.Response(200, json={"issues": children.get(parent, []), "isLast": True})
+        if "issuetype = Epic" in jql:
+            return httpx.Response(200, json={"issues": epics, "isLast": True})
+        return httpx.Response(200, json={"issues": stories, "isLast": True})
+
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(side_effect=search)
+
+
+@respx.mock
+def test_audit_command_exits_1_and_lists_problems(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_audit_search(
+        [_audit_payload("P-1", "Epic", 1)],
+        [
+            _audit_payload("P-2", "Story", 0, subtasks=0, parent="P-1"),
+            _audit_payload("P-3", "Story", 0, subtasks=3, parent="P-1"),
+        ],
+        {"P-1": [_audit_payload("P-2", "Story", 0, parent="P-1")]},
+    )
+    result = runner.invoke(app, ["audit", "P"])
+    assert result.exit_code == 1, result.output
+    assert "P-2" in result.output and "no_subtasks" in result.output
+    assert "P-3" not in result.output
+    as_json = runner.invoke(app, ["audit", "P", "--json"])
+    payload = json.loads(as_json.output)
+    assert payload["ok"] is False and payload["errors"] == 1
+    assert payload["findings"][0]["key"] == "P-2"
+
+
+@respx.mock
+def test_audit_command_exits_0_when_clean_and_assignee_me_uses_the_token_user(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
+        return_value=httpx.Response(200, json={"accountId": "acc", "displayName": "alex hsieh"})
+    )
+    _mock_audit_search(
+        [_audit_payload("P-1", "Epic", 1, assignee="alex hsieh")],
+        [_audit_payload("P-2", "Story", 0, subtasks=2, parent="P-1", assignee="alex hsieh")],
+        {"P-1": [_audit_payload("P-2", "Story", 0, parent="P-1")]},
+    )
+    ok = runner.invoke(app, ["audit", "P", "--assignee-me"])
+    assert ok.exit_code == 0, ok.output
+    bad = runner.invoke(app, ["audit", "P", "--assignee", "someone else"])
+    assert bad.exit_code == 1 and "wrong_assignee" in bad.output
+
+
+@respx.mock
+def test_add_subtasks_command_dry_run_creates_nothing(monkeypatch, tmp_path) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_issue(_audit_payload("P-2", "Story", 0, subtasks=0, parent="P-1"))
+    create = respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"P-2": ["Add X", "Tests: unit"]}))
+    result = runner.invoke(app, ["add-subtasks", str(plan), "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "would create 2 subtask(s)" in result.output
+    assert not create.called
+
+
+@respx.mock
+def test_add_subtasks_command_creates_and_rolls_up_a_done_story(monkeypatch, tmp_path) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_issue(_audit_payload("P-2", "Story", 0, subtasks=0, parent="P-1", status="Done"))
+    respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
+        return_value=httpx.Response(200, json={"accountId": "acc-9", "displayName": "alex hsieh"})
+    )
+    seq = iter(["P-101", "P-102"])
+    bodies = []
+
+    def create(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content)["fields"])
+        key = next(seq)
+        return httpx.Response(
+            201, json={"id": "1", "key": key, "self": f"{BASE_URL}/rest/api/2/issue/1"}
+        )
+
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(side_effect=create)
+    for key in ("P-101", "P-102"):
+        _mock_transition(key, "Done")
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"P-2": ["Add X", "Tests: unit"]}))
+    result = runner.invoke(app, ["add-subtasks", str(plan), "--assign-to-me"])
+    assert result.exit_code == 0, result.output
+    assert [b["parent"]["key"] for b in bodies] == ["P-2", "P-2"]
+    assert all(b["assignee"] == {"accountId": "acc-9"} for b in bodies)
+    assert all(b["issuetype"] == {"name": "Subtask"} for b in bodies)
+    assert "Subtasks rolled to Done" in result.output
+
+
+def test_add_subtasks_command_rejects_a_bad_plan_with_exit_2(monkeypatch, tmp_path) -> None:
+    _set_jira_env(monkeypatch)
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"P-2": []}))
+    result = runner.invoke(app, ["add-subtasks", str(plan)])
+    assert result.exit_code == 2 and "invalid plan" in result.output
+    missing = runner.invoke(app, ["add-subtasks", str(tmp_path / "nope.json")])
+    assert missing.exit_code == 2

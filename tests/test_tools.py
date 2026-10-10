@@ -22,6 +22,8 @@ def test_tools_registry_has_expected_names() -> None:
         "get_myself",
         "create_remote_link",
         "rollup_issue",
+        "audit_hierarchy",
+        "add_subtasks",
     }
 
 
