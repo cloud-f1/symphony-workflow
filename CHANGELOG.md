@@ -5,7 +5,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
-## Unreleased
+## 0.5.0 — 2026-10-11
 
 **`symphony-workflow audit <PROJECT> [--open] [--assignee NAME | --assignee-me] [--json]`** and
 **`symphony-workflow add-subtasks <plan.json> [--dry-run] [--assign-to-me] [--json]`** (tools
