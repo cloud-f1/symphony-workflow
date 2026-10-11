@@ -410,7 +410,29 @@ def plan(
 
 
 @app.command("implement")
-def implement(key: str) -> None:
+def implement(
+    key: str,
+    max_turns: int | None = typer.Option(
+        None,
+        "--max-turns",
+        help=(
+            "Override the Implement phase's agent turn budget "
+            "(default: agent_runner.DEFAULT_IMPLEMENT_MAX_TURNS, 20). Raise "
+            "this for a ticket whose Implement is real investigation work, "
+            "not a small code change (confirmed live 2026-10-01 against "
+            "data-clarity's DCSYS-671)."
+        ),
+    ),
+    max_budget_usd: float | None = typer.Option(
+        None,
+        "--max-budget",
+        help=(
+            "Override the Implement phase's dollar budget ceiling "
+            "(default: agent_runner.DEFAULT_MAX_BUDGET_USD, $2.00) -- same "
+            "independent-wall caveat as `plan --max-budget`."
+        ),
+    ),
+) -> None:
     """Run the Implement phase for an issue whose Plan is already approved
     (state plan_ready, saved by a prior `symphony-workflow plan` run). Works
     against either tracker backend."""
@@ -421,7 +443,10 @@ def implement(key: str) -> None:
         workspaces = WorkspaceManager(WORKSPACE_ROOT, source_repo=TARGET_REPO)
         try:
             updated = asyncio.run(
-                execute_implement(run, runs=runs, client=client, workspaces=workspaces)
+                execute_implement(
+                    run, runs=runs, client=client, workspaces=workspaces,
+                    max_turns=max_turns, max_budget_usd=max_budget_usd,
+                )
             )
         except (TrackerError, RunTransitionError, AgentRunError) as exc:
             typer.echo(str(exc), err=True)

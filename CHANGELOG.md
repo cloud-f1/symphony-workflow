@@ -5,6 +5,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## Unreleased
+
+`symphony-workflow implement <key> [--max-turns N] [--max-budget USD]` (PR #27): the Implement phase had a
+fixed 20-turn cap that ended a real run (data-clarity's `DCSYS-671`) with `error_max_turns`; 60 turns and $8
+completed it. The overrides are threaded through `execute_implement` into `run_implement`; with neither
+option the defaults apply exactly as before.
+
 ## 0.5.1 — 2026-10-11
 
 New plugin skill **`jira-ticket-ops`** (`plugin/skills/jira-ticket-ops/`): the CLI + skill way to audit, create,

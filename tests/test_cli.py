@@ -947,3 +947,69 @@ def test_add_subtasks_command_rejects_a_bad_plan_with_exit_2(monkeypatch, tmp_pa
     assert result.exit_code == 2 and "invalid plan" in result.output
     missing = runner.invoke(app, ["add-subtasks", str(tmp_path / "nope.json")])
     assert missing.exit_code == 2
+
+
+def _run_implement_capturing_kwargs(monkeypatch, tmp_path: Path, extra_args: list[str]) -> dict:
+    """Run `implement ADLC-1` against a saved plan_ready run and return the
+    kwargs that reached `agent_runner.run_implement`."""
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+
+    sidecar_dir = tmp_path / "ADLC-1"
+    sidecar_dir.mkdir(parents=True)
+    (sidecar_dir / "run.json").write_text(
+        json.dumps(
+            {
+                "id": "run-1",
+                "issue_key": "ADLC-1",
+                "state": "plan_ready",
+                "created_at": "2026-01-01T00:00:00Z",
+                "plan": "the plan",
+                "session_id": "sess-1",
+                "workspace_path": "/tmp/fake-workspace/ADLC-1",
+                "result": None,
+                "error": None,
+            }
+        )
+    )
+    _mock_transition("ADLC-1", "In Progress")
+
+    received: dict[str, object] = {}
+
+    async def fake_run_implement(
+        prompt: str, *, cwd: str, resume_session_id: str, **kwargs: object
+    ) -> AgentRunResult:
+        received.update(kwargs)
+        return AgentRunResult(text="done", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_implement", fake_run_implement)
+
+    result = runner.invoke(app, ["implement", "ADLC-1", *extra_args])
+
+    assert result.exit_code == 0, result.output
+    return received
+
+
+@respx.mock
+def test_implement_command_max_turns_and_budget_reach_run_implement(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """`--max-turns` and `--max-budget` must reach `agent_runner.run_implement`."""
+    received = _run_implement_capturing_kwargs(
+        monkeypatch, tmp_path, ["--max-turns", "60", "--max-budget", "8"]
+    )
+
+    assert received.get("max_turns") == 60
+    assert received.get("max_budget_usd") == 8.0
+
+
+@respx.mock
+def test_implement_command_without_overrides_omits_them(monkeypatch, tmp_path: Path) -> None:
+    """Without the options (today's behavior), `run_implement` must receive neither
+    kwarg, so its own defaults apply."""
+    received = _run_implement_capturing_kwargs(monkeypatch, tmp_path, [])
+
+    assert "max_turns" not in received
+    assert "max_budget_usd" not in received
