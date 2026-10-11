@@ -5,6 +5,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## 0.5.1 — 2026-10-11
+
+New plugin skill **`jira-ticket-ops`** (`plugin/skills/jira-ticket-ops/`): the CLI + skill way to audit, create,
+transition and roll up Jira tickets for any project, with the project key as a parameter (first user:
+`symphony-walkman`, Jira project `WALK`). Chosen over a Jira MCP server because the CLI already exposes a
+schema-described tool interface, and a skill costs almost nothing in context until it is used. The plugin copy
+of `symphony-workflow-ops` is re-synced with the canonical skill: it had missed the `rollup` and `audit` /
+`add-subtasks` paragraphs added in 0.5.0 (ADLC-122). License changed from Proprietary to MIT ahead of making the repo public.
+
 ## 0.5.0 — 2026-10-11
 
 **`symphony-workflow audit <PROJECT> [--open] [--assignee NAME | --assignee-me] [--json]`** and
