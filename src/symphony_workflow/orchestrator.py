@@ -232,12 +232,12 @@ async def execute_plan(
     exactly today's behavior, so every existing caller is unaffected unless
     it explicitly opts in.
 
-    `max_budget_usd` (2026-09-30, data-clarity live test) is the same shape
+    `max_budget_usd` (2026-09-30, external-repo live test) is the same shape
     for `agent_runner.DEFAULT_MAX_BUDGET_USD` ($2.00) — a second, independent
     ceiling that raising `max_turns` alone doesn't touch. A target repo whose
     tickets need real investigation before a Plan is even possible can hit
     this wall right after clearing the turns one: confirmed live against
-    data-clarity's DCSYS-34 (`error_max_turns` at the default turns, then
+    an external repo's ticket (`error_max_turns` at the default turns, then
     `error_max_budget_usd` once turns alone were raised).
     """
     issue = client.get_issue(run.issue_key)
@@ -320,13 +320,13 @@ async def execute_implement(
     Never opens a PR or pushes; a human reviews the diff next.
 
     `max_turns`/`max_budget_usd` are the same shape as `execute_plan`'s
-    overrides (ADLC-55 / 2026-09-30 data-clarity live test): `None` means
+    overrides (ADLC-55 / 2026-09-30 external-repo live test): `None` means
     "don't override", so `run_implement` falls back to its own
     `DEFAULT_IMPLEMENT_MAX_TURNS`/`DEFAULT_MAX_BUDGET_USD` exactly as before.
     Needed for the same reason Plan needed it — a target repo whose tickets
     are real investigation work, not a small code change, can exhaust the
     default Implement turn budget (20) before finishing (confirmed live
-    2026-10-01 against data-clarity's DCSYS-671).
+    2026-10-01 against an external repo's ticket).
     """
     if run.state != RunState.PLAN_READY:
         raise RunTransitionError(

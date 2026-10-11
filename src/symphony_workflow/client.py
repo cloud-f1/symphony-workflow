@@ -34,11 +34,11 @@ from symphony_workflow.tracker import TrackerError
 # backend's own concern now, not the poller's — see search_ready_tickets().
 JIRA_PROJECT_ENV = "SYMPHONY_WORKFLOW_JIRA_PROJECT"
 
-# **2026-09-30, data-clarity adoption**: the default `issuetype not in
+# **2026-09-30, external-repo adoption**: the default `issuetype not in
 # (Epic, Subtask)` assumes each ticket IS the atomic unit of work — true for
 # ADLC's flat Task/Story backlog, false for a repo that mirrors its own
 # Phase->Epic->Story->Subtask hierarchy into Jira (Epic->Epic, epic->Story,
-# dev_task->Subtask — data-clarity's `sync_phase_to_jira.py` does exactly
+# dev_task->Subtask — that repo's own sync script does exactly
 # this). There, every real unit of work IS a Subtask, so the default query
 # finds zero ready tickets no matter how much backlog exists.
 #

@@ -131,12 +131,12 @@ def poll_plan_max_turns() -> int | None:
     return int(raw)
 
 
-# **2026-09-30, data-clarity live test**: raising `POLL_PLAN_MAX_TURNS_ENV`
+# **2026-09-30, external-repo live test**: raising `POLL_PLAN_MAX_TURNS_ENV`
 # alone changed the failure from `error_max_turns` to `error_max_budget_usd`
 # -- `agent_runner.DEFAULT_MAX_BUDGET_USD` ($2.00) is a second, independent
 # ceiling with no override anywhere (no CLI flag, no config function), unlike
 # max_turns. A target repo whose tickets need real investigation before a
-# Plan is even possible (data-clarity's are data-investigation tickets, not
+# Plan is even possible (its tickets are data-investigation tickets, not
 # small code-change ones) can need both raised together -- raising only
 # turns just moves the wall from one budget to the other.
 POLL_PLAN_MAX_BUDGET_USD_ENV = "SYMPHONY_WORKFLOW_POLL_PLAN_MAX_BUDGET_USD"

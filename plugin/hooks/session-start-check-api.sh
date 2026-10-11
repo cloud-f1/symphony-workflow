@@ -16,6 +16,10 @@
 # on SessionStart in *every* project, not just this one.
 set -uo pipefail
 
+# The hook reports through jq. Without it there is nothing safe to print, so stay quiet and do nothing
+# (this hook is installed once per user and fires in every project).
+command -v jq >/dev/null 2>&1 || exit 0
+
 REPO_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
 HEALTH_URL="http://127.0.0.1:8811/health"
 LOG_FILE="/tmp/symphony-workflow-api.log"

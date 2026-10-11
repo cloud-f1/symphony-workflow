@@ -105,7 +105,7 @@ class Poller:
         # 2026-09-30: same shape for the dollar budget ceiling (see
         # config.poll_plan_max_budget_usd()) -- raising turns alone doesn't
         # touch this second, independent wall (agent_runner.
-        # DEFAULT_MAX_BUDGET_USD, confirmed live against data-clarity).
+        # DEFAULT_MAX_BUDGET_USD, confirmed live against an external repo).
         self._plan_max_budget_usd = plan_max_budget_usd
         self._seen: set[str] = set()
         self._attempts: dict[str, int] = {}

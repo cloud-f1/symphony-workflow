@@ -319,7 +319,7 @@ def test_search_ready_tickets_defaults_to_excluding_epic_and_subtask(
 @respx.mock
 def test_search_ready_tickets_honors_an_issuetype_allowlist(
         config: JiraConfig, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A repo whose real work items are Subtasks (data-clarity's
+    """A repo whose real work items are Subtasks (an external repo's
     Phase->Epic->Story->Subtask mirror into Jira) needs an inclusion list,
     not a shorter exclusion list — the default query finds zero tickets for
     a repo shaped this way no matter how much backlog exists."""

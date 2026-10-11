@@ -383,7 +383,7 @@ def plan(
             "a target repo whose tickets need real investigation before a "
             "Plan is possible can hit error_max_budget_usd right after "
             "clearing error_max_turns (confirmed live 2026-09-30 against "
-            "data-clarity's DCSYS-34)."
+            "an external repo's ticket)."
         ),
     ),
 ) -> None:
@@ -420,7 +420,7 @@ def implement(
             "(default: agent_runner.DEFAULT_IMPLEMENT_MAX_TURNS, 20). Raise "
             "this for a ticket whose Implement is real investigation work, "
             "not a small code change (confirmed live 2026-10-01 against "
-            "data-clarity's DCSYS-671)."
+            "an external repo's ticket)."
         ),
     ),
     max_budget_usd: float | None = typer.Option(
