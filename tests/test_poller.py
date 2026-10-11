@@ -64,7 +64,9 @@ def max_turns_poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_pa
 
 
 @pytest.fixture
-def max_budget_poller(config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Poller:
+def max_budget_poller(
+    config: JiraConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Poller:
     # 2026-09-30: same shape as max_turns_poller above but for the dollar
     # budget ceiling override.
     monkeypatch.setattr("symphony_workflow.orchestrator.RUNS_DOCS_ROOT", tmp_path / "runs")
