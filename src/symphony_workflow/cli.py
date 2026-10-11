@@ -16,6 +16,13 @@ Three ways to drive it:
   - `decompose` for breaking a Jira Epic into Stories/Tasks for human review: calls
     decompose.py in-process, reusing the Plan phase's agent wiring with a different
     structured-output schema. Read-only, no Jira writes — see ADLC-46. Jira-only.
+  - `rollup` for closing out a finished Subtask's Story and Epic once all their children are
+    Done (forward-only, idempotent, `--dry-run`). Jira-only (needs the `parent` field).
+  - `audit` / `add-subtasks` for keeping an existing project's Epic -> Story -> Subtask hierarchy
+    honest: `audit` lists Stories with no Subtasks, Stories under no Epic, Epics with no Stories,
+    Done Stories with open Subtasks and (optionally) unassigned cards; `add-subtasks` adds
+    Subtasks to existing Stories from a plan file, idempotently. See docs/JIRA_HIERARCHY.md.
+    Jira-only.
   - `sync-decomposition` for turning an already-reviewed decomposition.json into real
     Jira Story/Subtask issues: calls sync_decomposition.py in-process. Does not re-run
     the decompose agent — see ADLC-47. Jira-only.
@@ -33,6 +40,14 @@ from symphony_workflow.agent_runner import AgentRunError
 from symphony_workflow.client import JiraClient, JiraError
 from symphony_workflow.config import ConfigError
 from symphony_workflow.decompose import DecomposeError, execute_decompose
+from symphony_workflow.hierarchy import (
+    AddSubtasksAborted,
+    AddSubtasksResult,
+    AuditResult,
+    PlanError,
+    add_subtasks,
+    audit,
+)
 from symphony_workflow.orchestrator import (
     RUNS_DOCS_ROOT,
     TARGET_REPO,
@@ -40,6 +55,7 @@ from symphony_workflow.orchestrator import (
     execute_implement,
     execute_plan,
 )
+from symphony_workflow.rollup import RollupAborted, RollupNotFound, RollupResult, rollup
 from symphony_workflow.runs import Run, RunStore, RunTransitionError
 from symphony_workflow.sync_decomposition import SyncDecompositionError, execute_sync_decomposition
 from symphony_workflow.tools import TOOLS, call_tool
@@ -116,6 +132,156 @@ def call(
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
     typer.echo(json.dumps(result, indent=2, default=str))
+
+
+def _print_rollup(result: RollupResult, *, as_json: bool) -> None:
+    if as_json:
+        typer.echo(json.dumps(result.as_dict(), indent=2))
+        return
+    verb = "would transition" if result.dry_run else "transitioned"
+    for t in result.transitions:
+        typer.echo(f"{verb} {t.key}: {t.from_status} -> {t.to}")
+    if result.stopped_at:
+        typer.echo(f"stopped at {result.stopped_at['key']}: {result.stopped_at['reason']}")
+    elif not result.transitions:
+        typer.echo(f"nothing to do for {result.key} (already rolled up)")
+
+
+def _print_audit(result: AuditResult, *, as_json: bool) -> None:
+    if as_json:
+        typer.echo(json.dumps(result.as_dict(), indent=2))
+        return
+    typer.echo(
+        f"{result.project}: {result.epics} epic(s), {result.stories} story-level issue(s), "
+        f"{len(result.errors)} error(s), {len(result.findings) - len(result.errors)} warning(s)"
+    )
+    for f in result.findings:
+        typer.echo(
+            f"  {f.severity.upper():7} {f.key} [{f.status}] {f.rule}: {f.detail}"
+            f"  | {f.summary[:60]}"
+        )
+
+
+@app.command("audit")
+def audit_command(
+    project: str = typer.Argument(..., help="Jira project key, e.g. ADLC"),
+    open_only: bool = typer.Option(False, "--open", help="Skip Stories that are already Done"),
+    assignee: str | None = typer.Option(
+        None, "--assignee", help="Also require every Epic/Story to be assigned to this display name"
+    ),
+    assignee_me: bool = typer.Option(
+        False, "--assignee-me", help="Same as --assignee, using the token's own user"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+) -> None:
+    """Check a project against the three-layer rules (docs/JIRA_HIERARCHY.md). Writes nothing.
+
+    Errors: a Story with no Subtasks, a Story under no Epic, an Epic with no Stories, a Done Story
+    with open Subtasks, and (with --assignee) a card not assigned to that person. Warnings: one
+    Subtask, or more than 8. Jira-only.
+
+    Exit codes: 0 no errors, 1 at least one error, 3 Jira API error.
+    """
+    with _jira_client() as client:
+        try:
+            who = client.get_myself().display_name if assignee_me else assignee
+            result = audit(client, project, open_only=open_only, assignee=who)
+        except JiraError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=3) from exc
+    _print_audit(result, as_json=as_json)
+    if not result.ok:
+        raise typer.Exit(code=1)
+
+
+def _print_add_subtasks(result: AddSubtasksResult, *, as_json: bool) -> None:
+    if as_json:
+        typer.echo(json.dumps(result.as_dict(), indent=2))
+        return
+    verb = "would create" if result.dry_run else "created"
+    for s in result.stories:
+        if s.action == "skipped":
+            typer.echo(f"{s.key}: skipped ({s.reason})")
+            continue
+        tail = " (Story is Done: Subtasks rolled to Done)" if s.done else ""
+        typer.echo(f"{s.key}: {verb} {len(s.created)} subtask(s){tail}")
+        for line in s.created:
+            typer.echo(f"    {line}")
+        for warning in s.warnings:
+            typer.echo(f"    warning: {warning}")
+
+
+@app.command("add-subtasks")
+def add_subtasks_command(
+    plan_file: Path = typer.Argument(  # noqa: B008
+        ..., help='JSON file: {"PROJ-12": ["Add X", "Tests: unit"], ...}'
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would be created; create nothing"
+    ),
+    assign_to_me: bool = typer.Option(
+        False, "--assign-to-me", help="Assign the new Subtasks to the token's own user"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+) -> None:
+    """Add Subtasks under existing Stories from a plan file. Idempotent: a Story that already has
+    Subtasks is skipped; a Story that is Done gets its new Subtasks transitioned to Done (roll-up).
+    Plan problems are rejected before anything is created. Jira-only.
+
+    Exit codes: 0 ok, 2 invalid plan file, 3 Jira API error (anything already created is printed).
+    """
+    try:
+        plan = json.loads(plan_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        typer.echo(f"cannot read plan file: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    with _jira_client() as client:
+        try:
+            account = client.get_myself().account_id if assign_to_me else None
+            result = add_subtasks(client, plan, dry_run=dry_run, assignee_account_id=account)
+        except PlanError as exc:
+            typer.echo(f"invalid plan: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+        except AddSubtasksAborted as exc:
+            _print_add_subtasks(exc.result, as_json=as_json)
+            typer.echo(f"add-subtasks aborted: {exc.cause}", err=True)
+            raise typer.Exit(code=3) from exc
+        except JiraError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=3) from exc
+    _print_add_subtasks(result, as_json=as_json)
+
+
+@app.command("rollup")
+def rollup_command(
+    key: str = typer.Argument(..., help="The Subtask just completed (a Story or Epic also works)"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would change; transition nothing"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+) -> None:
+    """Mark a finished Subtask Done, then roll up: all of the Story's Subtasks Done -> Story
+    Done; all of the Epic's Stories Done -> Epic Done. Forward-only, stops at the first level
+    that is not fully done, safe to re-run. Given a Story/Epic key it re-evaluates that issue
+    and upward. Jira-only -- needs the `parent` field (Linear has no equivalent).
+
+    Exit codes: 0 ok (including "nothing to do"), 2 key not found/invalid, 3 Jira API error
+    (anything already transitioned is printed, never hidden).
+    """
+    with _jira_client() as client:
+        try:
+            result = rollup(client, key, dry_run=dry_run)
+        except RollupNotFound as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=2) from exc
+        except RollupAborted as exc:
+            _print_rollup(exc.result, as_json=as_json)
+            typer.echo(f"Roll-up aborted: {exc.cause}", err=True)
+            raise typer.Exit(code=3) from exc
+        except JiraError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=3) from exc
+    _print_rollup(result, as_json=as_json)
 
 
 @app.command("get")

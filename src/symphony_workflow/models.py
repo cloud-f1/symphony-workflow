@@ -57,6 +57,58 @@ class Issue(BaseModel):
         )
 
 
+class HierarchyIssue(BaseModel):
+    """One issue as the roll-up logic sees it (rollup.py): where it sits in the
+    Epic -> Story -> Subtask tree and whether it is done. Jira-only -- Linear has no
+    `parent`-field hierarchy of this shape.
+
+    `status_category` is Jira's own `statusCategory.key` ("new" / "indeterminate" /
+    "done") -- the workflow-independent way to ask "is it done", unlike the free-form
+    `status` name. `hierarchy_level` is `issuetype.hierarchyLevel` (-1 subtask, 0 story/
+    task, 1 epic) when Jira returns it, else None (rollup.py then falls back to the
+    issue type's name).
+    """
+
+    key: str
+    summary: str = ""
+    status: str = ""
+    status_category: str | None = None
+    issue_type: str = ""
+    hierarchy_level: int | None = None
+    parent_key: str | None = None
+    # display name; None when unassigned (or the field was not requested)
+    assignee: str | None = None
+    subtask_count: int | None = None  # None when the `subtasks` field was not requested
+
+    @property
+    def is_done(self) -> bool:
+        if self.status_category is not None:
+            return self.status_category == "done"
+        return self.status.strip().lower() == "done"
+
+    @classmethod
+    def from_api(cls, payload: dict[str, Any]) -> HierarchyIssue:
+        fields = payload.get("fields", {}) or {}
+        status = fields.get("status") or {}
+        category = status.get("statusCategory") or {}
+        issue_type = fields.get("issuetype") or {}
+        parent = fields.get("parent") or {}
+        level = issue_type.get("hierarchyLevel")
+        return cls(
+            key=payload["key"],
+            summary=fields.get("summary", "") or "",
+            status=status.get("name", "") or "",
+            status_category=category.get("key"),
+            issue_type=issue_type.get("name", "") or "",
+            hierarchy_level=level if isinstance(level, int) else None,
+            parent_key=parent.get("key") if parent else None,
+            assignee=(fields.get("assignee") or {}).get("displayName") or None,
+            subtask_count=(
+                len(fields["subtasks"]) if isinstance(fields.get("subtasks"), list) else None
+            ),
+        )
+
+
 class SearchResult(BaseModel):
     issues: list[Issue]
     total: int

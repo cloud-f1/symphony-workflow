@@ -58,6 +58,11 @@ Story/Task, not Epics, so this specific rule didn't apply to them, but the same 
 work directly under one ticket instead of breaking it down first — is what to watch for. Don't
 repeat this — decompose first.
 
+**Stories without Subtasks are the same mistake one level down** (`course-crm`: 33 of 73; `jev-agent-kit`:
+all 26). Run `symphony-workflow audit <PROJECT> --open` before and after a batch of work; fix with
+`symphony-workflow add-subtasks <plan.json>`. The rules (naming, size, done-when, roll-up, one owner) are
+in [docs/JIRA_HIERARCHY.md](docs/JIRA_HIERARCHY.md).
+
 ## Claude Agent SDK usage (agent_runner.py)
 
 Confirmed 2026-09-24 against `code.claude.com/docs/en/agent-sdk` — `pip install
@@ -185,6 +190,7 @@ src/symphony_workflow/
   prompts.py      # Plan/Implement prompt templates (docs/WORKFLOW.md is the policy summary)
   runs.py         # Run/RunState/RunStore — the Plan/Implement human-gate state machine
   orchestrator.py # execute_plan/execute_implement — shared by api.py AND poller.py
+  rollup.py       # Subtask -> Story -> Epic roll-up: all children Done -> parent Done (forward-only)
   decompose.py    # Epic -> Stories/Tasks, read-only, reuses run_plan()'s output_format wiring
   sync_decomposition.py # decomposition.json -> real Jira Story/Subtask issues
   poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements.

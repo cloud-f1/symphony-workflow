@@ -683,3 +683,333 @@ def test_sync_decomposition_command_honors_project_option(monkeypatch, tmp_path:
     assert "into project OTHER" in result.output
     story_call = json.loads(respx.calls[0].request.content)
     assert story_call["fields"]["project"] == {"key": "OTHER"}
+
+
+def _hier(key: str, kind: str, level: int, status: str, parent: str | None = None) -> dict:
+    fields: dict = {
+        "summary": key,
+        "status": {
+            "name": status,
+            "statusCategory": {"key": "done" if status == "Done" else "new"},
+        },
+        "issuetype": {"name": kind, "hierarchyLevel": level},
+    }
+    if parent:
+        fields["parent"] = {"key": parent}
+    return {"key": key, "id": key, "fields": fields}
+
+
+def _mock_issue(payload: dict) -> None:
+    respx.get(f"{BASE_URL}/rest/api/2/issue/{payload['key']}").mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+
+@respx.mock
+def test_rollup_command_chain_and_json_output(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    sub = _hier("S-3", "Subtask", -1, "To Do", "ST-1")
+    _mock_issue(sub)
+    _mock_issue(_hier("ST-1", "Story", 0, "To Do", "EP-1"))
+    _mock_issue(_hier("EP-1", "Epic", 1, "To Do"))
+    children = {
+        "ST-1": [sub, _hier("S-4", "Subtask", -1, "Done", "ST-1")],
+        "EP-1": [_hier("ST-1", "Story", 0, "To Do", "EP-1")],
+    }
+
+    def search(request: httpx.Request) -> httpx.Response:
+        jql = json.loads(request.content)["jql"]
+        parent = jql.split("parent = ")[1].split(" ")[0]
+        return httpx.Response(200, json={"issues": children[parent], "isLast": True})
+
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(side_effect=search)
+    for key in ("S-3", "ST-1", "EP-1"):
+        _mock_transition(key, "Done")
+    result = runner.invoke(app, ["rollup", "S-3", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert [t["key"] for t in payload["transitions"]] == ["S-3", "ST-1", "EP-1"]
+    assert payload["stopped_at"] is None
+    assert payload["dry_run"] is False
+
+
+@respx.mock
+def test_rollup_command_dry_run_does_not_post_transitions(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_issue(_hier("S-3", "Subtask", -1, "To Do", "ST-1"))
+    _mock_issue(_hier("ST-1", "Story", 0, "To Do", "EP-1"))
+    _mock_issue(_hier("EP-1", "Epic", 1, "To Do"))
+    kids = {
+        "ST-1": [_hier("S-3", "Subtask", -1, "To Do", "ST-1")],
+        "EP-1": [_hier("ST-1", "Story", 0, "To Do", "EP-1")],
+    }
+
+    def search(request: httpx.Request) -> httpx.Response:
+        parent = json.loads(request.content)["jql"].split("parent = ")[1].split(" ")[0]
+        return httpx.Response(200, json={"issues": kids[parent], "isLast": True})
+
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(side_effect=search)
+    transition_post = respx.post(f"{BASE_URL}/rest/api/2/issue/S-3/transitions").mock(
+        return_value=httpx.Response(204)
+    )
+    result = runner.invoke(app, ["rollup", "S-3", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "would transition S-3: To Do -> Done" in result.output
+    assert "would transition ST-1" in result.output
+    assert "would transition EP-1" in result.output
+    assert not transition_post.called
+
+
+@respx.mock
+def test_rollup_command_nothing_to_do_exits_zero(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_issue(_hier("EP-1", "Epic", 1, "Done"))
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200, json={"issues": [_hier("ST-1", "Story", 0, "Done", "EP-1")], "isLast": True}
+        )
+    )
+    result = runner.invoke(app, ["rollup", "EP-1"])
+    assert result.exit_code == 0, result.output
+    assert "nothing to do" in result.output
+
+
+@respx.mock
+def test_rollup_command_unknown_key_exits_2(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.get(f"{BASE_URL}/rest/api/2/issue/NOPE-1").mock(
+        return_value=httpx.Response(404, json={"errorMessages": ["Issue does not exist"]})
+    )
+    result = runner.invoke(app, ["rollup", "NOPE-1"])
+    assert result.exit_code == 2
+    assert "NOPE-1" in result.output
+
+
+@respx.mock
+def test_rollup_command_jira_error_exits_3_and_reports_partial_work(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_issue(_hier("S-3", "Subtask", -1, "To Do", "ST-1"))
+    _mock_issue(_hier("ST-1", "Story", 0, "To Do", "EP-1"))
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200,
+            json={"issues": [_hier("S-3", "Subtask", -1, "To Do", "ST-1")], "isLast": True},
+        )
+    )
+    _mock_transition("S-3", "Done")
+    # the Story's own transition fails
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ST-1/transitions").mock(
+        return_value=httpx.Response(500, json={"errorMessages": ["boom"]})
+    )
+    result = runner.invoke(app, ["rollup", "S-3"])
+    assert result.exit_code == 3
+    assert "transitioned S-3: To Do -> Done" in result.output
+    assert "Roll-up aborted" in result.output
+
+
+def test_rollup_command_requires_a_key() -> None:
+    assert runner.invoke(app, ["rollup"]).exit_code == 2
+
+
+def test_rollup_is_jira_only(monkeypatch) -> None:
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_TRACKER", "linear")
+    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_x")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_LINEAR_TEAM", "GAI")
+    result = runner.invoke(app, ["rollup", "GAI-1"])
+    assert result.exit_code == 1
+    assert "Jira" in result.output
+
+
+# ---- audit / add-subtasks
+
+
+def _audit_payload(key, kind, level, *, subtasks=None, assignee=None, parent=None, status="To Do"):
+    fields = {
+        "summary": f"{key} title",
+        "status": {
+            "name": status,
+            "statusCategory": {"key": "done" if status == "Done" else "new"},
+        },
+        "issuetype": {"name": kind, "hierarchyLevel": level},
+    }
+    if subtasks is not None:
+        fields["subtasks"] = [{"key": f"{key}-s{i}"} for i in range(subtasks)]
+    if assignee:
+        fields["assignee"] = {"displayName": assignee}
+    if parent:
+        fields["parent"] = {"key": parent}
+    return {"key": key, "id": key, "fields": fields}
+
+
+def _mock_audit_search(epics, stories, children=None):
+    children = children or {}
+
+    def search(request: httpx.Request) -> httpx.Response:
+        jql = json.loads(request.content)["jql"]
+        if "parent = " in jql:
+            parent = jql.split("parent = ")[1].split(" ")[0]
+            return httpx.Response(200, json={"issues": children.get(parent, []), "isLast": True})
+        if "issuetype = Epic" in jql:
+            return httpx.Response(200, json={"issues": epics, "isLast": True})
+        return httpx.Response(200, json={"issues": stories, "isLast": True})
+
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(side_effect=search)
+
+
+@respx.mock
+def test_audit_command_exits_1_and_lists_problems(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_audit_search(
+        [_audit_payload("P-1", "Epic", 1)],
+        [
+            _audit_payload("P-2", "Story", 0, subtasks=0, parent="P-1"),
+            _audit_payload("P-3", "Story", 0, subtasks=3, parent="P-1"),
+        ],
+        {"P-1": [_audit_payload("P-2", "Story", 0, parent="P-1")]},
+    )
+    result = runner.invoke(app, ["audit", "P"])
+    assert result.exit_code == 1, result.output
+    assert "P-2" in result.output and "no_subtasks" in result.output
+    assert "P-3" not in result.output
+    as_json = runner.invoke(app, ["audit", "P", "--json"])
+    payload = json.loads(as_json.output)
+    assert payload["ok"] is False and payload["errors"] == 1
+    assert payload["findings"][0]["key"] == "P-2"
+
+
+@respx.mock
+def test_audit_command_exits_0_when_clean_and_assignee_me_uses_the_token_user(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
+        return_value=httpx.Response(200, json={"accountId": "acc", "displayName": "alex hsieh"})
+    )
+    _mock_audit_search(
+        [_audit_payload("P-1", "Epic", 1, assignee="alex hsieh")],
+        [_audit_payload("P-2", "Story", 0, subtasks=2, parent="P-1", assignee="alex hsieh")],
+        {"P-1": [_audit_payload("P-2", "Story", 0, parent="P-1")]},
+    )
+    ok = runner.invoke(app, ["audit", "P", "--assignee-me"])
+    assert ok.exit_code == 0, ok.output
+    bad = runner.invoke(app, ["audit", "P", "--assignee", "someone else"])
+    assert bad.exit_code == 1 and "wrong_assignee" in bad.output
+
+
+@respx.mock
+def test_add_subtasks_command_dry_run_creates_nothing(monkeypatch, tmp_path) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_issue(_audit_payload("P-2", "Story", 0, subtasks=0, parent="P-1"))
+    create = respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"P-2": ["Add X", "Tests: unit"]}))
+    result = runner.invoke(app, ["add-subtasks", str(plan), "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "would create 2 subtask(s)" in result.output
+    assert not create.called
+
+
+@respx.mock
+def test_add_subtasks_command_creates_and_rolls_up_a_done_story(monkeypatch, tmp_path) -> None:
+    _set_jira_env(monkeypatch)
+    _mock_issue(_audit_payload("P-2", "Story", 0, subtasks=0, parent="P-1", status="Done"))
+    respx.get(f"{BASE_URL}/rest/api/2/myself").mock(
+        return_value=httpx.Response(200, json={"accountId": "acc-9", "displayName": "alex hsieh"})
+    )
+    seq = iter(["P-101", "P-102"])
+    bodies = []
+
+    def create(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content)["fields"])
+        key = next(seq)
+        return httpx.Response(
+            201, json={"id": "1", "key": key, "self": f"{BASE_URL}/rest/api/2/issue/1"}
+        )
+
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(side_effect=create)
+    for key in ("P-101", "P-102"):
+        _mock_transition(key, "Done")
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"P-2": ["Add X", "Tests: unit"]}))
+    result = runner.invoke(app, ["add-subtasks", str(plan), "--assign-to-me"])
+    assert result.exit_code == 0, result.output
+    assert [b["parent"]["key"] for b in bodies] == ["P-2", "P-2"]
+    assert all(b["assignee"] == {"accountId": "acc-9"} for b in bodies)
+    assert all(b["issuetype"] == {"name": "Subtask"} for b in bodies)
+    assert "Subtasks rolled to Done" in result.output
+
+
+def test_add_subtasks_command_rejects_a_bad_plan_with_exit_2(monkeypatch, tmp_path) -> None:
+    _set_jira_env(monkeypatch)
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"P-2": []}))
+    result = runner.invoke(app, ["add-subtasks", str(plan)])
+    assert result.exit_code == 2 and "invalid plan" in result.output
+    missing = runner.invoke(app, ["add-subtasks", str(tmp_path / "nope.json")])
+    assert missing.exit_code == 2
+
+
+def _run_implement_capturing_kwargs(monkeypatch, tmp_path: Path, extra_args: list[str]) -> dict:
+    """Run `implement ADLC-1` against a saved plan_ready run and return the
+    kwargs that reached `agent_runner.run_implement`."""
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+
+    sidecar_dir = tmp_path / "ADLC-1"
+    sidecar_dir.mkdir(parents=True)
+    (sidecar_dir / "run.json").write_text(
+        json.dumps(
+            {
+                "id": "run-1",
+                "issue_key": "ADLC-1",
+                "state": "plan_ready",
+                "created_at": "2026-01-01T00:00:00Z",
+                "plan": "the plan",
+                "session_id": "sess-1",
+                "workspace_path": "/tmp/fake-workspace/ADLC-1",
+                "result": None,
+                "error": None,
+            }
+        )
+    )
+    _mock_transition("ADLC-1", "In Progress")
+
+    received: dict[str, object] = {}
+
+    async def fake_run_implement(
+        prompt: str, *, cwd: str, resume_session_id: str, **kwargs: object
+    ) -> AgentRunResult:
+        received.update(kwargs)
+        return AgentRunResult(text="done", session_id="sess-1", cost_usd=0.01, num_turns=1)
+
+    monkeypatch.setattr(orchestrator_module, "run_implement", fake_run_implement)
+
+    result = runner.invoke(app, ["implement", "ADLC-1", *extra_args])
+
+    assert result.exit_code == 0, result.output
+    return received
+
+
+@respx.mock
+def test_implement_command_max_turns_and_budget_reach_run_implement(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """`--max-turns` and `--max-budget` must reach `agent_runner.run_implement`."""
+    received = _run_implement_capturing_kwargs(
+        monkeypatch, tmp_path, ["--max-turns", "60", "--max-budget", "8"]
+    )
+
+    assert received.get("max_turns") == 60
+    assert received.get("max_budget_usd") == 8.0
+
+
+@respx.mock
+def test_implement_command_without_overrides_omits_them(monkeypatch, tmp_path: Path) -> None:
+    """Without the options (today's behavior), `run_implement` must receive neither
+    kwarg, so its own defaults apply."""
+    received = _run_implement_capturing_kwargs(monkeypatch, tmp_path, [])
+
+    assert "max_turns" not in received
+    assert "max_budget_usd" not in received

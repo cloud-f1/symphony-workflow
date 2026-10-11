@@ -5,6 +5,56 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## Unreleased
+
+`symphony-workflow implement <key> [--max-turns N] [--max-budget USD]` (PR #27): the Implement phase had a
+fixed 20-turn cap that ended a real run (data-clarity's `DCSYS-671`) with `error_max_turns`; 60 turns and $8
+completed it. The overrides are threaded through `execute_implement` into `run_implement`; with neither
+option the defaults apply exactly as before.
+
+## 0.5.1 — 2026-10-11
+
+New plugin skill **`jira-ticket-ops`** (`plugin/skills/jira-ticket-ops/`): the CLI + skill way to audit, create,
+transition and roll up Jira tickets for any project, with the project key as a parameter (first user:
+`symphony-walkman`, Jira project `WALK`). Chosen over a Jira MCP server because the CLI already exposes a
+schema-described tool interface, and a skill costs almost nothing in context until it is used. The plugin copy
+of `symphony-workflow-ops` is re-synced with the canonical skill: it had missed the `rollup` and `audit` /
+`add-subtasks` paragraphs added in 0.5.0 (ADLC-122). License changed from Proprietary to MIT ahead of making the repo public.
+
+## 0.5.0 — 2026-10-11
+
+**`symphony-workflow audit <PROJECT> [--open] [--assignee NAME | --assignee-me] [--json]`** and
+**`symphony-workflow add-subtasks <plan.json> [--dry-run] [--assign-to-me] [--json]`** (tools
+`audit_hierarchy`, `add_subtasks`) — keep an existing project's Epic -> Story -> Subtask hierarchy
+honest. `audit` is read-only and exits 1 on: a Story-level issue (Story/Task/Bug) with no Subtasks or no
+Epic, an Epic with no Stories, a Done Story with open Subtasks, and (opt-in) a card not assigned to a
+named person; one Subtask, or more than 8, is a warning. `add-subtasks` adds Subtasks to Stories from a
+plan file, idempotently (a Story that already has Subtasks is skipped), rolls a Done Story's new Subtasks
+to Done, validates the whole plan before creating anything, reports partial work if Jira fails, and tries
+`Sub-task` if `Subtask` is rejected. New `JiraClient.search_hierarchy()` (paged) and `HierarchyIssue`
+fields `assignee` / `subtask_count`; `get_hierarchy_issue` now also requests them. New
+[docs/JIRA_HIERARCHY.md](docs/JIRA_HIERARCHY.md) states the rules (naming, size, done-when, roll-up,
+ownership).
+
+Why: `course-crm` found 33 of 73 Stories with no Subtasks (the board showed no progress), and
+`jev-agent-kit` had 36 cards with no Subtasks and no assignee; `decompose` only covers an Epic not yet
+built. The commands are ported from `course-crm`'s `jira-add-subtasks.py`, which stays as that repo's own
+copy. 24 new tests (322 total); `ruff check` clean on the new code. No version bump.
+
+**`symphony-workflow rollup <key> [--dry-run] [--json]`** and the `rollup_issue` tool — close out
+a finished Subtask's Story and Epic once *all* their children are Done: Subtask → Done, then the
+Story if every Subtask is Done, then the Epic if every Story is Done. Forward-only, idempotent,
+stops at the first level that isn't fully done; also accepts a Story or Epic key. Exit codes `0`
+ok / `2` not found / `3` Jira error (partial work is always reported). Jira-only (needs the
+`parent` field). New `JiraClient.get_hierarchy_issue()` / `list_children()` (paged through
+`nextPageToken`) and `models.HierarchyIssue`; "is it done" uses Jira's `statusCategory`, not the
+free-form status name, and keys just transitioned are remembered so Jira's eventually
+consistent search can't make a finished Subtask look unfinished.
+
+Requested by the `ai-workmate-salon` project, whose own Story/Epic bookkeeping was being closed
+by hand. 39 new tests, 298 total, `rollup.py` 100% covered, `ruff check` clean on the new code.
+No version bump — cutting a release is a separate decision.
+
 ## 0.4.5 — 2026-09-26
 
 **Consolidated the duplicated Jira-only-backend guard** (`ADLC-106`) — `cli.py`'s Jira-only
