@@ -40,9 +40,8 @@ tracker operations as named tools rather than importing a client library.
 
 ## Background
 
-Cloud-F1 already has working, hand-rolled Jira REST helpers scattered across
-`content-asset-system`'s `.claude/skills/shared/jira-cloud-f1/` and `jira-awoo/` skill files
-(`urllib`-based scripts pasted at the top of one-off Python files). This repo consolidates that
+Cloud-F1 already had working, hand-rolled Jira REST helpers scattered across
+skill files in a private content repo (`urllib`-based scripts pasted at the top of one-off Python files). This repo consolidates that
 proven pattern — Jira Cloud API **v2**, Basic auth via `email:api_token`, plain-text
 description/comment bodies (not the v3 Atlassian Document Format), fetch-transitions-then-match-
 by-name for status changes — into a real installable package with tests, instead of copy-pasted

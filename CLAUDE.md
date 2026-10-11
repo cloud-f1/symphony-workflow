@@ -29,9 +29,10 @@ project. **New to this repo? Load the `symphony-workflow-ops` skill first**
 sibling docs don't repeat. Setting this up for the first time as a human (not a Claude Code
 session)? [docs/QUICKSTART.md](docs/QUICKSTART.md) is a linear walkthrough, not reference material.
 
-This is a standalone package under `~/Documents/git_saas/`, a private repo in the `cloud-f1`
-GitHub org. It is not part of `content-asset-system` — don't assume its rules apply here beyond
-what this file states.
+This is a standalone package: a public (MIT) repo in the `cloud-f1` GitHub org, usually cloned next to
+your other repos. It is not part of `content-asset-system` — don't assume its rules apply here beyond
+what this file states. Because it is public, keep client and personal names, local paths and
+credentials out of code, comments, docs and `docs/runs/` (git history keeps what was committed before).
 
 ## Jira tracking for this repo's own work
 

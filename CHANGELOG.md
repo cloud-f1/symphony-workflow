@@ -5,10 +5,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
-## Unreleased
+## 0.5.2 — 2026-10-11
+
+Public-repo audit (ADLC-135): an external repo and its ticket keys are no longer named in code comments, docstrings, tests or this file (git history keeps what was committed earlier); CLAUDE.md and the README background no longer say "private" or point at a personal path; the plugin's SessionStart hook now exits quietly when `jq` is missing instead of failing in every project. Also released here: the `implement --max-turns / --max-budget` overrides below.
 
 `symphony-workflow implement <key> [--max-turns N] [--max-budget USD]` (PR #27): the Implement phase had a
-fixed 20-turn cap that ended a real run (data-clarity's `DCSYS-671`) with `error_max_turns`; 60 turns and $8
+fixed 20-turn cap that ended a real run (an external repo's ticket) with `error_max_turns`; 60 turns and $8
 completed it. The overrides are threaded through `execute_implement` into `run_implement`; with neither
 option the defaults apply exactly as before.
 
