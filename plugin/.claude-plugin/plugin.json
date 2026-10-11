@@ -6,6 +6,6 @@
     "name": "cloud-f1"
   },
   "homepage": "https://github.com/cloud-f1/symphony-workflow",
-  "license": "Proprietary",
+  "license": "MIT",
   "keywords": ["jira", "agent-sdk", "adlc", "orchestration"]
 }

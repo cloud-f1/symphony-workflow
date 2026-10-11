@@ -12,7 +12,7 @@ transition and roll up Jira tickets for any project, with the project key as a p
 `symphony-walkman`, Jira project `WALK`). Chosen over a Jira MCP server because the CLI already exposes a
 schema-described tool interface, and a skill costs almost nothing in context until it is used. The plugin copy
 of `symphony-workflow-ops` is re-synced with the canonical skill: it had missed the `rollup` and `audit` /
-`add-subtasks` paragraphs added in 0.5.0 (ADLC-122).
+`add-subtasks` paragraphs added in 0.5.0 (ADLC-122). License changed from Proprietary to MIT ahead of making the repo public.
 
 ## 0.5.0 — 2026-10-11
 
