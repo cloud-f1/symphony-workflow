@@ -8,6 +8,21 @@
 
 ---
 
+## Next session — start here (handover written 2026-10-12)
+
+**Task:** implement plan [`docs/plans/0007-jira-diff-sync/`](../plans/0007-jira-diff-sync/) — content-drift detection (`diff-decomposition`, read-only) and
+`sync-decomposition --update` with stable ids. Today the shared layer is create-only: nothing updates a card after its spec changes, and
+`audit` only checks structure. **Nothing is built yet.**
+
+**Before touching code:** (1) `git fetch` and work from `origin/main` in a fresh `.worktrees/` checkout — an older long-lived checkout may be behind
+(0.5.2 or later is current); (2) do Phase 0 of `implement.md` (ADLC Epic + decomposition — the repo's hard rule); (3) ask the person who handed this
+over for the consumer-side context (a real multi-Story Epic to validate against, the adapter that will call the new commands) — it is deliberately not
+in this public repo.
+
+**Remember:** public repo — no client/personal names, local paths, credentials, or consumer repo/ticket keys in code, docs or `docs/runs/`.
+
+---
+
 ## Session close-out — 2026-09-26, part 3 (`ADLC-88` fully shipped, `ADLC-121` poller-race fix)
 
 **Continuation of the same 2026-09-26 session.** Part 2 (below) left `ADLC-88` decomposed but
