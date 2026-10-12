@@ -1,12 +1,12 @@
 ---
-jira_url: https://cloud-f1.atlassian.net/browse/NXJS-1
+jira_url: https://cloud-f1.atlassian.net/browse/EXMP-1
 ---
 
-# NXJS-1 — Audit `next-app/lib/rate-limit.ts` for correctness
+# EXMP-1 — Audit `next-app/lib/rate-limit.ts` for correctness
 
 ## Context
 
-NXJS-1 is a bounded, read-only portability-validation ticket (ADLC-41/42): review this
+EXMP-1 is a bounded, read-only portability-validation ticket (ADLC-41/42): review this
 repo's in-memory rate limiter for race conditions, unbounded memory growth, incorrect
 window/reset logic, or gaps between documented and actual behavior. E355/E360 already
 fixed the *2FA-specific* in-process-memory footgun (the 2FA login limiter's bucket
@@ -110,7 +110,7 @@ actually-most-security-sensitive buckets (login, 2FA, checkout). Not a runtime b
 worth flagging since the ticket asks about "gap between documented behavior and actual
 behavior" and this table is the closest thing this repo has to a rate-limit spec.
 
-## If NXJS-1 is followed by a fix ticket (not in scope now)
+## If EXMP-1 is followed by a fix ticket (not in scope now)
 
 Sketch only, no code written:
 

@@ -14,7 +14,7 @@ endpoint. Two shape differences from Jira that show up throughout this file:
 
 Auth header is the raw API key with no "Bearer " prefix — confirmed against
 a real `lin_api_...` personal key (Linear's API docs specify this; verified
-live 2026-09-26, matches content-asset-system's own working `gaia linear`
+live 2026-09-26, matches another internal tool's own working Linear integration
 client, which this file does not depend on or reuse).
 """
 

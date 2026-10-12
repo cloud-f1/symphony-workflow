@@ -156,7 +156,7 @@ def _render_plan_text(result: AgentRunResult) -> str:
     explanation, but a session's final turn can end up emitting only the
     structured `output_format` result with no accompanying `TextBlock`
     (confirmed live, see `docs/plans/0003-portability-validation-nexjs/
-    implement.md`'s incident record and `docs/runs/NXJS-1/plan.md`) --
+    implement.md`'s incident record and `docs/runs/EXMP-1/plan.md`) --
     `agent_runner._consume()` then leaves `text_parts` empty and
     `result.text` comes back `""`. Silently writing/posting that empty
     string as plan.md / the Jira comment would throw away a fully populated
@@ -225,7 +225,7 @@ async def execute_plan(
 
     `max_turns` (ADLC-55) optionally overrides `agent_runner.run_plan`'s own
     `DEFAULT_PLAN_MAX_TURNS` for this one run — e.g. a large real-world
-    target repo (confirmed live against `ai-coding-nexjs-template`,
+    target repo (confirmed live against `example-nextjs-app`,
     docs/plans/0003-portability-validation-nexjs/implement.md) can need more
     than the default 5 turns to produce a real plan. `None` (the default)
     means "don't override" — `run_plan` falls back to its own default,

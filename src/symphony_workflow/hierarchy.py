@@ -1,8 +1,8 @@
 """Keep a project's Epic -> Story -> Subtask hierarchy honest: audit it, add Subtasks to Stories.
 
-Why this exists: two repos that use this tool found the same failure independently. In `course-crm`,
+Why this exists: two repos that use this tool found the same failure independently. In one repo,
 33 of 73 hand-created Stories had no Subtasks, so the board showed no progress and nobody could see
-what was left. In `jev-agent-kit` every card was Unassigned and no Story had Subtasks. `decompose` /
+what was left. In another every card was Unassigned and no Story had Subtasks. `decompose` /
 `sync-decomposition` only help for an Epic you have not built yet; they do nothing for Stories that
 already exist. So:
 

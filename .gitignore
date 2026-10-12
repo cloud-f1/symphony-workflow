@@ -16,3 +16,8 @@ uv.lock.bak
 
 .worktrees/
 .claude/worktrees/
+
+# Per-ticket Plan/Implement output for other projects (consumer repos) stays local
+docs/runs/*/
+!docs/runs/ADLC-*/
+!docs/runs/EXMP-1/

@@ -1,4 +1,4 @@
-Here's the ADLC-17 plan; nothing has been built or tested yet. It's also saved at `/Users/cloud-f1/.claude/plans/you-are-looking-at-quiet-rocket.md`.
+Here's the ADLC-17 plan; nothing has been built or tested yet. It's also saved at `<local plan file>`.
 
 ## Files that would change
 - **`models.py`**: add a `CurrentUser` model (`account_id`, `display_name`, `email_address`, `active`) with a `from_api()` constructor, built the same way as `Issue`.

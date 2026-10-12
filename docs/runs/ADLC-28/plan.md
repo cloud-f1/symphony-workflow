@@ -38,7 +38,7 @@ I have everything needed. Here's the report.
 - `tests/test_agent_runner.py`: `_fake_stream()` helper (lines 18-38) builds `AssistantMessage`/`ResultMessage` fakes and monkeypatches `agent_runner.query`; would need a variant/param to also set `structured_output` on the fake `ResultMessage`, plus new assertions on `AgentRunResult`'s new field(s) and that `options.output_format` gets passed to `query`.
 - `tests/test_orchestrator.py`: currently only tests `render_run_doc()`; would need new tests for how structured fields flow into `plan.md` and the Jira comment.
 - `tests/test_api.py` and `tests/test_poller.py`: both monkeypatch `orchestrator_module.run_plan` / `agent_runner.run_plan` returning `AgentRunResult(text=..., session_id=..., cost_usd=..., num_turns=...)` (e.g. test_api.py:212-217,300-301,350-351; test_poller.py:89-90,123-126,162-165) — every one of these call sites constructs `AgentRunResult` positionally/by-kwarg without a structured field, so adding a new field must be optional/default-valued or all these fakes break.
-The plan file is written to `/Users/cloud-f1/.claude/plans/you-are-looking-at-wobbly-pinwheel.md`. Since this is an unattended orchestration session (no interactive user to approve via `ExitPlanMode`, which isn't available here), here is the plan as the deliverable:
+The plan file is written to `<local plan file>`. Since this is an unattended orchestration session (no interactive user to approve via `ExitPlanMode`, which isn't available here), here is the plan as the deliverable:
 
 ## ADLC-28: Structured plan output via Claude Agent SDK `output_format`
 

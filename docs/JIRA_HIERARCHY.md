@@ -1,16 +1,16 @@
 # Jira hierarchy: Epic -> Story -> Subtask
 
 The standard every project that uses `symphony-workflow` follows, and the two commands that keep it
-true. It started in `course-crm` (`.claude/rules/jira-hierarchy.md`) and was applied to `jev-agent-kit`;
+true. It started in one consumer repo (its `jira-hierarchy` rule) and was applied to a second;
 this is the shared version.
 
 ## Why it is mandatory
 
 Two repos hit the same failure on their own:
 
-* `course-crm`: 33 of 73 hand-created Stories had no Subtasks, so the board showed no progress and
+* Consumer repo A: 33 of 73 hand-created Stories had no Subtasks, so the board showed no progress and
   nobody could see what was left.
-* `jev-agent-kit`: 36 cards, no Story with a Subtask, every card Unassigned, bugs and tasks hanging
+* Consumer repo B: 36 cards, no Story with a Subtask, every card Unassigned, bugs and tasks hanging
   directly under Epics, a Done Epic that had open work under it.
 
 `decompose` / `sync-decomposition` fix this for an Epic you have not built yet. They do nothing for

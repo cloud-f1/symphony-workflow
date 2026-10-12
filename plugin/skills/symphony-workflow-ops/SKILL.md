@@ -149,7 +149,7 @@ because `cloud-f1.atlassian.net` now is.)
   Symphony §9.5's invariants, adopted deliberately.
 - **Never `claude -p`.** This repo's Agent SDK usage exists specifically to
   avoid that failure mode — see `docs/plans/0001-symphony-poc/spec.md`'s "Why Claude Agent SDK" section
-  and CAS's `feedback_no_claude_p_in_repo` memory.
+  and a personal memory note.
 - **The poller auto-Plans, never auto-Implements.** See point 2 above — this
   is the load-bearing safety property of Phase 5, not an oversight to "fix."
 

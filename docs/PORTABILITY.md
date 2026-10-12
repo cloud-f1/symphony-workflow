@@ -83,16 +83,14 @@ actual operational pain.
 | Repo | Jira project | Port | Poller enabled? |
 |---|---|---|---|
 | `symphony-workflow` (this repo, self-referential) | `ADLC` | 8811 | Yes — the owning instance for `ADLC` |
-| `ai-coding-nexjs-template` | `NXJS` (dedicated, `ADLC-40`, Done — team-managed Kanban, matching `ADLC`'s own style) | 8812 (planned) | Yes, once `ADLC-41` stands up the instance |
-| `course-checkin` | `CKIN` (dedicated, team-managed Kanban) | **8813 — actually running** (confirmed live 2026-09-29, `.env.course-checkin`) | No — `SYMPHONY_WORKFLOW_POLL_ENABLED=false`; Jira sync done manually per-epic via the tool-call API, not the poller |
-| `ai-rc-engineer-pm` | `RCPM` (dedicated, created 2026-09-29 via this doc's playbook — team-managed Kanban `gh-simplified-agility-kanban`, matching `ADLC`/`NXJS`'s style; `RCPM-1` Epic = Phase 79 with 6 Stories E328–E333, all `Done`, PR remote-links attached) | ~~8813~~ **reassign before starting — collides with `course-checkin`'s real instance above, this doc's own table had both claim it** (planned, not yet started) | Not yet started — `.env.ai-rc-engineer-pm` has `SYMPHONY_WORKFLOW_POLL_ENABLED=false`; flip once someone deliberately runs the server for this repo, on a free port |
-| `ai-workmate-salon` | `SALON` (dedicated, created 2026-09-29 — team-managed Kanban `gh-simplified-agility-kanban`, matching `CKIN`'s style; verified `simplified: true` / `style: next-gen` before use, per this doc's own template-key trap warning) | 8814 — actually running (confirmed live 2026-09-29, `.env.ai-workmate-salon`) | No — same manual-sync posture as `course-checkin` |
-| `course-crm` | `CRM` (dedicated, created 2026-10-07 via `POST /rest/api/3/project` — team-managed Kanban `gh-simplified-agility-kanban`, verified `style: next-gen` / `simplified: true`; phase Epics `CRM-1`…`CRM-4` = P0–P3) | 8815 (planned, not yet started; `.env.course-crm`) | No — `SYMPHONY_WORKFLOW_POLL_ENABLED=false`, same manual-sync posture as `course-checkin` / `ai-workmate-salon` |
+| `example-nextjs-app` | `EXMP` (dedicated, team-managed Kanban, matching `ADLC`'s own style) | 8812 | Yes — the owning instance for `EXMP` |
+| `example-app-2` | `EX2` (dedicated, team-managed Kanban `gh-simplified-agility-kanban`; verify `simplified: true` / `style: next-gen` before use) | 8813 | No — `SYMPHONY_WORKFLOW_POLL_ENABLED=false`; Jira sync done manually via the tool-call API |
+| `example-app-3` | `EX3` (dedicated, same template) | 8814 — pick a port no other row uses | No — same manual-sync posture; one port per instance, never reuse a registry port |
 
 ### Sharing one Jira project across repos (interim/exception case)
 
 The default is a dedicated project per repo — `ADLC-40` did this for
-`ai-coding-nexjs-template` (`NXJS`, created via `POST /rest/api/3/project`; see `CLAUDE.md`'s
+`example-nextjs-app` (`EXMP`, created via `POST /rest/api/3/project`; see `CLAUDE.md`'s
 "Jira API gotchas" for the template-key trap hit along the way). For a *new* repo before its own
 dedicated project exists, a portability test may temporarily reuse `ADLC` (or any existing
 project) as `SYMPHONY_WORKFLOW_JIRA_PROJECT` for a *second* instance pointed at a different

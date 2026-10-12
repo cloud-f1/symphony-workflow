@@ -5,7 +5,7 @@ jira_url: https://cloud-f1.atlassian.net/browse/ADLC-50
 Exploration agent is running in the background to gather details on the skill directory, hook wiring, existing plugin scaffolding, and portability docs. I'll continue once it reports back.
 # ADLC-50 Investigation Findings
 
-**Note first:** the worktree (`.worktrees/ADLC-50`, branch `ADLC-50-backlog-...`, HEAD `38b94b1`) is behind `main` (HEAD `c04d03c`). `.claude/settings.json` and `.claude/hooks/` were added in a later main commit (`3c50a61`) that this branch doesn't have — that's why they're invisible in the worktree. Items 2 below come from the main checkout at `/Users/cloud-f1/Documents/git_saas/jira-agent-cli/.claude/`.
+**Note first:** the worktree (`.worktrees/ADLC-50`, branch `ADLC-50-backlog-...`, HEAD `38b94b1`) is behind `main` (HEAD `c04d03c`). `.claude/settings.json` and `.claude/hooks/` were added in a later main commit (`3c50a61`) that this branch doesn't have — that's why they're invisible in the worktree. Items 2 below come from the main checkout at `<repo>/.claude/`.
 
 **1. `.claude/skills/jira-agent-cli-ops/`**
 Only one file exists: `.claude/skills/jira-agent-cli-ops/SKILL.md`. Frontmatter:
@@ -23,7 +23,7 @@ Body sections: Quick start (`uv sync`, `.env` setup, `uvicorn ... --port 8811`),
 **2. SessionStart hook (main checkout, not this worktree)**
 - `.claude/settings.json`:
 ```json
-{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/Users/cloud-f1/Documents/git_saas/jira-agent-cli/.claude/hooks/session-start-check-api.sh","timeout":15,"statusMessage":"Checking jira-agent-cli API server..."}]}]}}
+{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"<repo>/.claude/hooks/session-start-check-api.sh","timeout":15,"statusMessage":"Checking jira-agent-cli API server..."}]}]}}
 ```
 No matcher restriction — fires on every session start. Command path is **absolute**, hardcoded to this machine.
 - `.claude/hooks/session-start-check-api.sh`: checks `GET http://127.0.0.1:8811/health`; auto-starts `uv run --env-file .env uvicorn jira_agent_cli.api:app --port 8811` (nohup/disown, logs to `/tmp/jira-agent-api.log`) if not running; then queries Jira (v3 `/search/jql`, project=ADLC, status="To Do", excluding Epic/Subtask) and emits a `SessionStart` `hookSpecificOutput.additionalContext` JSON blob via `jq` summarizing server status + ready tickets. Both committed to git (`git ls-files .claude/` confirms, commit `3c50a61`).
@@ -137,12 +137,12 @@ Adopters run `/plugin marketplace add cloud-f1/jira-agent-cli` (GitHub shorthand
 - Confirm target Claude Code version supports plugins/`${CLAUDE_PLUGIN_ROOT}` in this org's rollout before relying on it as the only distribution path.
 
 ### Critical Files for Implementation
-- /Users/cloud-f1/Documents/git_saas/jira-agent-cli/.worktrees/ADLC-50/.claude/skills/jira-agent-cli-ops/SKILL.md
-- /Users/cloud-f1/Documents/git_saas/jira-agent-cli/.worktrees/ADLC-50/.claude/hooks/session-start-check-api.sh (not present in this worktree; exists on `main` at commit `3c50a61`)
-- /Users/cloud-f1/Documents/git_saas/jira-agent-cli/.worktrees/ADLC-50/.claude/settings.json (not present in this worktree; exists on `main`)
-- /Users/cloud-f1/Documents/git_saas/jira-agent-cli/.worktrees/ADLC-50/docs/PORTABILITY.md
-- /Users/cloud-f1/Documents/git_saas/jira-agent-cli/.worktrees/ADLC-50/docs/intent.md
-- /Users/cloud-f1/Documents/git_saas/jira-agent-cli/.worktrees/ADLC-50/README.md
+- <repo>/.worktrees/ADLC-50/.claude/skills/jira-agent-cli-ops/SKILL.md
+- <repo>/.worktrees/ADLC-50/.claude/hooks/session-start-check-api.sh (not present in this worktree; exists on `main` at commit `3c50a61`)
+- <repo>/.worktrees/ADLC-50/.claude/settings.json (not present in this worktree; exists on `main`)
+- <repo>/.worktrees/ADLC-50/docs/PORTABILITY.md
+- <repo>/.worktrees/ADLC-50/docs/intent.md
+- <repo>/.worktrees/ADLC-50/README.md
 I've written the full plan to the plan file. `ExitPlanMode` isn't available in this unattended session (no interactive user to approve it), so per the ticket's actual instructions, here's the plan and the closing summary.
 
 ## Plan: ADLC-50 — package ops skill + SessionStart hook as a Claude Code plugin

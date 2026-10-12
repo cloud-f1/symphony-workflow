@@ -1,6 +1,6 @@
 # symphony-workflow — Session Summary
 > **Load this to resume any session without re-explaining context.** Pattern borrowed
-> from `ai-coding-nexjs-template`'s `docs/context/session-summary.md` (a real, proven
+> from `example-nextjs-app`'s `docs/context/session-summary.md` (a real, proven
 > sibling-repo convention) — adapted here since Jira (the `ADLC` board) is this repo's
 > SSOT for epic/story *status*, not a local markdown file; this doc carries the
 > narrative — what happened, what's next, what to remember — that a ticket list alone
@@ -130,16 +130,16 @@ demo-creation scripts).
 workflow — flagged honestly: this session has no screen-recording capability, so a video wasn't
 produced; a full written walkthrough is the planned substitute once `ADLC-89`/`116` ship.
 
-**Memory note**: `content-asset-system`'s own `memory/reference_symphony_workflow_repo.md` +
+**Memory note**: another repo's own `memory/reference_symphony_workflow_repo.md` +
 `MEMORY.md` index were refreshed to reflect all of the above — that's the compressed pointer for
-CAS-side sessions; this file remains the live SoT for a session starting in this repo directly.
+sessions in other repos; this file remains the live SoT for a session starting in this repo directly.
 
 ---
 
 ## Session close-out — 2026-09-26 (`ADLC-57`: Linear tracker backend shipped, v0.4.0 tagged; `ADLC-58`: cloud deployment architecture recorded, paused)
 
 **`ADLC-57` — Linear as an alternative tracker backend, shipped.** Alex asked (after a research
-detour into `content-asset-system`'s own separate `gaia linear` integration — confirmed healthy,
+detour into another internal tool's separate Linear integration — confirmed healthy,
 but explicitly not what got extended) to give this repo its own, independent Linear client so the
 Plan/Implement run-loop can drive Linear tickets as well as Jira ones. Built in one pass: a new
 `tracker.py` (`TrackerClient` Protocol, `TrackerError`, `get_tracker_client()` reading
@@ -151,7 +151,7 @@ Scope was deliberately bounded to the run-loop's real surface (`get_issue`/`add_
 (Linear has no Epic type, no JQL, a different field model — see `docs/plans/0005-linear-tracker-
 backend/intent.md`'s non-goals). Two honest breaking renames shipped alongside: `plan.md`'s
 `jira_url:` frontmatter → `tracker_url:`, `/health`'s `jira_reachable` → `tracker_reachable`.
-Confirmed live (read-only) against the real `Gaia`/`GAI` Linear team, not just mocked tests — the
+Confirmed live (read-only) against a real Linear team, not just mocked tests — the
 GraphQL response shapes matched `models.py`'s parsing on the first real call. 214 tests (20 new),
 `ruff` clean. `v0.4.0` tagged. PR #14, squash-merged.
 
@@ -246,8 +246,8 @@ local md↔Jira linking (`ADLC-36`) → GitHub-for-Jira app connected (`ADLC-30`
 policy designed → a real live bug found and fixed (poller's `_seen` permanently stranding a
 failed auto-Plan, `ADLC-44`'s own fix — bounded retry + failure-visible comments) →
 `ADLC-44`'s Story (CLI control plane, decompose, sync-decomposition, docs — `ADLC-45`–`48`) →
-richer-polling triage (`ADLC-29`) → wrap-up docs/memory pass (`ADLC-51`) → `ADLC-40`'s `NXJS`
-project created via API → real portability validation against `ai-coding-nexjs-template`
+richer-polling triage (`ADLC-29`) → wrap-up docs/memory pass (`ADLC-51`) → `ADLC-40`'s `EXMP`
+project created via API → real portability validation against `example-nextjs-app`
 (`ADLC-41`/`42`) which found a genuine security bug in that repo AND two real bugs in
 jira-agent-cli itself (`ADLC-55`/`56`, both fixed) → version cut, `v0.2.0` tagged.
 
@@ -268,11 +268,11 @@ individually, none auto-merged blind.
   autonomously (a real, hard-to-reverse, shared-system change — GitHub repo rename, this
   session's own local checkout path, a full internal-reference sweep). Needs your explicit
   go-ahead and a dedicated planning pass before any execution.
-- **`ADLC-54`** — port the Claude Code plugin to `ai-rc-engineer-pm`. Prep confirmed safe (no
+- **`ADLC-54`** — port the Claude Code plugin to a consumer repo. Prep confirmed safe (no
   skill-name collision), but the actual install-and-verify (`/plugin marketplace add`,
   `/plugin install`) needs a real interactive Claude Code session — no tool/subagent can drive
   Claude Code's own built-in slash commands. Run it yourself (or ask a fresh interactive
-  session cd'd into `ai-rc-engineer-pm`) when ready.
+  session cd'd into a consumer repo) when ready.
 
 **Findings worth remembering from this half of the session:**
 - **Jira project creation works fine via `POST /rest/api/3/project`** — no UI needed, an
@@ -290,7 +290,7 @@ individually, none auto-merged blind.
   repos** — confirmed failing deterministically against a 90-phase mature codebase, succeeding
   at `max_turns=15`. Now overridable (`ADLC-55`) without changing the shared default.
 - **A ticket-tracking repo's own handover doc can go stale just like this one can** —
-  `ai-coding-nexjs-template`'s `epic-progress.md` "Next Action" section flagged two issues
+  `example-nextjs-app`'s `epic-progress.md` "Next Action" section flagged two issues
   (`make hook-test` failures, migration drift) that were both already fixed by the time this
   session checked live. Always verify a stale-doc-sourced lead before ticketing it as current.
 
@@ -372,8 +372,8 @@ for Epic 2's first wave, since that's taking a while; check `gh pr list` for its
 **Pick up here next**: `ADLC-51` (quickstart doc + auto-memory refresh + CLAUDE.md consolidation
 pass) was created for after this burst of work settles — now's close to the right time, once
 `ADLC-29` lands too. Still waiting on the user for `ADLC-40` (dedicated Jira project for
-`ai-coding-nexjs-template`) and confirmation before starting the
-`ai-rc-engineer-pm` integration (no ticket exists for it yet).
+`example-nextjs-app`) and confirmation before starting the
+a consumer repo integration (no ticket exists for it yet).
 
 ---
 
@@ -394,15 +394,15 @@ alignment") is open, first wave scoped:
 | `ADLC-31` | Symphony alignment matrix in `docs/plans/0001-symphony-poc/spec.md` | Done |
 | `ADLC-32` | Interface API — `GET /api/v1/state`, `GET /api/v1/issues/{key}` | **Done** — live-verified |
 | `ADLC-36` | Local md ↔ Jira ticket linking (remotelink + frontmatter) | **Done** — real links created on `ADLC-17`/`ADLC-24` |
-| `ADLC-39` | Portability validation against a real second repo (`ai-coding-nexjs-template`) | To Do — **pick up here next session** |
+| `ADLC-39` | Portability validation against a real second repo (`example-nextjs-app`) | To Do — **pick up here next session** |
 | `ADLC-43` | `docs/plans/<NNNN>-<slug>/` convention (this session's own overwritten-plan problem) | To Do — designed, not built |
 | `ADLC-28`/`ADLC-29` | Backlog, unsized: structured plan output, richer (Claude-Code-turn) polling | Tracked, not scoped |
 
 **Pick up here next session**: `ADLC-39` (portability validation) — its own
 subtasks (`ADLC-40`/`41`/`42`) are the concrete steps: create a dedicated Jira
-project for `ai-coding-nexjs-template`'s agent-driven work (same reasoning as
+project for `example-nextjs-app`'s agent-driven work (same reasoning as
 `ADLC` vs `CF1`), point a jira-agent-cli instance's env at it
-(`JIRA_AGENT_CLI_TARGET_REPO=~/Documents/git_saas/ai-coding-nexjs-template`,
+(`JIRA_AGENT_CLI_TARGET_REPO=~/Documents/git_saas/example-nextjs-app`,
 `JIRA_AGENT_CLI_JIRA_PROJECT=<that project's key>` — see `docs/PORTABILITY.md`
 for the full adoption steps), run one real Plan against one real ticket there,
 and judge whether the plan actually reads *that* repo's `CLAUDE.md`/conventions

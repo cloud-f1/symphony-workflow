@@ -168,9 +168,9 @@ def test_call_tool_dispatches_rollup_issue_dry_run(monkeypatch) -> None:
         return RollupResult(key=key, dry_run=dry_run)
 
     monkeypatch.setattr(tools_module, "rollup", fake_rollup)
-    result = call_tool(MagicMock(), "rollup_issue", {"key": "SALON-44", "dry_run": True})
-    assert seen == {"key": "SALON-44", "dry_run": True}
-    assert result == {"key": "SALON-44", "dry_run": True, "transitions": [], "stopped_at": None}
+    result = call_tool(MagicMock(), "rollup_issue", {"key": "TEST-44", "dry_run": True})
+    assert seen == {"key": "TEST-44", "dry_run": True}
+    assert result == {"key": "TEST-44", "dry_run": True, "transitions": [], "stopped_at": None}
 
 
 def test_rollup_issue_tool_maps_not_found_and_abort_to_jira_error(monkeypatch) -> None:
