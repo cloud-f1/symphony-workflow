@@ -61,7 +61,7 @@ class FakeJira:
         self.updated: list[tuple] = []
         self.transitions: list[tuple] = []
         self.fail_on_create: int | None = None
-        self._n = 100
+        self._n = 1000
 
     def add(self, parent: str, key: str, summary: str, description: str | None) -> None:
         self.children.setdefault(parent, []).append(
@@ -70,6 +70,13 @@ class FakeJira:
 
     def list_children(self, parent_key: str) -> list[HierarchyIssue]:
         return list(self.children.get(parent_key, []))
+
+    def get_hierarchy_issue(self, key: str) -> HierarchyIssue:
+        for kids in self.children.values():
+            for kid in kids:
+                if kid.key == key:
+                    return kid
+        raise JiraError(404, key)
 
     def create_issue(self, project, summary, description, issue_type, parent=None):
         if self.fail_on_create is not None and len(self.created) >= self.fail_on_create:

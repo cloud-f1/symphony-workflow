@@ -10,6 +10,7 @@ import respx
 
 from symphony_workflow.client import JiraClient, JiraError
 from symphony_workflow.config import JiraConfig
+from symphony_workflow.models import HierarchyIssue
 
 from .conftest import BASE_URL
 
@@ -245,31 +246,32 @@ def test_update_issue_can_reparent(config: JiraConfig) -> None:
 
 
 @respx.mock
-def test_list_children_requests_and_parses_description_and_parent(config: JiraConfig) -> None:
-    route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+def test_get_hierarchy_issue_reads_wiki_description(config: JiraConfig) -> None:
+    route = respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-2").mock(
         return_value=httpx.Response(
             200,
             json={
-                "isLast": True,
-                "issues": [
-                    {
-                        "key": "ADLC-2",
-                        "fields": {
-                            "summary": "S",
-                            "description": "text\n\nsd-id: s1",
-                            "parent": {"key": "ADLC-1"},
-                        },
-                    }
-                ],
+                "key": "ADLC-2",
+                "fields": {
+                    "summary": "S",
+                    "description": "text\n\nsd-id: s1",
+                    "parent": {"key": "ADLC-1"},
+                },
             },
         )
     )
     with JiraClient(config) as client:
-        (child,) = client.list_children("ADLC-1")
-    sent = json.loads(route.calls.last.request.content)
-    assert {"parent", "description"} <= set(sent["fields"])
-    assert child.description == "text\n\nsd-id: s1"
-    assert child.parent_key == "ADLC-1"
+        issue = client.get_hierarchy_issue("ADLC-2")
+    assert "description" in route.calls.last.request.url.params["fields"]
+    assert issue.description == "text\n\nsd-id: s1"
+    assert issue.parent_key == "ADLC-1"
+
+
+def test_hierarchy_issue_ignores_adf_description() -> None:
+    issue = HierarchyIssue.from_api(
+        {"key": "ADLC-2", "fields": {"summary": "S", "description": {"type": "doc"}}}
+    )
+    assert issue.description is None
 
 
 @respx.mock
@@ -410,7 +412,7 @@ def test_get_hierarchy_issue_parses_type_status_category_and_parent(config: Jira
     with JiraClient(config) as client:
         issue = client.get_hierarchy_issue("TEST-44")
     fields = route.calls.last.request.url.params["fields"]
-    assert fields == "summary,status,issuetype,parent,assignee,subtasks"
+    assert fields == "summary,status,issuetype,parent,assignee,subtasks,description"
     assert issue.key == "TEST-44"
     assert issue.is_done is True
     assert issue.issue_type == "Subtask"

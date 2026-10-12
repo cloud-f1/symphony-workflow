@@ -59,6 +59,19 @@ v2's classic `/rest/api/2/search` is now HTTP 410 (retired), so `search_issues` 
 tests still only exercise mocked HTTP (`respx`); re-verify against a different Jira instance
 before trusting either endpoint there.
 
+## Keeping Jira in step with a spec: `diff-decomposition` and `sync-decomposition --update`
+
+`sync-decomposition` creates cards once. When the spec (`docs/runs/<epic>/decomposition.json`) changes later:
+
+```bash
+symphony-workflow diff-decomposition ADLC-12 [--adopt] [--json]   # read-only; exit 0 in sync, 1 drift, 2 bad input, 3 Jira error
+symphony-workflow sync-decomposition ADLC-12 --update --dry-run   # create missing + update changed; never deletes; idempotent
+```
+
+Cards are matched to entries by a stable `id` (written to the JSON) and a trailing `sd-id: <id>` line in the
+Jira description, so a rename updates the card instead of duplicating it. `--adopt` matches older cards by exact
+summary and asks before writing. Status, comments and links are not drift. Jira-only. See `docs/JIRA_HIERARCHY.md`.
+
 ## Keeping the hierarchy honest: `audit` and `add-subtasks`
 
 The Epic -> Story -> Subtask rules are in [docs/JIRA_HIERARCHY.md](docs/JIRA_HIERARCHY.md). Two commands

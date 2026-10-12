@@ -105,7 +105,7 @@ class JiraClient:
         """
         response = self._client.get(
             f"/rest/api/2/issue/{key}",
-            params={"fields": "summary,status,issuetype,parent,assignee,subtasks"},
+            params={"fields": "summary,status,issuetype,parent,assignee,subtasks,description"},
         )
         self._raise_for_status(response)
         return HierarchyIssue.from_api(response.json())
@@ -148,7 +148,7 @@ class JiraClient:
             body: dict[str, Any] = {
                 "jql": f"parent = {parent_key} ORDER BY key ASC",
                 "maxResults": page_size,
-                "fields": ["summary", "status", "issuetype", "parent", "description"],
+                "fields": ["summary", "status", "issuetype", "parent"],
             }
             if token:
                 body["nextPageToken"] = token

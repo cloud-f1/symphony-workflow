@@ -110,6 +110,15 @@ forward-looking planning), pass `--status <name>` (`ADLC-121`) — otherwise the
 Stories sit in Jira's default "To Do" and the poller races your own status fix-up with a real
 auto-Plan run (confirmed live, twice: `ADLC-64`, `ADLC-89`).
 
+**Content drift** (`ADLC-146`): `sync-decomposition` creates once; afterwards `symphony-workflow
+diff-decomposition <epic> [--adopt] [--json]` (read-only; exit 0 in sync, 1 drift, 2 bad input, 3 Jira
+error) compares `docs/runs/<epic>/decomposition.json` with the live Epic -> Story -> Subtask tree
+(missing / summary-changed / description-changed / orphan; status, comments and links are not drift).
+`sync-decomposition <epic> --update [--dry-run] [--adopt] [--yes] [--status NAME]` applies the safe part:
+create missing, update changed, never delete, idempotent, stops at the first Jira error. Cards are tied to
+spec entries by a stable `id` in the JSON and a trailing `sd-id: <id>` line in the Jira description; plain
+`sync-decomposition` now refuses an Epic that already has children. Jira-only.
+
 ## Branch naming — required, not optional
 
 Every workspace's branch is `{ISSUE-KEY}-{slug-of-summary}` (built by

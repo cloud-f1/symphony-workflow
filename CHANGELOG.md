@@ -5,6 +5,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## Unreleased
+
+**`symphony-workflow diff-decomposition <epic> [--adopt] [--json]`** and **`sync-decomposition <epic> --update
+[--dry-run] [--adopt] [--yes]`** (ADLC-146): read-only content-drift detection between `decomposition.json` and the
+live Epic/Stories/Subtasks, and an idempotent apply step (create missing, update changed, never delete).
+`Story`/`Task` gain an optional stable `id` (old files still load; ids are written back on first sync); descriptions
+carry a trailing `sd-id:` marker. `update_issue` gains `parent` (re-parent). Behaviour change: plain
+`sync-decomposition` now refuses an Epic that already has children (use `--update`). Found live: v3 search returns
+descriptions as ADF, so descriptions are read through the v2 issue endpoint. Plan: `docs/plans/0007-jira-diff-sync/`.
+
 ## 0.5.3 — 2026-10-12
 
 Public-repo audit, second pass: consumer repo names, their Jira project keys, other internal tools and local

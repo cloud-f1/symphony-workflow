@@ -92,6 +92,14 @@ class DiffReport:
         }
 
 
+def _children(client: JiraClient, parent_key: str) -> list[HierarchyIssue]:
+    """Children with their descriptions. The v3 search used by `list_children` returns
+    descriptions as Atlassian Document Format (found live, ADLC-146), not the wiki text we
+    wrote through v2, so each child is re-read through the v2 issue endpoint.
+    """
+    return [client.get_hierarchy_issue(c.key) for c in client.list_children(parent_key)]
+
+
 def _match(
     entries: list[tuple[str, str]], children: list[HierarchyIssue], adopt: bool
 ) -> tuple[dict[str, HierarchyIssue], list[HierarchyIssue]]:
@@ -172,7 +180,7 @@ def diff_decomposition(
     """
     assign_ids(decomposition)
     report = DiffReport(epic_key)
-    story_children = client.list_children(epic_key)
+    story_children = _children(client, epic_key)
     matched, orphans = _match(
         [(s.id or "", s.title) for s in decomposition.stories], story_children, adopt
     )
@@ -217,7 +225,7 @@ def diff_decomposition(
 def _diff_tasks(story: Story, story_key: str, client: JiraClient, adopt: bool) -> list[DiffItem]:
     items: list[DiffItem] = []
     sid = story.id or ""
-    children = client.list_children(story_key)
+    children = _children(client, story_key)
     matched, orphans = _match([(t.id or "", t.title) for t in story.tasks], children, adopt)
     for task in story.tasks:
         tid = task.id or ""
