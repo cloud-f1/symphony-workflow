@@ -48,6 +48,7 @@ that refusal is a breaking change and document it).
 ### 4. Optional extras (separate Stories, only if cheap)
 - Tool-registry entries (`diff_decomposition`) so non-CLI callers can use it.
 - `--expect-status` per Story in the decomposition for consumers that want status drift flagged.
+- Re-parenting support: `update_issue` cannot move a Subtask to another Story (a consumer had to call the REST `fields.parent` update directly after splitting an oversized Story; it works on team-managed projects, and a JQL child list lags by a few seconds afterwards — read `parent` back from the issue itself). Needed if the diff should be able to *fix* `parent-differs`.
 - Transition the Epic to In Progress when its first child starts (today nothing does) — decide whether this belongs in `rollup` (downward) or stays a consumer concern.
 
 ### 5. Consumer adapter contract (documented here, implemented by each consumer)
