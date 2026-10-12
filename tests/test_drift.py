@@ -16,6 +16,7 @@ from symphony_workflow.drift import (
     MISSING,
     OK,
     ORPHAN,
+    PARENT_DIFFERS,
     SUMMARY_CHANGED,
     apply_update,
     diff_decomposition,
@@ -23,7 +24,12 @@ from symphony_workflow.drift import (
     normalize,
 )
 from symphony_workflow.models import HierarchyIssue
-from symphony_workflow.sync_decomposition import render_story_description, render_task_description
+from symphony_workflow.sync_decomposition import (
+    load_state,
+    render_story_description,
+    render_task_description,
+    save_state,
+)
 
 
 def _spec() -> Decomposition:
@@ -295,3 +301,98 @@ def test_update_stops_at_first_jira_error_and_resumes() -> None:
     apply_update("ADLC-1", spec, client=jira)  # resumes: no duplicates
     assert not diff_decomposition("ADLC-1", spec, client=jira).drift
     assert len(jira.created) == 5
+
+
+def _move_first_task_to_story_b(jira: FakeJira) -> None:
+    moved = jira.children["ADLC-10"].pop(0)  # Story A's first Subtask
+    jira.children.setdefault("ADLC-20", []).append(
+        moved.model_copy(update={"parent_key": "ADLC-20"})
+    )
+
+
+def test_moved_subtask_is_parent_differs_not_missing_plus_orphan() -> None:
+    spec = _spec()
+    jira = _synced(spec)
+    _move_first_task_to_story_b(jira)
+    report = diff_decomposition("ADLC-1", spec, client=jira)
+    drift = [i for i in report.items if i.kind != OK]
+    assert [(i.kind, i.id, i.parent_key) for i in drift] == [(PARENT_DIFFERS, "s1.t1", "ADLC-20")]
+    assert drift[0].parent_id == "s1"
+
+
+def test_update_reparents_moved_subtask_and_never_creates_a_duplicate() -> None:
+    spec = _spec()
+    jira = _synced(spec)
+    _move_first_task_to_story_b(jira)
+    calls: list[tuple] = []
+    original = jira.update_issue
+
+    def spy(key, **kw):
+        calls.append((key, kw))
+        if kw.get("parent"):  # a real Jira moves it; mirror that in the fake
+            moved = jira.get_hierarchy_issue(key)
+            for kids in jira.children.values():
+                if moved in kids:
+                    kids.remove(moved)
+            jira.children[kw["parent"]].append(
+                moved.model_copy(update={"parent_key": kw["parent"]})
+            )
+        else:
+            original(key, **kw)
+
+    jira.update_issue = spy  # type: ignore[method-assign]
+    actions = apply_update("ADLC-1", spec, client=jira)
+    assert [(a.action, a.id) for a in actions] == [("reparent", "s1.t1")]
+    assert calls == [("ADLC-100", {"parent": "ADLC-10"})]
+    assert jira.created == []
+    assert not diff_decomposition("ADLC-1", spec, client=jira).drift
+
+
+def test_subtask_under_unmatched_story_is_found_as_stray() -> None:
+    spec = _spec()
+    jira = _synced(spec)
+    jira.children["ADLC-1"].pop(0)  # Story A card removed from the spec's view...
+    jira.add(
+        "ADLC-1", "ADLC-55", "Legacy wrapper", "no marker"
+    )  # ...replaced by an unrelated Story
+    jira.children["ADLC-55"] = [jira.children["ADLC-10"].pop(0)]  # holding Task A1's card
+    report = diff_decomposition("ADLC-1", spec, client=jira)
+    assert any(
+        i.kind == PARENT_DIFFERS and i.id == "s1.t1" and i.parent_key == "ADLC-55"
+        for i in report.items
+    )
+
+
+def test_state_cache_matches_a_card_whose_marker_was_removed(tmp_path) -> None:
+    spec = _spec()
+    jira = _synced(spec)
+    kid = jira.children["ADLC-1"][0]
+    jira.children["ADLC-1"][0] = kid.model_copy(update={"description": "marker edited away"})
+    without = diff_decomposition("ADLC-1", spec, client=jira)
+    assert any(i.kind == MISSING and i.id == "s1" for i in without.items)
+    cached = diff_decomposition("ADLC-1", spec, client=jira, known={"s1": "ADLC-10"})
+    assert not any(i.kind in (MISSING, ORPHAN) and i.id == "s1" for i in cached.items)
+    assert any(i.kind == DESCRIPTION_CHANGED and i.key == "ADLC-10" for i in cached.items)
+
+
+def test_apply_update_writes_state_file_even_after_partial_failure(tmp_path) -> None:
+    spec = _spec()
+    jira = FakeJira()
+    jira.fail_on_create = 2
+    state = tmp_path / "sync-state.json"
+    with pytest.raises(JiraError):
+        apply_update("ADLC-1", spec, client=jira, state_path=state)
+    ids = load_state(state)
+    assert set(ids) == {"s1", "s2"} and all(v.startswith("ADLC-") for v in ids.values())
+    jira.fail_on_create = None
+    apply_update("ADLC-1", spec, client=jira, state_path=state, known=ids)
+    assert set(load_state(state)) == {"s1", "s1.t1", "s1.t2", "s2", "s2.t1"}
+
+
+def test_state_file_roundtrip_and_bad_file(tmp_path) -> None:
+    path = tmp_path / "sync-state.json"
+    assert load_state(path) == {}  # missing
+    save_state(path, "ADLC-1", {"s2": "ADLC-2", "s1": "ADLC-1"})
+    assert load_state(path) == {"s1": "ADLC-1", "s2": "ADLC-2"}
+    path.write_text("not json")
+    assert load_state(path) == {}

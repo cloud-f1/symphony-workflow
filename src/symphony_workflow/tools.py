@@ -15,8 +15,14 @@ from typing import Any
 from pydantic import BaseModel
 
 from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.drift import diff_decomposition
 from symphony_workflow.hierarchy import AddSubtasksAborted, PlanError, add_subtasks, audit
 from symphony_workflow.rollup import RollupAborted, RollupNotFound, rollup
+from symphony_workflow.sync_decomposition import (
+    SyncDecompositionError,
+    load_decomposition,
+    load_state,
+)
 
 
 class GetIssueArgs(BaseModel):
@@ -67,6 +73,11 @@ class AuditHierarchyArgs(BaseModel):
     project: str
     open_only: bool = False
     assignee: str | None = None
+
+
+class DiffDecompositionArgs(BaseModel):
+    epic_key: str
+    adopt: bool = False
 
 
 class AddSubtasksArgs(BaseModel):
@@ -142,8 +153,21 @@ def _transition_issue(client: JiraClient, args: TransitionIssueArgs) -> dict[str
 
 
 def _audit_hierarchy(client: JiraClient, args: AuditHierarchyArgs) -> dict[str, Any]:
-    return audit(
-        client, args.project, open_only=args.open_only, assignee=args.assignee
+    return audit(client, args.project, open_only=args.open_only, assignee=args.assignee).as_dict()
+
+
+def _diff_decomposition(client: JiraClient, args: DiffDecompositionArgs) -> dict[str, Any]:
+    from symphony_workflow.orchestrator import (
+        RUNS_DOCS_ROOT,
+    )  # lazy: orchestrator imports tools' peers
+
+    try:
+        decomposition = load_decomposition(args.epic_key, RUNS_DOCS_ROOT)
+    except SyncDecompositionError as exc:
+        raise JiraError(400, str(exc)) from exc
+    known = load_state(RUNS_DOCS_ROOT / args.epic_key / "sync-state.json")
+    return diff_decomposition(
+        args.epic_key, decomposition, client=client, adopt=args.adopt, known=known
     ).as_dict()
 
 
@@ -215,6 +239,15 @@ TOOLS: dict[str, Tool] = {
             "idempotent; dry_run=true reports what would change without transitioning.",
             RollupIssueArgs,
             _rollup_issue,
+        ),
+        Tool(
+            "diff_decomposition",
+            "Read-only: compare docs/runs/<epic_key>/decomposition.json with the live Epic -> "
+            "Story -> Subtask tree and report drift (missing, summary-changed, "
+            "description-changed, parent-differs, orphan). Status/comments/links are not drift. "
+            "`adopt` matches cards without an id marker by exact summary.",
+            DiffDecompositionArgs,
+            _diff_decomposition,
         ),
         Tool(
             "audit_hierarchy",

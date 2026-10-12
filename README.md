@@ -70,7 +70,8 @@ symphony-workflow sync-decomposition ADLC-12 --update --dry-run   # create missi
 
 Cards are matched to entries by a stable `id` (written to the JSON) and a trailing `sd-id: <id>` line in the
 Jira description, so a rename updates the card instead of duplicating it. `--adopt` matches older cards by exact
-summary and asks before writing. Status, comments and links are not drift. Jira-only. See `docs/JIRA_HIERARCHY.md`.
+summary and asks before writing; a Subtask moved to another Story shows as `parent-differs` and `--update` moves it back.
+Status, comments and links are not drift. Jira-only. See `docs/JIRA_HIERARCHY.md`.
 
 ## Keeping the hierarchy honest: `audit` and `add-subtasks`
 

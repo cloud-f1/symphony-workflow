@@ -96,16 +96,19 @@ was already created is printed (and a re-run skips that Story, so finish it by h
 
 * Spec = `docs/runs/<epic>/decomposition.json`. Each Story/Task gets a stable `id` (`s1`, `s1.t2`) the first time
   it is synced; the id is written back to the JSON and appended to the Jira description as `sd-id: <id>`.
-* `diff-decomposition <epic>` reports `missing`, `summary-changed`, `description-changed`, and `orphan` (in Jira,
-  not in the spec -- reported, never deleted). Status, comments, remote links and hand-written extras are not
+* `diff-decomposition <epic>` reports `missing`, `summary-changed`, `description-changed`, `parent-differs` (a Subtask
+  sits under another Story than the spec says, e.g. after splitting an oversized Story by hand), and `orphan` (in
+  Jira, not in the spec -- reported, never deleted). Status, comments, remote links and hand-written extras are not
   drift. Descriptions are compared after normalising line endings, trailing whitespace and blank runs.
-* `sync-decomposition <epic> --update` creates what is missing and updates what changed. It never deletes and never
-  moves a card to another parent; re-running changes nothing.
+* `sync-decomposition <epic> --update` creates what is missing and updates what changed. It re-parents a `parent-differs` Subtask,
+  never deletes, and re-running changes nothing. `docs/runs/<epic>/sync-state.json` (id -> key) is a cache that still
+  matches a card whose `sd-id:` line was edited away; the marker in Jira is the primary link.
 * A card that predates ids is matched with `--adopt` (exact summary); the proposal is printed first.
 * Consumer contract: a repo whose specs are not `decomposition.json` converts its own format into that file
   (Story = work item with `user_story` and `acceptance_criteria`; Task = a task bullet) and **persists** it, so a
   later session can re-run the diff. Two Jira Stories for one source file means two `stories` entries. Use the
   diff exit code (`0`/`1`) as a drift gate in a checklist or CI.
-* Moving a Subtask to another Story: `update_issue` accepts `parent`. Read the new parent back from the issue,
-  not from a child JQL list, which lags a few seconds.
+* Moving a Subtask to another Story by hand: `update_issue` accepts `parent` (also the `diff_decomposition`
+  tool exists for non-CLI callers). Read the new parent back from the issue, not from a child JQL list, which
+  lags a few seconds.
 

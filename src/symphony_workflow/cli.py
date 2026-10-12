@@ -62,6 +62,7 @@ from symphony_workflow.sync_decomposition import (
     SyncDecompositionError,
     execute_sync_decomposition,
     load_decomposition,
+    load_state,
     save_decomposition,
 )
 from symphony_workflow.tools import TOOLS, call_tool
@@ -609,7 +610,13 @@ def diff_decomposition_cmd(
         raise typer.Exit(code=2) from exc
     with _jira_client() as client:
         try:
-            report = diff_decomposition(key, decomposition, client=client, adopt=adopt)
+            report = diff_decomposition(
+                key,
+                decomposition,
+                client=client,
+                adopt=adopt,
+                known=load_state(RUNS_DOCS_ROOT / key / "sync-state.json"),
+            )
         except JiraError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=3) from exc
@@ -636,6 +643,7 @@ def _sync_update(
                 _print_diff(preview)
                 if not dry_run and not typer.confirm("Write ids and apply?"):
                     raise typer.Exit(code=1)
+            state_path = RUNS_DOCS_ROOT / key / "sync-state.json"
             ids_added = assign_ids(decomposition)
             if ids_added and not dry_run:
                 save_decomposition(key, decomposition, RUNS_DOCS_ROOT)
@@ -647,6 +655,8 @@ def _sync_update(
                 initial_status=status,
                 adopt=adopt,
                 dry_run=dry_run,
+                known=load_state(state_path),
+                state_path=state_path,
             )
         except JiraError as exc:
             typer.echo(f"Jira error: {exc}", err=True)
@@ -659,7 +669,9 @@ def _sync_update(
     if not actions:
         typer.echo(f"{key}: nothing to do -- Jira already matches the decomposition.")
     for action in actions:
-        what = f"update {','.join(action.fields)}" if action.action == "update" else "create"
+        what = (
+            "create" if action.action == "create" else f"{action.action} {','.join(action.fields)}"
+        )
         typer.echo(f"  {label}: {what} {action.level} {action.key or ''} {action.summary}".rstrip())
 
 

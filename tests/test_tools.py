@@ -24,6 +24,7 @@ def test_tools_registry_has_expected_names() -> None:
         "rollup_issue",
         "audit_hierarchy",
         "add_subtasks",
+        "diff_decomposition",
     }
 
 
@@ -197,3 +198,32 @@ def test_rollup_issue_tool_maps_not_found_and_abort_to_jira_error(monkeypatch) -
         call_tool(MagicMock(), "rollup_issue", {"key": "SUB-1"})
     assert ab.value.status_code == 500
     assert "SUB-1 -> Done" in str(ab.value)
+
+
+def test_call_tool_diff_decomposition_reads_spec_and_reports_drift(monkeypatch, tmp_path) -> None:
+    import symphony_workflow.orchestrator as orchestrator_module
+    from symphony_workflow.decompose import Decomposition, Story
+
+    monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path)
+    (tmp_path / "ADLC-1").mkdir()
+    spec = Decomposition(
+        epic_key="ADLC-1",
+        stories=[Story(title="A", user_story="u", acceptance_criteria=[], tasks=[])],
+        definition_of_done=[],
+    )
+    (tmp_path / "ADLC-1" / "decomposition.json").write_text(spec.model_dump_json())
+    client = MagicMock()
+    client.list_children.return_value = []
+
+    result = call_tool(client, "diff_decomposition", {"epic_key": "ADLC-1"})
+
+    assert result["drift"] is True and result["counts"] == {"missing": 1}
+
+
+def test_call_tool_diff_decomposition_without_spec_is_a_clean_error(monkeypatch, tmp_path) -> None:
+    import symphony_workflow.orchestrator as orchestrator_module
+    from symphony_workflow.client import JiraError
+
+    monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path)
+    with pytest.raises(JiraError, match="No decomposition found"):
+        call_tool(MagicMock(), "diff_decomposition", {"epic_key": "ADLC-9"})

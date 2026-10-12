@@ -43,6 +43,7 @@ operation is introduced here.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
@@ -59,12 +60,14 @@ class SyncDecompositionError(RuntimeError):
 
 
 class SyncedTask(BaseModel):
+    id: str | None = None
     title: str
     key: str
     url: str
 
 
 class SyncedStory(BaseModel):
+    id: str | None = None
     title: str
     key: str
     url: str
@@ -145,6 +148,24 @@ def load_decomposition(epic_key: str, runs_docs_root: Path) -> Decomposition:
     return decomposition
 
 
+def load_state(path: Path) -> dict[str, str]:
+    """`sync-state.json` (id -> Jira key). A cache that survives a lost `sd-id:` marker; the
+    marker in Jira stays the primary link. Missing/unreadable file -> empty (never an error).
+    """
+    try:
+        ids = json.loads(path.read_text(encoding="utf-8")).get("ids", {})
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return {}
+    return {str(k): str(v) for k, v in ids.items()} if isinstance(ids, dict) else {}
+
+
+def save_state(path: Path, epic_key: str, ids: dict[str, str]) -> None:
+    path.write_text(
+        json.dumps({"epic_key": epic_key, "ids": dict(sorted(ids.items()))}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def save_decomposition(epic_key: str, decomposition: Decomposition, runs_docs_root: Path) -> Path:
     path = runs_docs_root / epic_key / "decomposition.json"
     path.write_text(decomposition.model_dump_json(indent=2) + "\n", encoding="utf-8")
@@ -222,10 +243,11 @@ def execute_sync_decomposition(
             if initial_status:
                 client.transition_issue(task_result.key, initial_status)
             synced_tasks.append(
-                SyncedTask(title=task.title, key=task_result.key, url=task_result.url)
+                SyncedTask(id=task.id, title=task.title, key=task_result.key, url=task_result.url)
             )
         synced_stories.append(
             SyncedStory(
+                id=story.id,
                 title=story.title,
                 key=story_result.key,
                 url=story_result.url,
@@ -233,4 +255,7 @@ def execute_sync_decomposition(
             )
         )
 
+    ids = {s.id: s.key for s in synced_stories if s.id}
+    ids.update({t.id: t.key for s in synced_stories for t in s.tasks if t.id})
+    save_state(runs_docs_root / epic_key / "sync-state.json", epic_key, ids)
     return SyncResult(epic_key=epic_key, project_key=resolved_project_key, stories=synced_stories)
