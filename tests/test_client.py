@@ -236,6 +236,43 @@ def test_update_issue_sends_only_given_fields(config: JiraConfig) -> None:
 
 
 @respx.mock
+def test_update_issue_can_reparent(config: JiraConfig) -> None:
+    route = respx.put(f"{BASE_URL}/rest/api/2/issue/ADLC-5").mock(return_value=httpx.Response(204))
+    with JiraClient(config) as client:
+        client.update_issue("ADLC-5", parent="ADLC-2")
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"fields": {"parent": {"key": "ADLC-2"}}}
+
+
+@respx.mock
+def test_list_children_requests_and_parses_description_and_parent(config: JiraConfig) -> None:
+    route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "isLast": True,
+                "issues": [
+                    {
+                        "key": "ADLC-2",
+                        "fields": {
+                            "summary": "S",
+                            "description": "text\n\nsd-id: s1",
+                            "parent": {"key": "ADLC-1"},
+                        },
+                    }
+                ],
+            },
+        )
+    )
+    with JiraClient(config) as client:
+        (child,) = client.list_children("ADLC-1")
+    sent = json.loads(route.calls.last.request.content)
+    assert {"parent", "description"} <= set(sent["fields"])
+    assert child.description == "text\n\nsd-id: s1"
+    assert child.parent_key == "ADLC-1"
+
+
+@respx.mock
 def test_add_comment_posts_plain_body(config: JiraConfig) -> None:
     route = respx.post(f"{BASE_URL}/rest/api/2/issue/CF1-1/comment").mock(
         return_value=httpx.Response(201, json={})
@@ -301,45 +338,52 @@ def test_transition_issue_raises_when_transition_missing(config: JiraConfig) -> 
 
 @respx.mock
 def test_search_ready_tickets_defaults_to_excluding_epic_and_subtask(
-        config: JiraConfig, monkeypatch: pytest.MonkeyPatch) -> None:
+    config: JiraConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Unset `READY_ISSUETYPES_ENV` must keep today's exact JQL — this is
     ADLC's (and every other unmigrated consumer's) behavior, and it must not
     change just because a different repo now sets the env var."""
     monkeypatch.delenv("SYMPHONY_WORKFLOW_READY_ISSUETYPES", raising=False)
     route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
-        return_value=httpx.Response(200, json={"total": 0, "issues": []}))
+        return_value=httpx.Response(200, json={"total": 0, "issues": []})
+    )
     with JiraClient(config) as client:
         client.search_ready_tickets()
     sent = json.loads(route.calls.last.request.content)
     assert sent["jql"] == (
         'project = ADLC AND status = "To Do" '
-        "AND issuetype not in (Epic, Subtask) ORDER BY created ASC")
+        "AND issuetype not in (Epic, Subtask) ORDER BY created ASC"
+    )
 
 
 @respx.mock
 def test_search_ready_tickets_honors_an_issuetype_allowlist(
-        config: JiraConfig, monkeypatch: pytest.MonkeyPatch) -> None:
+    config: JiraConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A repo whose real work items are Subtasks (an external repo's
     Phase->Epic->Story->Subtask mirror into Jira) needs an inclusion list,
     not a shorter exclusion list — the default query finds zero tickets for
     a repo shaped this way no matter how much backlog exists."""
     monkeypatch.setenv("SYMPHONY_WORKFLOW_READY_ISSUETYPES", "Subtask")
     route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
-        return_value=httpx.Response(200, json={"total": 0, "issues": []}))
+        return_value=httpx.Response(200, json={"total": 0, "issues": []})
+    )
     with JiraClient(config) as client:
         client.search_ready_tickets()
     sent = json.loads(route.calls.last.request.content)
     assert sent["jql"] == (
-        'project = ADLC AND status = "To Do" '
-        'AND issuetype in ("Subtask") ORDER BY created ASC')
+        'project = ADLC AND status = "To Do" AND issuetype in ("Subtask") ORDER BY created ASC'
+    )
 
 
 @respx.mock
 def test_search_ready_tickets_allowlist_supports_multiple_types(
-        config: JiraConfig, monkeypatch: pytest.MonkeyPatch) -> None:
+    config: JiraConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("SYMPHONY_WORKFLOW_READY_ISSUETYPES", "Subtask, Task")
     route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
-        return_value=httpx.Response(200, json={"total": 0, "issues": []}))
+        return_value=httpx.Response(200, json={"total": 0, "issues": []})
+    )
     with JiraClient(config) as client:
         client.search_ready_tickets()
     sent = json.loads(route.calls.last.request.content)

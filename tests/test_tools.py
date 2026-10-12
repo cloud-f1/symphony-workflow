@@ -110,7 +110,9 @@ def test_call_tool_dispatches_create_issue_with_parent() -> None:
 def test_call_tool_dispatches_update_issue() -> None:
     client = MagicMock()
     result = call_tool(client, "update_issue", {"key": "ADLC-28", "summary": "New title"})
-    client.update_issue.assert_called_once_with("ADLC-28", summary="New title", description=None)
+    client.update_issue.assert_called_once_with(
+        "ADLC-28", summary="New title", description=None, parent=None
+    )
     assert result == {"ok": True, "key": "ADLC-28"}
 
 

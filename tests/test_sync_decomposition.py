@@ -140,7 +140,7 @@ def test_execute_sync_decomposition_creates_stories_and_subtasks_with_parent(
     task_call = json.loads(respx.calls[1].request.content)
     assert task_call["fields"]["issuetype"] == {"name": "Subtask"}
     assert task_call["fields"]["parent"] == {"key": result.stories[0].key}
-    assert task_call["fields"]["description"] == "In models.py"
+    assert task_call["fields"]["description"] == "In models.py\n\nsd-id: s1.t1"
 
 
 @respx.mock

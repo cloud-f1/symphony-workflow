@@ -148,7 +148,7 @@ class JiraClient:
             body: dict[str, Any] = {
                 "jql": f"parent = {parent_key} ORDER BY key ASC",
                 "maxResults": page_size,
-                "fields": ["summary", "status", "issuetype"],
+                "fields": ["summary", "status", "issuetype", "parent", "description"],
             }
             if token:
                 body["nextPageToken"] = token
@@ -262,17 +262,29 @@ class JiraClient:
         )
 
     def update_issue(
-        self, key: str, *, summary: str | None = None, description: str | None = None
+        self,
+        key: str,
+        *,
+        summary: str | None = None,
+        description: str | None = None,
+        parent: str | None = None,
     ) -> None:
         """PUT /issue/{key} with only the fields given — Jira's update endpoint
         only touches fields present in the payload, so omitted ones are left
-        alone. At least one of summary/description must be given.
+        alone. At least one of summary/description/parent must be given.
+
+        `parent` re-parents the issue (e.g. moves a Subtask to another Story after
+        splitting an oversized one; ADLC-146). Confirmed to work on team-managed projects
+        via `fields.parent`. A JQL child list lags by a few seconds afterwards, so verify
+        with `get_hierarchy_issue(key).parent_key`, not `list_children`.
         """
         fields: dict[str, Any] = {}
         if summary is not None:
             fields["summary"] = summary
         if description is not None:
             fields["description"] = description
+        if parent is not None:
+            fields["parent"] = {"key": parent}
         response = self._client.put(f"/rest/api/2/issue/{key}", json={"fields": fields})
         self._raise_for_status(response)
 

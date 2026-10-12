@@ -45,6 +45,7 @@ class UpdateIssueArgs(BaseModel):
     key: str
     summary: str | None = None
     description: str | None = None
+    parent: str | None = None
 
 
 class AddCommentArgs(BaseModel):
@@ -124,7 +125,9 @@ def _create_issue(client: JiraClient, args: CreateIssueArgs) -> dict[str, Any]:
 
 
 def _update_issue(client: JiraClient, args: UpdateIssueArgs) -> dict[str, Any]:
-    client.update_issue(args.key, summary=args.summary, description=args.description)
+    client.update_issue(
+        args.key, summary=args.summary, description=args.description, parent=args.parent
+    )
     return {"ok": True, "key": args.key}
 
 
@@ -193,7 +196,7 @@ TOOLS: dict[str, Tool] = {
         Tool("create_issue", "Create a new Jira issue.", CreateIssueArgs, _create_issue),
         Tool(
             "update_issue",
-            "Update an existing Jira issue's summary and/or description.",
+            "Update an existing Jira issue's summary, description and/or parent (re-parent).",
             UpdateIssueArgs,
             _update_issue,
         ),

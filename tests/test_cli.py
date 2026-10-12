@@ -593,6 +593,9 @@ def test_sync_decomposition_command_creates_story_and_subtask(monkeypatch, tmp_p
     monkeypatch.setenv("JIRA_API_TOKEN", "token")
     monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
     _write_sync_decomposition(tmp_path)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"issues": [], "isLast": True})
+    )
 
     responses = iter(
         [
@@ -608,11 +611,11 @@ def test_sync_decomposition_command_creates_story_and_subtask(monkeypatch, tmp_p
     assert "Synced decomposition for ADLC-27 into project ADLC: 1 stories created" in result.output
     assert "Story ADLC-101: Story A" in result.output
     assert "Subtask ADLC-102: Build A" in result.output
-    assert len(respx.calls) == 2
+    assert len(respx.calls) == 3  # children check + story + subtask
 
-    story_call = json.loads(respx.calls[0].request.content)
+    story_call = json.loads(respx.calls[1].request.content)
     assert story_call["fields"]["parent"] == {"key": "ADLC-27"}
-    task_call = json.loads(respx.calls[1].request.content)
+    task_call = json.loads(respx.calls[2].request.content)
     assert task_call["fields"]["parent"] == {"key": "ADLC-101"}
 
 
@@ -640,6 +643,9 @@ def test_sync_decomposition_command_honors_status_option(monkeypatch, tmp_path: 
     monkeypatch.setenv("JIRA_API_TOKEN", "token")
     monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
     _write_sync_decomposition(tmp_path)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"issues": [], "isLast": True})
+    )
 
     responses = iter(
         [
@@ -668,6 +674,9 @@ def test_sync_decomposition_command_honors_project_option(monkeypatch, tmp_path:
     monkeypatch.setenv("JIRA_API_TOKEN", "token")
     monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
     _write_sync_decomposition(tmp_path)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"issues": [], "isLast": True})
+    )
 
     responses = iter(
         [
@@ -681,7 +690,7 @@ def test_sync_decomposition_command_honors_project_option(monkeypatch, tmp_path:
 
     assert result.exit_code == 0, result.output
     assert "into project OTHER" in result.output
-    story_call = json.loads(respx.calls[0].request.content)
+    story_call = json.loads(respx.calls[1].request.content)
     assert story_call["fields"]["project"] == {"key": "OTHER"}
 
 
@@ -1013,3 +1022,89 @@ def test_implement_command_without_overrides_omits_them(monkeypatch, tmp_path: P
 
     assert "max_turns" not in received
     assert "max_budget_usd" not in received
+
+
+def _jql_children(*issues: dict) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"issues": list(issues), "isLast": True})
+    )
+
+
+def _env(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", BASE_URL)
+    monkeypatch.setenv("JIRA_EMAIL", "bot@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "token")
+    monkeypatch.setattr(cli_module, "RUNS_DOCS_ROOT", tmp_path)
+
+
+@respx.mock
+def test_diff_decomposition_exit_1_on_drift_and_json(monkeypatch, tmp_path: Path) -> None:
+    _env(monkeypatch, tmp_path)
+    _write_sync_decomposition(tmp_path)
+    _jql_children()  # empty Epic: everything missing
+
+    result = runner.invoke(app, ["diff-decomposition", "ADLC-27", "--json"])
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.output)
+    assert payload["drift"] is True and payload["counts"]["missing"] == 2
+
+
+@respx.mock
+def test_diff_decomposition_exit_2_without_file_and_3_on_jira_error(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _env(monkeypatch, tmp_path)
+    assert runner.invoke(app, ["diff-decomposition", "ADLC-27"]).exit_code == 2
+
+    _write_sync_decomposition(tmp_path)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=httpx.Response(500))
+    assert runner.invoke(app, ["diff-decomposition", "ADLC-27"]).exit_code == 3
+
+
+@respx.mock
+def test_sync_decomposition_refuses_epic_with_children(monkeypatch, tmp_path: Path) -> None:
+    _env(monkeypatch, tmp_path)
+    _write_sync_decomposition(tmp_path)
+    _jql_children({"key": "ADLC-9", "fields": {"summary": "x"}})
+
+    result = runner.invoke(app, ["sync-decomposition", "ADLC-27"])
+
+    assert result.exit_code == 1
+    assert "--update" in result.output
+
+
+@respx.mock
+def test_sync_update_dry_run_writes_nothing(monkeypatch, tmp_path: Path) -> None:
+    _env(monkeypatch, tmp_path)
+    _write_sync_decomposition(tmp_path)
+    _jql_children()
+    create = respx.post(f"{BASE_URL}/rest/api/2/issue").mock(return_value=httpx.Response(201))
+
+    result = runner.invoke(app, ["sync-decomposition", "ADLC-27", "--update", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Would: create story" in result.output
+    assert create.call_count == 0
+
+
+@respx.mock
+def test_sync_update_creates_missing_and_persists_ids(monkeypatch, tmp_path: Path) -> None:
+    _env(monkeypatch, tmp_path)
+    _write_sync_decomposition(tmp_path)
+    _jql_children()
+    keys = iter(["ADLC-101", "ADLC-102"])
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        side_effect=lambda request: httpx.Response(201, json={"key": next(keys), "id": "1"})
+    )
+
+    result = runner.invoke(app, ["sync-decomposition", "ADLC-27", "--update"])
+
+    assert result.exit_code == 0, result.output
+    saved = json.loads((tmp_path / "ADLC-27" / "decomposition.json").read_text())
+    assert saved["stories"][0]["id"] == "s1" and saved["stories"][0]["tasks"][0]["id"] == "s1.t1"
+
+
+def test_sync_dry_run_without_update_is_rejected(monkeypatch, tmp_path: Path) -> None:
+    _env(monkeypatch, tmp_path)
+    assert runner.invoke(app, ["sync-decomposition", "ADLC-27", "--dry-run"]).exit_code == 2

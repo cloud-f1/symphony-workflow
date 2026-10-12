@@ -79,6 +79,7 @@ class HierarchyIssue(BaseModel):
     # display name; None when unassigned (or the field was not requested)
     assignee: str | None = None
     subtask_count: int | None = None  # None when the `subtasks` field was not requested
+    description: str | None = None  # None when the `description` field was not requested
 
     @property
     def is_done(self) -> bool:
@@ -106,6 +107,9 @@ class HierarchyIssue(BaseModel):
             subtask_count=(
                 len(fields["subtasks"]) if isinstance(fields.get("subtasks"), list) else None
             ),
+            description=fields["description"]
+            if isinstance(fields.get("description"), str)
+            else None,
         )
 
 

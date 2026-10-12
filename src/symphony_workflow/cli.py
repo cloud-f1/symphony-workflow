@@ -39,7 +39,8 @@ import typer
 from symphony_workflow.agent_runner import AgentRunError
 from symphony_workflow.client import JiraClient, JiraError
 from symphony_workflow.config import ConfigError
-from symphony_workflow.decompose import DecomposeError, execute_decompose
+from symphony_workflow.decompose import DecomposeError, assign_ids, execute_decompose
+from symphony_workflow.drift import DiffReport, apply_update, diff_decomposition
 from symphony_workflow.hierarchy import (
     AddSubtasksAborted,
     AddSubtasksResult,
@@ -57,7 +58,12 @@ from symphony_workflow.orchestrator import (
 )
 from symphony_workflow.rollup import RollupAborted, RollupNotFound, RollupResult, rollup
 from symphony_workflow.runs import Run, RunStore, RunTransitionError
-from symphony_workflow.sync_decomposition import SyncDecompositionError, execute_sync_decomposition
+from symphony_workflow.sync_decomposition import (
+    SyncDecompositionError,
+    execute_sync_decomposition,
+    load_decomposition,
+    save_decomposition,
+)
 from symphony_workflow.tools import TOOLS, call_tool
 from symphony_workflow.tracker import ConfigError as TrackerConfigError
 from symphony_workflow.tracker import TrackerClient, TrackerError, get_tracker_client, require_jira
@@ -395,8 +401,12 @@ def plan(
         try:
             updated = asyncio.run(
                 execute_plan(
-                    run, runs=runs, client=client, workspaces=workspaces,
-                    max_turns=max_turns, max_budget_usd=max_budget_usd,
+                    run,
+                    runs=runs,
+                    client=client,
+                    workspaces=workspaces,
+                    max_turns=max_turns,
+                    max_budget_usd=max_budget_usd,
                 )
             )
         except (TrackerError, WorkspaceError, AgentRunError) as exc:
@@ -444,8 +454,12 @@ def implement(
         try:
             updated = asyncio.run(
                 execute_implement(
-                    run, runs=runs, client=client, workspaces=workspaces,
-                    max_turns=max_turns, max_budget_usd=max_budget_usd,
+                    run,
+                    runs=runs,
+                    client=client,
+                    workspaces=workspaces,
+                    max_turns=max_turns,
+                    max_budget_usd=max_budget_usd,
                 )
             )
         except (TrackerError, RunTransitionError, AgentRunError) as exc:
@@ -503,13 +517,39 @@ def sync_decomposition(
             "real forward-looking decomposition you actually want the poller to pick up."
         ),
     ),
+    update: bool = typer.Option(
+        False,
+        "--update",
+        help=(
+            "Re-sync an Epic that already has children (ADLC-146): create what is missing, "
+            "update summary/description that changed, never delete. Idempotent."
+        ),
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="With --update: print the plan, write nothing."
+    ),
+    adopt: bool = typer.Option(
+        False,
+        "--adopt",
+        help=(
+            "With --update: match cards created before ids existed by exact summary. "
+            "Prints the proposal and asks before writing unless --yes."
+        ),
+    ),
+    yes: bool = typer.Option(False, "--yes", help="With --adopt: don't ask for confirmation."),
 ) -> None:
     """Materialize an already-reviewed docs/runs/<key>/decomposition.json as real
     Jira issues: one Story per decomposed story (parent=<key>) plus one Subtask per
     story's tasks (parent=<story-key>). Does NOT re-run `symphony-workflow decompose` — run
     that first and review decomposition.md. See ADLC-47. Jira-only (ADLC-57's
-    non-goals).
+    non-goals). On an Epic that already has children, plain sync refuses; use --update.
     """
+    if update:
+        _sync_update(key, project, status, dry_run, adopt, yes)
+        return
+    if dry_run or adopt or yes:
+        typer.echo("--dry-run/--adopt/--yes only apply together with --update.", err=True)
+        raise typer.Exit(code=2)
     with _jira_client() as client:
         try:
             result = execute_sync_decomposition(
@@ -518,6 +558,7 @@ def sync_decomposition(
                 runs_docs_root=RUNS_DOCS_ROOT,
                 project_key=project,
                 initial_status=status,
+                refuse_if_children=True,
             )
         except (JiraError, SyncDecompositionError) as exc:
             typer.echo(str(exc), err=True)
@@ -533,6 +574,93 @@ def sync_decomposition(
         for task in story.tasks:
             typer.echo(f"    Subtask {task.key}: {task.title}")
             typer.echo(f"      {task.url}")
+
+
+def _print_diff(report: DiffReport) -> None:
+    counts = ", ".join(f"{n} {kind}" for kind, n in sorted(report.counts().items()))
+    typer.echo(f"{report.epic_key}: {'DRIFT' if report.drift else 'in sync'} ({counts or 'empty'})")
+    for item in report.items:
+        if item.kind == "ok":
+            continue
+        where = item.key or "(not in Jira)"
+        extra = f" -- {item.detail}" if item.detail else ""
+        if item.expected or item.actual:
+            extra += f" [{item.actual or ''} -> {item.expected or ''}]"
+        typer.echo(f"  {item.kind:<20} {item.level:<8} {item.id or '-':<8} {where}{extra}")
+
+
+@app.command("diff-decomposition")
+def diff_decomposition_cmd(
+    key: str,
+    adopt: bool = typer.Option(
+        False, "--adopt", help="Match cards without an id marker by exact summary."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Read-only: compare docs/runs/<key>/decomposition.json with the live Epic ->
+    Story -> Subtask tree and report what differs (missing, summary/description changed,
+    orphans). Status, comments and links are not drift. Exit codes: 0 in sync, 1 drift,
+    2 invalid decomposition, 3 Jira error. Jira-only. See ADLC-146.
+    """
+    try:
+        decomposition = load_decomposition(key, RUNS_DOCS_ROOT)
+    except SyncDecompositionError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    with _jira_client() as client:
+        try:
+            report = diff_decomposition(key, decomposition, client=client, adopt=adopt)
+        except JiraError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=3) from exc
+    if as_json:
+        typer.echo(json.dumps(report.as_dict(), indent=2))
+    else:
+        _print_diff(report)
+    raise typer.Exit(code=1 if report.drift else 0)
+
+
+def _sync_update(
+    key: str, project: str | None, status: str | None, dry_run: bool, adopt: bool, yes: bool
+) -> None:
+    try:
+        decomposition = load_decomposition(key, RUNS_DOCS_ROOT)
+    except SyncDecompositionError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    with _jira_client() as client:
+        try:
+            if adopt and not yes:
+                preview = diff_decomposition(key, decomposition, client=client, adopt=True)
+                typer.echo("Proposed adoption (cards matched by exact summary):")
+                _print_diff(preview)
+                if not dry_run and not typer.confirm("Write ids and apply?"):
+                    raise typer.Exit(code=1)
+            ids_added = assign_ids(decomposition)
+            if ids_added and not dry_run:
+                save_decomposition(key, decomposition, RUNS_DOCS_ROOT)
+            actions = apply_update(
+                key,
+                decomposition,
+                client=client,
+                project_key=project,
+                initial_status=status,
+                adopt=adopt,
+                dry_run=dry_run,
+            )
+        except JiraError as exc:
+            typer.echo(f"Jira error: {exc}", err=True)
+            typer.echo(
+                "Stopped at the first error; re-run --update to resume (it is idempotent).",
+                err=True,
+            )
+            raise typer.Exit(code=3) from exc
+    label = "Would" if dry_run else "Did"
+    if not actions:
+        typer.echo(f"{key}: nothing to do -- Jira already matches the decomposition.")
+    for action in actions:
+        what = f"update {','.join(action.fields)}" if action.action == "update" else "create"
+        typer.echo(f"  {label}: {what} {action.level} {action.key or ''} {action.summary}".rstrip())
 
 
 if __name__ == "__main__":

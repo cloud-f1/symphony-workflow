@@ -56,16 +56,46 @@ DEFINITION_OF_DONE_TEMPLATE: list[str] = [
 ]
 
 
+def assign_ids(decomposition: Decomposition) -> bool:
+    """Fill in missing `id`s (`s<n>`, `s<n>.t<m>`, by position) and return whether anything
+    changed. Existing ids are never touched, so ids stay stable when entries are reordered.
+    """
+    used = {s.id for s in decomposition.stories if s.id} | {
+        t.id for s in decomposition.stories for t in s.tasks if t.id
+    }
+    changed = False
+
+    def fresh(base: str) -> str:
+        candidate, n = base, 1
+        while candidate in used:
+            n += 1
+            candidate = f"{base}-{n}"
+        used.add(candidate)
+        return candidate
+
+    for i, story in enumerate(decomposition.stories, start=1):
+        if not story.id:
+            story.id, changed = fresh(f"s{i}"), True
+        for j, task in enumerate(story.tasks, start=1):
+            if not task.id:
+                task.id, changed = fresh(f"{story.id}.t{j}"), True
+    return changed
+
+
 class DecomposeError(RuntimeError):
     """Raised when the agent run doesn't yield usable structured `stories` output."""
 
 
 class Task(BaseModel):
+    # Optional stable id (ADLC-146), e.g. "s1.t2". Absent in files written before drift
+    # detection existed; `drift.assign_ids` fills it in and writes it back.
+    id: str | None = None
     title: str
     description: str
 
 
 class Story(BaseModel):
+    id: str | None = None  # e.g. "s1"; see Task.id
     title: str
     user_story: str
     acceptance_criteria: list[str]
