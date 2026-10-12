@@ -7,7 +7,7 @@ only sends them when set.
 
 `LinearConfig` (ADLC-57) backs the Linear tracker backend, selected via
 `SYMPHONY_WORKFLOW_TRACKER=linear` (see tracker.py). `LINEAR_API_KEY`
-deliberately reuses the same env var name content-asset-system's own `gaia
+deliberately reuses the same env var name another internal tool's own Linear
 linear` tooling already uses for the same credential — one Linear key per
 machine, not two differently-named ones.
 """

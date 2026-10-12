@@ -4,10 +4,10 @@
 
 Alex asked (2026-09-26) to give `symphony-workflow` a second tracker backend: Linear, alongside
 the existing Jira integration, so a repo whose issues live in Linear can drive the same
-Plan/Implement loop this repo already drives against Jira. A parallel investigation of CAS
-(`content-asset-system`)'s own `gaia linear` integration confirmed Linear connectivity, config,
-and the underlying data model — but that tool is scoped to CAS's own content-tracking needs
-(epics-as-projects, `gaia`'s CLI) and explicitly not what this ticket extends. This repo gets its
+Plan/Implement loop this repo already drives against Jira. A parallel investigation of another internal tool
+(another internal tool)'s own Linear integration confirmed Linear connectivity, config,
+and the underlying data model — but that tool is scoped to that tool's own content-tracking needs
+(epics-as-projects, that tool's CLI) and explicitly not what this ticket extends. This repo gets its
 own, independent Linear client, matching how it already owns its own Jira client rather than
 depending on another repo's.
 
@@ -40,7 +40,7 @@ depending on another repo's.
 - `SYMPHONY_WORKFLOW_TRACKER=jira|linear` (default `jira`, so every existing deployment is
   unaffected) selects the backend via a `get_tracker_client()` factory. `LINEAR_API_KEY` /
   `SYMPHONY_WORKFLOW_LINEAR_TEAM` configure the Linear side (`LINEAR_API_KEY` deliberately reuses
-  the same env var name CAS's own `gaia linear` tooling already uses — one Linear key per
+  the same env var name another internal tool's Linear tooling already uses — one Linear key per
   machine, not two differently-named ones for the same credential).
 - `cli.py`'s tracker-agnostic commands (`get`/`comment`/`transition`/`plan`/`implement`) work
   against either backend. Its Jira-only commands (`search`/`call`/`list-tools`/`decompose`/

@@ -40,7 +40,7 @@ Built in one pass, in dependency order:
   `..._tracker_url_frontmatter`, `test_health_reports_jira_reachable` → `..._tracker_reachable`)
   was updated in place, not skipped.
 - `uv run ruff check .` — clean.
-- **Live smoke test** (read-only, against the real `Gaia`/`GAI` Linear team — see `spec.md`'s
+- **Live smoke test** (read-only, against a real Linear team — see `spec.md`'s
   closing section): `get_myself`, `issue_url`, `get_issue("GAI-5")`, `search_ready_tickets()` all
   confirmed against real API responses, not just mocks.
 - One real incident caught mid-implementation, unrelated to this ticket's code: a `sed` command's

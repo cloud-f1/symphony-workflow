@@ -75,12 +75,12 @@ Same reasoning as the frontmatter rename — a real, deliberate breaking change 
 response shape, not additive. A Linear-backed instance reporting `jira_reachable: true` would be
 lying about what it actually checked.
 
-## Confirmed live (read-only) against the real `Gaia` (`GAI`) Linear team
+## Confirmed live (read-only) against a real Linear team
 
-`get_myself`, `issue_url`, `get_issue` (parsed `GAI-5` — same status/summary the CAS `gaia linear
+`get_myself`, `issue_url`, `get_issue` (parsed `GAI-5` — same status/summary the other tool's Linear
 issues` CLI independently reported), and `search_ready_tickets` all ran successfully against
 real data, confirming the GraphQL response shapes assumed by `models.Issue.from_linear`/
 `CurrentUser.from_linear` match reality, not just the mocked test fixtures. Write operations
-(`add_comment`, `transition_issue`) were **not** exercised live — `Gaia` is CAS's real production
+(`add_comment`, `transition_issue`) were **not** exercised live — the Linear team used for the live check is a real production
 tracker, not a sandbox, and those paths have full `respx`-mocked coverage instead
 (`tests/test_linear_client.py`).

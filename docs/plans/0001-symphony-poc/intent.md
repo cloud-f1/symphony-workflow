@@ -34,7 +34,7 @@ human-supervised.
 
 ## The one house lesson this respects
 
-CAS has a standing rule against unsupervised headless Claude spawns (`claude -p` /
+The owner has a standing rule against unsupervised headless Claude spawns (`claude -p` /
 war-room "Execute Next" was de-clawed after it ran unattended). Symphony's whole design
 assumes an unattended polling daemon. This POC deliberately does **not** build that —
 every agent session starts from an explicit, human-made API call, never a background loop.

@@ -5,6 +5,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## 0.5.3 — 2026-10-12
+
+Public-repo audit, second pass: consumer repo names, their Jira project keys, other internal tools and local
+paths are replaced by neutral placeholders across code, tests, docs and `docs/runs/` (the 0.5.2 pass missed
+`docs/PORTABILITY.md`'s instance registry, tests, the hierarchy docs and run artifacts). The session-start hook
+command in `.claude/settings.json` now uses `$CLAUDE_PROJECT_DIR` instead of an absolute home path, and
+`.gitignore` keeps `docs/runs/<non-ADLC key>/` local. Also: fixed a `ruff` E501 in `tests/test_poller.py`, and
+added the 0007 jira-diff-sync handover plan (docs only, PR #33). Git history keeps what was committed earlier.
+
 ## 0.5.2 — 2026-10-11
 
 Public-repo audit (ADLC-135): an external repo and its ticket keys are no longer named in code comments, docstrings, tests or this file (git history keeps what was committed earlier); CLAUDE.md and the README background no longer say "private" or point at a personal path; the plugin's SessionStart hook now exits quietly when `jq` is missing instead of failing in every project. Also released here: the `implement --max-turns / --max-budget` overrides below.
@@ -18,7 +27,7 @@ option the defaults apply exactly as before.
 
 New plugin skill **`jira-ticket-ops`** (`plugin/skills/jira-ticket-ops/`): the CLI + skill way to audit, create,
 transition and roll up Jira tickets for any project, with the project key as a parameter (first user:
-`symphony-walkman`, Jira project `WALK`). Chosen over a Jira MCP server because the CLI already exposes a
+a consumer repo with its own Jira project). Chosen over a Jira MCP server because the CLI already exposes a
 schema-described tool interface, and a skill costs almost nothing in context until it is used. The plugin copy
 of `symphony-workflow-ops` is re-synced with the canonical skill: it had missed the `rollup` and `audit` /
 `add-subtasks` paragraphs added in 0.5.0 (ADLC-122). License changed from Proprietary to MIT ahead of making the repo public.
@@ -38,9 +47,9 @@ fields `assignee` / `subtask_count`; `get_hierarchy_issue` now also requests the
 [docs/JIRA_HIERARCHY.md](docs/JIRA_HIERARCHY.md) states the rules (naming, size, done-when, roll-up,
 ownership).
 
-Why: `course-crm` found 33 of 73 Stories with no Subtasks (the board showed no progress), and
-`jev-agent-kit` had 36 cards with no Subtasks and no assignee; `decompose` only covers an Epic not yet
-built. The commands are ported from `course-crm`'s `jira-add-subtasks.py`, which stays as that repo's own
+Why: one consumer repo found 33 of 73 Stories with no Subtasks (the board showed no progress), and
+another had 36 cards with no Subtasks and no assignee; `decompose` only covers an Epic not yet
+built. The commands are ported from a consumer repo's `jira-add-subtasks.py`, which stays as that repo's own
 copy. 24 new tests (322 total); `ruff check` clean on the new code. No version bump.
 
 **`symphony-workflow rollup <key> [--dry-run] [--json]`** and the `rollup_issue` tool — close out
@@ -53,7 +62,7 @@ ok / `2` not found / `3` Jira error (partial work is always reported). Jira-only
 free-form status name, and keys just transitioned are remembered so Jira's eventually
 consistent search can't make a finished Subtask look unfinished.
 
-Requested by the `ai-workmate-salon` project, whose own Story/Epic bookkeeping was being closed
+Requested by a consumer project, whose own Story/Epic bookkeeping was being closed
 by hand. 39 new tests, 298 total, `rollup.py` 100% covered, `ruff check` clean on the new code.
 No version bump — cutting a release is a separate decision.
 
@@ -155,7 +164,7 @@ no behavior change for existing deployments that don't set it).
 - New `linear_client.py`: `LinearClient`, a GraphQL wrapper implementing that surface. Confirmed
   live (read-only) against a real Linear team, not just mocked tests.
 - New `LinearConfig` (`config.py`): `LINEAR_API_KEY` (same env var name as content-asset-system's
-  own `gaia linear` tooling) + `SYMPHONY_WORKFLOW_LINEAR_TEAM`.
+  own Linear tooling) + `SYMPHONY_WORKFLOW_LINEAR_TEAM`.
 - **Two breaking-but-honest renames**: `docs/runs/<key>/plan.md`'s frontmatter key `jira_url:` →
   `tracker_url:` (a Linear-backed run's plan claiming `jira_url` would be wrong, not just
   imprecise); `GET /health`'s `jira_reachable` field → `tracker_reachable`. Historical
@@ -246,8 +255,8 @@ additions are backward-compatible with the existing CLI/API surface — no break
 - Multi-repo policy confirmed and documented: one dedicated Jira project + one jira-agent-cli
   instance per target repo, not Epic/tag routing or a shared multi-tenant poller
   (`docs/PORTABILITY.md`).
-- Portability validated against a real second repo — created the `NXJS` Jira project and ran a
-  live Plan against `ai-coding-nexjs-template` (`ADLC-39`–`42`).
+- Portability validated against a real second repo — created the `EXMP` Jira project and ran a
+  live Plan against `example-nextjs-app` (`ADLC-39`–`42`).
 - `docs/plans/<NNNN>-<slug>/` planning-cycle convention, replacing overwrite-prone top-level
   `docs/{intent,spec,plan}.md` files (`ADLC-43`).
 - Quickstart walkthrough + `CLAUDE.md` consolidation pass (`ADLC-51`).

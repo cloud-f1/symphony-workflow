@@ -16,7 +16,7 @@ This is a plan only; nothing has been changed or tested yet. `src/jira_agent_cli
 
 **How to check it once implemented:** `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, and `uv run python -c "import jira_agent_cli; print(jira_agent_cli.__version__)"`, which should print `0.1.0`. Move ADLC-24 to "In Progress", then "Done", with `jira-agent transition`.
 
-The plan is saved at `/Users/cloud-f1/.claude/plans/you-are-looking-at-greedy-frost.md`.
+The plan is saved at `<local plan file>`.
 
 **Summary for the Jira comment:**
 Plan for ADLC-24: add `__version__ = "0.1.0"` and a short module docstring to `src/jira_agent_cli/__init__.py`, which is currently empty. The value matches the version in `pyproject.toml`. Also add `tests/test_version.py` with two tests: one checks the constant is there, and one reads `pyproject.toml` and fails if the two versions don't match. No client, tool or CLI changes, and no HTTP mocking. Check with `uv run pytest`, `uv run ruff check .` and a quick import. Low risk. Possible follow-ups, not in this ticket: keep the version in one place, and add a `jira-agent --version` flag.

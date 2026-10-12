@@ -45,7 +45,7 @@ skill files in a private content repo (`urllib`-based scripts pasted at the top 
 proven pattern — Jira Cloud API **v2**, Basic auth via `email:api_token`, plain-text
 description/comment bodies (not the v3 Atlassian Document Format), fetch-transitions-then-match-
 by-name for status changes — into a real installable package with tests, instead of copy-pasted
-snippets. If you're touching CF1 tickets from `content-asset-system`, keep using the MCP tools /
+snippets. If you're touching CF1 tickets from another repo, keep using the MCP tools /
 skill scripts there for now; this repo is the standalone, agent-callable version.
 
 **Confirmed CF1 custom field IDs** (as of 2026-06-04, verified via `detect_project_fields`):

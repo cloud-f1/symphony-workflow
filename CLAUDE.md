@@ -4,7 +4,7 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 > **Auto-loaded every session. Keep concise — essential rules only.**
 > Ticket status → the `ADLC` Jira board | Last state → [docs/context/session-summary.md](docs/context/session-summary.md)
-> (pattern borrowed from `ai-coding-nexjs-template`'s own proven session-handover convention)
+> (pattern borrowed from `example-nextjs-app`'s own proven session-handover convention)
 
 ## Project Overview
 
@@ -30,7 +30,7 @@ sibling docs don't repeat. Setting this up for the first time as a human (not a 
 session)? [docs/QUICKSTART.md](docs/QUICKSTART.md) is a linear walkthrough, not reference material.
 
 This is a standalone package: a public (MIT) repo in the `cloud-f1` GitHub org, usually cloned next to
-your other repos. It is not part of `content-asset-system` — don't assume its rules apply here beyond
+your other repos. It is not part of any other repo of the org — don't assume its rules apply here beyond
 what this file states. Because it is public, keep client and personal names, local paths and
 credentials out of code, comments, docs and `docs/runs/` (git history keeps what was committed before).
 
@@ -59,7 +59,7 @@ Story/Task, not Epics, so this specific rule didn't apply to them, but the same 
 work directly under one ticket instead of breaking it down first — is what to watch for. Don't
 repeat this — decompose first.
 
-**Stories without Subtasks are the same mistake one level down** (`course-crm`: 33 of 73; `jev-agent-kit`:
+**Stories without Subtasks are the same mistake one level down** (one consumer: 33 of 73; another:
 all 26). Run `symphony-workflow audit <PROJECT> --open` before and after a batch of work; fix with
 `symphony-workflow add-subtasks <plan.json>`. The rules (naming, size, done-when, roll-up, one owner) are
 in [docs/JIRA_HIERARCHY.md](docs/JIRA_HIERARCHY.md).
@@ -162,7 +162,7 @@ branch confirms it.
   JQL queries *outside* the Python client (e.g. a shell hook) has to get this right independently;
   re-discovered the hard way writing `.claude/hooks/session-start-check-api.sh`.
 - **Project creation (`POST /rest/api/3/project`) works fine via API — it does NOT require the
-  Jira UI** — confirmed live creating `NXJS` (`ADLC-40`), an account with global `ADMINISTER`
+  Jira UI** — confirmed live creating `EXMP` (`ADLC-40`), an account with global `ADMINISTER`
   permission (check with `GET /rest/api/3/mypermissions?permissions=ADMINISTER`) can do this.
   Two traps: (1) `projectTemplateKey` naming is misleading —
   `com.pyxis.greenhopper.jira:gh-simplified-kanban-classic` creates a **classic**
@@ -208,7 +208,7 @@ directly from `cli.py`, `tools.py`, or `api.py` — go through `JiraClient`.
 
 **Why API v2, not v3:** v2 takes plain-text `description`/comment bodies; v3 requires the
 Atlassian Document Format (nested `content`/`paragraph` JSON). This org's other Jira tooling
-(`content-asset-system`'s `jira-cloud-f1` skill) already uses v2 successfully against
+(an internal `jira-cloud-f1` skill) already uses v2 successfully against
 `cloud-f1.atlassian.net` — match that proven pattern rather than reintroducing ADF here.
 
 ## Adding a new tool (the standard change shape)

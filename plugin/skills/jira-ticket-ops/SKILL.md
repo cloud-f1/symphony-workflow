@@ -11,7 +11,7 @@ This skill does not install the CLI. Clone `cloud-f1/symphony-workflow`, run `uv
 
 ## Pick the project key first
 
-Every ticket belongs to the project of the repo you are working on. Take the key from the repo's own rules (for example `ADLC` for symphony-workflow, `WALK` for symphony-walkman). If the repo names none, ask. Never file work in another project.
+Every ticket belongs to the project of the repo you are working on. Take the key from the repo's own rules (for example `ADLC` for symphony-workflow, `PROJ` for symphony-walkman). If the repo names none, ask. Never file work in another project.
 
 ## Commands
 

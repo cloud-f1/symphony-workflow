@@ -348,46 +348,46 @@ def test_search_ready_tickets_allowlist_supports_multiple_types(
 
 @respx.mock
 def test_get_hierarchy_issue_parses_type_status_category_and_parent(config: JiraConfig) -> None:
-    route = respx.get(f"{BASE_URL}/rest/api/2/issue/SALON-44").mock(
+    route = respx.get(f"{BASE_URL}/rest/api/2/issue/TEST-44").mock(
         return_value=httpx.Response(
             200,
             json={
-                "key": "SALON-44",
+                "key": "TEST-44",
                 "id": "10044",
                 "fields": {
                     "summary": "E28",
                     "status": {"name": "Done", "statusCategory": {"key": "done"}},
                     "issuetype": {"name": "Subtask", "hierarchyLevel": -1},
-                    "parent": {"key": "SALON-43", "fields": {"summary": "story"}},
+                    "parent": {"key": "TEST-43", "fields": {"summary": "story"}},
                 },
             },
         )
     )
     with JiraClient(config) as client:
-        issue = client.get_hierarchy_issue("SALON-44")
+        issue = client.get_hierarchy_issue("TEST-44")
     fields = route.calls.last.request.url.params["fields"]
     assert fields == "summary,status,issuetype,parent,assignee,subtasks"
-    assert issue.key == "SALON-44"
+    assert issue.key == "TEST-44"
     assert issue.is_done is True
     assert issue.issue_type == "Subtask"
     assert issue.hierarchy_level == -1
-    assert issue.parent_key == "SALON-43"  # team-managed projects link with `parent`
+    assert issue.parent_key == "TEST-43"  # team-managed projects link with `parent`
 
 
 @respx.mock
 def test_get_hierarchy_issue_without_parent_or_level(config: JiraConfig) -> None:
-    respx.get(f"{BASE_URL}/rest/api/2/issue/SALON-38").mock(
+    respx.get(f"{BASE_URL}/rest/api/2/issue/TEST-38").mock(
         return_value=httpx.Response(
             200,
             json={
-                "key": "SALON-38",
+                "key": "TEST-38",
                 "id": "1",
                 "fields": {"status": {"name": "To Do"}, "issuetype": {"name": "Epic"}},
             },
         )
     )
     with JiraClient(config) as client:
-        issue = client.get_hierarchy_issue("SALON-38")
+        issue = client.get_hierarchy_issue("TEST-38")
     assert issue.parent_key is None
     assert issue.hierarchy_level is None
     assert issue.is_done is False
@@ -425,10 +425,10 @@ def test_list_children_searches_by_parent_and_follows_next_page_token(config: Ji
         side_effect=[page(["S-1", "S-2"], token="tok-2"), page(["S-3"], token=None)]
     )
     with JiraClient(config) as client:
-        children = client.list_children("SALON-45", page_size=2)
+        children = client.list_children("TEST-45", page_size=2)
     assert [c.key for c in children] == ["S-1", "S-2", "S-3"]
     first, second = (json.loads(call.request.content) for call in route.calls)
-    assert first["jql"] == "parent = SALON-45 ORDER BY key ASC"
+    assert first["jql"] == "parent = TEST-45 ORDER BY key ASC"
     assert first["maxResults"] == 2
     assert "nextPageToken" not in first
     assert second["nextPageToken"] == "tok-2"
@@ -440,12 +440,12 @@ def test_list_children_empty_and_error(config: JiraConfig) -> None:
         return_value=httpx.Response(200, json={"issues": [], "isLast": True})
     )
     with JiraClient(config) as client:
-        assert client.list_children("SALON-1") == []
+        assert client.list_children("TEST-1") == []
     respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
         return_value=httpx.Response(400, json={"errorMessages": ["bad jql"]})
     )
     with JiraClient(config) as client, pytest.raises(JiraError):
-        client.list_children("SALON-1")
+        client.list_children("TEST-1")
 
 
 # ---- search_hierarchy (the audit's one query) and the extra HierarchyIssue fields
