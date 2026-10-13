@@ -1,4 +1,4 @@
-# Handover (state at v0.9.2, 2026-10-13)
+# Handover (state at v0.9.2 plus plugin-install fixes, 2026-10-14)
 
 Read this first when you pick the project up. The README is the guidance (two languages), `docs/QUICKSTART.md` the walkthrough;
 this file is the state of the work and where the next session starts.
@@ -21,7 +21,7 @@ to it. Three things on top of that:
 | Claude Code plugin in this repo | `plugin/` (`symphony-workflow-ops`), listed by `.claude-plugin/marketplace.json` |
 | Companion repo (public, MIT) | <https://github.com/cloud-f1/symphony-walkman> (a status board that reads Jira through this CLI; its marketplace also installs this plugin) |
 | Releases | tags `v0.5.0` … `v0.9.2`. Release only after the merge: `scripts/release.sh X.Y.Z`, then `git push origin vX.Y.Z`. It checks `pyproject.toml`, `plugin.json`, `marketplace.json` and the CHANGELOG heading. Steps: the Releasing section of the `symphony-workflow-ops` skill |
-| Jira | project **ADLC**; hierarchy rules in `docs/JIRA_HIERARCHY.md` |
+| Jira | project **ADLC**; hierarchy rules in `docs/JIRA_HIERARCHY.md`. Epic ADLC-27 (v2) is closed with everything under it Done and `audit ADLC --open` is clean: start new work under a new Epic |
 | Install the CLI | `uv tool install git+https://github.com/cloud-f1/symphony-workflow` (add `@vX.Y.Z` to pin) |
 | Install the plugin | `/plugin marketplace add cloud-f1/symphony-workflow` then `/plugin install symphony-workflow-ops@symphony-workflow-marketplace` |
 
@@ -39,8 +39,7 @@ to it. Three things on top of that:
 
 | Ticket | What |
 |---|---|
-| ADLC-54 | In Review and has no Sub-tasks (the only `audit ADLC --open` error). Needs the owner's plan, then `add-subtasks`. |
-| ADLC-186 | This file. Done once it is merged. |
+| Plugin install | Verified for real on 2026-10-14 in an isolated config (`CLAUDE_CONFIG_DIR=<scratch>`, so your own Claude config is untouched): marketplace add, install, both skills, the hook silent in a non-symphony-workflow project. Not exercised: the refresh after a version bump, and an install into another owner checkout (ADLC-327). |
 | Companion board | `symphony-walkman` pins this CLI at `@v0.5.2`; bump it after each release. It reads three things: `search`, `docs/runs/<KEY>/run.json` and branch names starting with a Jira key. |
 | Ideas, not committed | Read credentials from `~/.config/symphony-workflow/.env` when no variables are set (`init-env` writes the project `.env` only; the companion board already reads the user-level path); make `claude-agent-sdk` optional (about 95 MB for read-only commands); `ruff format` would change about 10 files; `sync-status` does not write the progress matrix back (five step columns vs one tracker status, a decision, reopen ADLC-242 to change it); `on-approve` push mode (only `manual` exists); two plans must not sync into one Jira project (ids are per plan). |
 
@@ -60,5 +59,5 @@ Another session may already have a worktree under `.worktrees/` (several merged 
 ## How to continue
 
 1. Fresh worktree under `.worktrees/` off `origin/main`, branch `ADLC-<n>-<slug>`, with Epic → Story → Sub-task in ADLC first.
-2. `uv run pytest` and `uv run ruff check .`; for plugin changes `claude plugin validate --strict plugin`.
+2. `uv run pytest` and `uv run ruff check .`; for plugin changes `claude plugin validate --strict plugin` and `claude plugin validate --strict .` (the marketplace; they are different checks).
 3. PR, merge, bump version and release, then close tickets bottom-up with `rollup` once the merge is confirmed.
