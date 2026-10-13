@@ -2,7 +2,7 @@
 
 > A log, not a plan written in advance: tick items and add dated entries as work ships. Nothing below is done yet.
 
-## Ticket tree (3 Epics, 10 Stories, 52 Subtasks; created 2026-10-13 after the owner approved this list)
+## Ticket tree (3 Epics, 11 Stories, 58 Subtasks; created 2026-10-13 after the owner approved this list)
 
 Epic A (`ADLC-197`) **Adaptive plan sync: AI and Athena plans to Jira, Linear or Markdown, two-way**
 
@@ -29,6 +29,7 @@ what the comparison and the shipped code taught us.
 | Story | Subtasks |
 |---|---|
 | S10 Refresh every skill, plugin file and CLI capability (`ADLC-209`) | list every skill, plugin file and CLI command with what is stale or missing (inputs: the stage-2 table and this log); rewrite `symphony-workflow-ops` (both copies) and `jira-ticket-ops`; update plugin metadata and hook messages; improve CLI help, examples and `list-tools` descriptions; `claude plugin validate --strict`, version bump and release; Tests (help-text and registry checks, skill copies in sync) |
+| S11 Bilingual README: guidance first, with use-case snapshots (`ADLC-262`) | restructure around guidance (who it is for, five-minute start, which-setup decision guide); capture real use-case snapshots as text transcripts from a throwaway project; English README with a snapshot per use case; Traditional Chinese README (`README.zh-TW.md`) with the same structure and snapshots; move reference material below the guidance; Tests (matching headings, every snapshot exists, no credential or local path) |
 
 ## Phases (build order)
 
@@ -52,3 +53,4 @@ what the comparison and the shipped code taught us.
 - 2026-10-13 — plan written after a read-only survey of about 20 sibling projects; layer mapping, status ownership, Markdown
   scope, history backfill and the hybrid layer-3 source agreed with the owner. No code yet.
 - 2026-10-13 — tickets created: Epics ADLC-197 / 206 / 208, Stories ADLC-198..205, 207, 209, 52 Subtasks, assigned to the owner. Decisions recorded in `spec.md`: manual push only in the first release, no silent first-run write.
+- 2026-10-13 — owner added the bilingual README task: Story ADLC-262 (6 Subtasks) under Epic C. English plus Traditional Chinese, guidance first, many use-case snapshots (setup, audit, decompose and sync, drift, roll-up, plan import to Jira or Linear, Markdown mode, two-way status). Placed in stage 3 because the sync and Markdown snapshots need the shipped features.
