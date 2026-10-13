@@ -239,7 +239,7 @@ def test_status_pull_and_push_through_the_jira_backend() -> None:
     d1 = keys["c1.t1.d2"]
     fake.issues[d1]["cat"] = "done"  # moved in Jira: pull
     base = SyncState(status={"c1.t1.d1": "done"}, keys=keys)  # d1 was already done at the last sync
-    report = sync_status_with(plan, JiraStatusBackend(fake, keys), base=base)
+    report = sync_status_with(plan, JiraStatusBackend(fake, keys, project_key="ZZ"), base=base)
     actions = {c.id: c.action for c in report.changes if c.kind == "to-do"}
     assert actions["c1.t2.d1"] == "push" and actions["c1.t1.d2"] == "pull"
     assert fake.issues[keys["c1.t2.d1"]]["cat"] == "done"
@@ -251,15 +251,60 @@ def test_the_backend_reports_a_card_deleted_by_hand_as_an_orphan() -> None:
     fake = FakeJira()
     _, keys = _run(fake)
     del fake.issues[keys["c1.t2.d1"]]
-    report = sync_status_with(_plan(), JiraStatusBackend(fake, keys), base=SyncState(keys=keys))
+    report = sync_status_with(
+        _plan(), JiraStatusBackend(fake, keys, project_key="ZZ"), base=SyncState(keys=keys)
+    )
     assert [c.id for c in report.changes if c.action == "orphan"] == ["c1.t2.d1"]
 
 
 def test_a_move_without_a_matching_transition_is_no_state_not_a_crash() -> None:
     fake = FakeJira()
     _, keys = _run(fake)
-    backend = JiraStatusBackend(fake, keys)
+    backend = JiraStatusBackend(fake, keys, project_key="ZZ")
     card = backend.cards(_plan())["c1.t1.d2"]
     fake.transition_issue = lambda key, name: (_ for _ in ()).throw(JiraError(404, "none"))
     assert backend.move(card, "done", dry_run=False) is False
     assert isinstance(card, Card)
+
+
+# ---- the key map comes from a file in the project directory, which may be someone else's ----
+
+
+def _foreign_issue(fake: FakeJira, key: str = "OTHER-1") -> None:
+    fake.issues[key] = {
+        "summary": "Someone else's ticket", "description": "private notes", "type": "Story",
+        "parent": None, "cat": "new",
+    }  # fmt: skip
+
+
+def test_a_key_map_entry_pointing_at_another_project_is_never_touched() -> None:
+    fake = FakeJira()
+    _foreign_issue(fake)
+    changes, keys = _run(fake, keys={"c1.t1": "OTHER-1"})
+    assert fake.issues["OTHER-1"]["summary"] == "Someone else's ticket"
+    assert (
+        fake.issues["OTHER-1"]["description"] == "private notes"
+        and fake.issues["OTHER-1"]["cat"] == "new"
+    )
+    assert "OTHER-1" not in keys.values()  # and the bad entry is dropped, not saved back
+
+
+def test_a_key_in_the_right_project_without_the_matching_marker_is_not_trusted() -> None:
+    fake = FakeJira()
+    _foreign_issue(fake, "ZZ-99")  # same project key, but not a card this plan made
+    _run(fake, keys={"c1.t1": "ZZ-99"})
+    assert fake.issues["ZZ-99"]["summary"] == "Someone else's ticket"
+    assert fake.issues["ZZ-99"]["description"] == "private notes"
+
+
+def test_status_sync_does_not_move_a_card_the_key_map_wrongly_names() -> None:
+    fake = FakeJira()
+    _foreign_issue(fake)
+    plan = _plan()
+    plan.categories[0].tasks[0].todos[0].status = "done"
+    report = sync_status_with(
+        plan, JiraStatusBackend(fake, {"c1.t1.d1": "OTHER-1"}, project_key="ZZ"),
+        base=SyncState(keys={"c1.t1.d1": "OTHER-1"}),
+    )  # fmt: skip
+    assert fake.issues["OTHER-1"]["cat"] == "new"
+    assert [c.action for c in report.changes if c.id == "c1.t1.d1"] == ["orphan"]

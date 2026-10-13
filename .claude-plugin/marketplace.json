@@ -8,7 +8,7 @@
       "name": "symphony-workflow-ops",
       "source": "./plugin",
       "description": "Operational skill + SessionStart hook for symphony-workflow's Plan/Implement loop.",
-      "version": "0.9.0"
+      "version": "0.9.1"
     }
   ]
 }

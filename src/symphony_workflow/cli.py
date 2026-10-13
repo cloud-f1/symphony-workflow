@@ -1042,11 +1042,20 @@ def sync_status_command(
                 )
         else:
             jira_config = JiraConfig.from_env()
+            jira_project = project or os.environ.get("SYMPHONY_WORKFLOW_JIRA_PROJECT", "")
+            if not jira_project:
+                prefixes = {k.rsplit("-", 1)[0] for k in base.keys.values()}
+                jira_project = prefixes.pop() if len(prefixes) == 1 else ""
+            if not jira_project:
+                typer.echo(
+                    "--to jira needs --project KEY (or SYMPHONY_WORKFLOW_JIRA_PROJECT).", err=True
+                )
+                raise typer.Exit(code=2)
             typer.echo(f"Jira (cards from the last sync-plan){' (dry run)' if dry_run else ''}")
             with JiraClient(jira_config) as jira:
                 report = sync_status_with(
                     plan,
-                    JiraStatusBackend(jira, base.keys, config.status_map),
+                    JiraStatusBackend(jira, base.keys, config.status_map, project_key=jira_project),
                     base=base,
                     direction=direction,  # type: ignore[arg-type]
                     dry_run=dry_run,
