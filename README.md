@@ -2,80 +2,190 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md)
 
-Keep your plan as Markdown files, put it into **Linear** or **Jira** when you want a board, and keep the
-status in step both ways. Underneath, every Jira operation is also a schema-described tool call, so an AI
-agent can drive tickets the same way an engineer would.
+[![CI](https://github.com/cloud-f1/symphony-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/cloud-f1/symphony-workflow/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/cloud-f1/symphony-workflow)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![Version](https://img.shields.io/github/v/tag/cloud-f1/symphony-workflow?sort=semver&label=version)](https://github.com/cloud-f1/symphony-workflow/tags)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](#use-it-with-your-agent)
+[![Plan sync](https://img.shields.io/badge/plan%20sync-Markdown%20%7C%20Linear%20%7C%20Jira-informational)](#what-the-agent-runs)
 
-Nothing here deletes anything, and every command that writes has a `--dry-run`.
+**Give your AI agent a plan and a board.** symphony-workflow is a Claude Code plugin (two skills) plus a CLI the
+agent drives: it reads a plan you keep as Markdown, shows it as a board, pushes it to **Linear** or **Jira**, and keeps
+the status in step both ways. Every Jira operation is also a schema-described tool call, so any agent can use it.
+
+It never deletes anything, never writes to a tracker until you say so, and every write has a `--dry-run`.
 
 ## Who it is for
 
-- **You keep your plan in Markdown** (a `docs/epics/e1-...md` file per epic, the way an Athena-style
-  workflow does) and want it on a Linear or Jira board without retyping it, and without the two drifting apart.
-- **You run Jira tickets with an AI agent** (Claude Code, Codex, a cron job) and want it to read, comment,
-  move and plan tickets through named tools instead of raw HTTP.
+- **You keep your plan as Markdown** (a `docs/epics/e1-...md` file per epic, the way an Athena-style workflow does) and
+  want it on a board without retyping it, and without the two drifting apart.
+- **You work Jira or Linear tickets with an agent** (Claude Code, Codex, a cron job) and want it to read, plan and move
+  tickets through named tools instead of raw HTTP.
 - **You are fixing a Jira project** whose Stories have no Subtasks, or whose parents never close.
 
-It is not a Jira client library for unrelated code, and it does not edit your code: the Implement phase is
-always started by a person.
+## Use it with your agent
 
-## Five-minute start
-
-**1. Install.** No clone needed:
-
-```bash
-uv tool install git+https://github.com/cloud-f1/symphony-workflow   # keeps a `symphony-workflow` command
-uvx --from git+https://github.com/cloud-f1/symphony-workflow symphony-workflow --help   # or try it once
-```
-
-Add `@vX.Y.Z` to the URL to pin a release (see the tags). To work on the code instead: `git clone`, then
-`uv sync --extra dev` and prefix commands with `uv run`.
-
-**Using Claude Code?** Install the plugin (two skills and a SessionStart hook; it does not install the CLI above):
+**1. Install the plugin** in Claude Code (two skills and a SessionStart hook):
 
 ```text
 /plugin marketplace add cloud-f1/symphony-workflow
 /plugin install symphony-workflow-ops --marketplace cloud-f1/symphony-workflow
 ```
 
-**2. Look at a project, change nothing.** From a project that has `docs/epics/*.md`:
+**2. Install the CLI the skills call.** The plugin does not ship it:
 
 ```bash
-symphony-workflow profile --path .
+uv tool install git+https://github.com/cloud-f1/symphony-workflow
 ```
 
-**3. Credentials, only when you need a tracker.** Markdown-only use needs none. For Jira or Linear, keep them
-in the project's own gitignored `.env`, never in a chat:
+**3. Say what you want.** The skill triggers on plan and board requests; you do not have to name a command.
 
-```bash
-symphony-workflow init-env          # creates .env with empty keys and gitignores it
-symphony-workflow check-env --verify # names missing keys, one read-only call, never prints a value
-```
+### What the agent gets
 
-## Which setup do I need?
-
-| You have | Run | It needs |
+| | What it is | Covers |
 |---|---|---|
-| Plan files, no tracker | `profile`, then `sync-plan --to markdown` | nothing |
-| Plan files, tasks with no To-Dos | `split-todos`, review, `split-todos --approve` | Claude credentials the Claude Agent SDK can use |
-| Plan files, you want a Linear board | `sync-plan --to linear --project "Name"` | `LINEAR_API_KEY`, `SYMPHONY_WORKFLOW_LINEAR_TEAM` |
-| Plan files, you want a Jira board | `sync-plan --to jira --project KEY` | the three Jira keys in `.env` |
-| A board you want kept in step | `sync-status --to linear` or `--to jira` | the same as the sink |
-| Jira tickets and an agent to work them | the Plan/Implement loop, see `docs/QUICKSTART.md` | Jira keys and Claude credentials |
-| A Jira hierarchy that rotted | `audit`, `add-subtasks`, `rollup`, see Reference | the three Jira keys |
+| Skill `symphony-workflow-ops` | how to run the tool | plan sync (Markdown, Linear, Jira), the Plan/Implement loop, releasing, the git and PR gotchas |
+| Skill `jira-ticket-ops` | how to touch Jira safely | per-project credentials, hierarchy audit, Sub-tasks, rollup, a throwaway test tree |
+| SessionStart hook | a health check | checks the local API server when a symphony-workflow checkout is open, silent everywhere else |
+| Tool calls | `list-tools` and `call` | every Jira operation as a JSON-schema tool, for an agent that is not Claude Code |
 
-When unsure, start with `profile`: it prints two recommendations, the first from how the project is used,
-the second refined from what the plans contain, and saves nothing unless you pass `--write`.
+### Things to say
 
-## Use cases
+| You say | The agent does | Writes anything? |
+|---|---|---|
+| "Show my `docs/epics` plan as a board, change nothing" | reads the project, previews it | no |
+| "Which tasks have no To-Dos? Propose some" | one read-only agent turn into a proposal file you edit and approve | only that file |
+| "Put this plan on Linear as project Q4, dry run first" | a dry run, then the real run after your go-ahead | Linear, when you say so |
+| "Same for Jira project KEY" | a dry run, then the real run | Jira, when you say so |
+| "Keep the board in step with my checklist" | pulls changes from the board, pushes ticked To-Dos | checkboxes, cards; a conflict is reported and left alone |
+| "Audit my Jira project's Stories and Sub-tasks" | audits, proposes Sub-tasks, rolls finished ones up | tickets, after your go-ahead |
+| "Work ticket KEY-12: plan it, I will review" | the Plan phase for that ticket, then waits | no code until you approve |
 
-Every snapshot below is real output, captured from a throwaway project (and, for Linear and Jira, a
-throwaway board that was deleted afterwards). The full text is in `docs/snapshots/`.
+### A real session
 
-### 1. Set up credentials without pasting a token into a chat
+This is a real run, not a mock-up: a Claude agent with this plugin loaded, working in a throwaway plan project. It
+loaded the skill, read the project, ran the read-only commands, and wrote nothing (`git status` was the same before and
+after). The first time I ran it the skill did not trigger at all, because its description did not mention Markdown plans;
+the description was widened and the run repeated.
 
-You are about to use Jira or Linear from a new project. `init-env` writes the file, `check-env` tells you
-what is missing and never prints a value.
+![A real agent session: the agent loads the skill, reads the plan and previews it as a board](docs/snapshots/img/09-agent.svg)
+
+<details>
+<summary>Text version of this session</summary>
+
+<!-- snapshot: docs/snapshots/09-agent.txt -->
+```text
+# a real agent session: Claude with this repo's plugin loaded, in a throwaway plan project.
+# file reads are left out, and the agent's chained commands are shown one by one (same output).
+you> I keep my plan as Markdown under docs/epics. Show me how it would look as a tidy task list for a board, but
+     do not write or change anything yet.
+
+agent> [loads the symphony-workflow-ops skill]
+agent> Now the read-only CLI preview (profile without `--write`, then import-plan).
+
+$ symphony-workflow profile
+Project: .
+Plan files: 4 epic file(s); index=False progress=True strategy-log=False; plan folders=0; athena commands=False
+Tracker: jira credentials=False linear credentials=False SYMPHONY_WORKFLOW_TRACKER=unset; issue keys in history: none
+Content: 2 phase(s) (1 not complete), 4 epic(s), tasks per phase median=1.5, acceptance items median=1.0, epics with a ready-made To-Do breakdown=75%
+Recommendation 1 (from usage): tracker=markdown plan_source=epics-md todo_source=hybrid push=manual record=markdown include_done=false
+  - tracker: no tracker evidence in this project -> use Markdown files
+  - tracker: LINEAR_API_KEY is set in the shell, shared by every project, but not in this project's .env -> not enough to pick Linear; pass --to linear if you want it
+  - plan source: 4 epic file(s) under docs/epics -> read them with `epics-md`
+Recommendation 2 (refined from content): tracker=markdown plan_source=epics-md todo_source=breakdown push=manual record=markdown include_done=false
+  - To-Do source: 75% of epics have a ready-made To-Do breakdown -> use each epic's own breakdown (to-do list, phases or story headings) as To-Dos
+
+$ symphony-workflow import-plan
+plan: 2 categor(ies), 3 task(s), 5 to-do(s)
+  phase-2  Phase 2  [in_progress]
+    E1  Login page  [in_progress]  (3 to-dos)
+    E2  Reports  [todo]  (2 to-dos)
+  unphased  Unphased  [todo]
+    E4  Not in any phase  [todo]  (0 to-dos)
+  WARNING unphased one_task: a Category with one Task is really a Task
+  WARNING E4 no_todos: no To-Dos yet (layer-3 generation fills them in)
+
+$ symphony-workflow import-plan --include-done
+plan: 3 categor(ies), 4 task(s), 6 to-do(s)
+  phase-1  Phase 1  [done]
+    E3  Old work  [done]  (1 to-dos)
+  phase-2  Phase 2  [in_progress]
+    E1  Login page  [in_progress]  (3 to-dos)
+    E2  Reports  [todo]  (2 to-dos)
+  unphased  Unphased  [todo]
+    E4  Not in any phase  [todo]  (0 to-dos)
+  WARNING phase-1 one_task: a Category with one Task is really a Task
+  WARNING E3 one_todo: one To-Do means the Task is really a To-Do
+  WARNING unphased one_task: a Category with one Task is really a Task
+  WARNING E4 no_todos: no To-Dos yet (layer-3 generation fills them in)
+
+agent> Here's how your plan would look as a board. I only read files to get this. Nothing was
+       written or changed: I used `symphony-workflow profile` without `--write` and `import-
+       plan`, and `git status` is the same as before.
+
+       ## Board preview (`docs/epics`)
+
+       **Phase 2: In progress**
+       - **E1: Login page** (in progress)
+         - [ ] Build the form
+         - [ ] Wire the API
+         - [ ] Tests
+         - *Acceptance:* form validates the email · wrong password shows an error
+       - **E2: Reports** (to do)
+         - [ ] Phase 1: Data layer
+         - [ ] Phase 2: UI
+         - *Acceptance:* export works
+
+       **Unphased: To do**
+       - **E4: Not in any phase** (to do)
+         - *(no to-dos yet)*
+         - *Acceptance:* something
+
+       **Hidden by default (Phase 1, complete):** E3: Old work, with one finished to-do, "Ship
+       it". It only appears if you add `--include-done`.
+
+       That makes 2 columns, 3 cards and 5 to-dos. `notes.md` has no epic in it, so it was
+       skipped.
+
+       ## Things to tidy before pushing it anywhere
+       1. **E4 has no to-dos.** You can write some yourself, or run `split-todos` to get
+          suggested ones that you then approve.
+       2. **"Unphased" holds only one card.** The tool warns that a column with one card is
+          really just a card. Moving E4 into Phase 2 or a new phase would fix it.
+       3. **E3 would cause the same kind of warning** if you include done work: one column with
+          one card that has one to-do. It's probably best left hidden.
+       4. **E2's to-dos are its "Phase 1 / Phase 2" headings,** so the board would have a "Phase
+          2" column and also an E2 to-do called "Phase 2: UI". You may want to rename those to
+          "Data layer" and "UI".
+       5. **Board status can disagree with `epic-progress.md`.** That file marks E1's Spec step
+          as done, and one of E1's acceptance items is ticked. All three E1 to-dos would still
+          show as not started.
+
+       ## Where it would go
+       The tool found no Jira or Linear setup in this project, so it suggests keeping the board
+       as Markdown files, using each epic's own lists as its to-dos. When you're ready, it could
+       go to Markdown or to Linear or Jira. I'd do a `--dry-run` first and only write once you
+       say so.
+
+       [last paragraph omitted: it was about claude.ai connectors in the machine that ran this]
+```
+
+</details>
+
+## What the agent runs
+
+Each picture below is what the agent ran for one of those requests, captured from a real run on a throwaway project
+(and, for Linear and Jira, a throwaway board that was deleted afterwards). The text is under each picture, and in
+`docs/snapshots/`.
+
+### 1. Check the credentials without a token ever reaching the chat
+
+`init-env` writes a gitignored `.env` with empty keys; `check-env` names what is missing and never prints a value.
+
+![init-env creates .env, check-env reports missing keys](docs/snapshots/img/01-setup.svg)
+
+<details>
+<summary>Text</summary>
 
 <!-- snapshot: docs/snapshots/01-setup.txt -->
 ```text
@@ -100,12 +210,17 @@ $ symphony-workflow check-env
 (exit 1)
 ```
 
-Next: fill the empty keys in an editor, then `symphony-workflow check-env --verify`.
+</details>
 
-### 2. See how a project already works
+### 2. See how the project already works
 
-Before choosing anything, let the tool read the project: its plan files, which credential *names* exist,
-issue keys in git history, and the shape of the plan.
+The agent reads the plan files, which credential *names* exist, issue keys in git history, and the shape of the plan,
+then recommends a setup. It changes nothing.
+
+![profile reads the project and prints two recommendations](docs/snapshots/img/02-profile.svg)
+
+<details>
+<summary>Text</summary>
 
 <!-- snapshot: docs/snapshots/02-profile.txt -->
 ```text
@@ -122,7 +237,14 @@ Recommendation 2 (refined from content): tracker=markdown plan_source=epics-md t
   - To-Do source: 75% of epics have a ready-made To-Do breakdown -> use each epic's own breakdown (to-do list, phases or story headings) as To-Dos
 ```
 
-`import-plan` then shows the plan as three layers (category, task, to-do) and warns when the shape is off:
+</details>
+
+`import-plan` shows the plan as three layers (category, task, to-do) and warns when the shape is off:
+
+![import-plan shows the plan and its warnings](docs/snapshots/img/03-import-plan.svg)
+
+<details>
+<summary>Text</summary>
 
 <!-- snapshot: docs/snapshots/03-import-plan.txt -->
 ```text
@@ -137,13 +259,16 @@ plan: 2 categor(ies), 3 task(s), 5 to-do(s)
   WARNING E4 no_todos: no To-Dos yet (layer-3 generation fills them in)
 ```
 
-A category with one task is really a task, and a task with no To-Dos has nothing for a board to track yet.
-Cases 3 and 4 fix the second one.
+</details>
 
-### 3. Keep the plan as Markdown, no tracker
+### 3. Keep the plan as Markdown, no board
 
-No board, but you want a task list and an index you can commit. `sync-plan --to markdown` writes
-Athena-compatible files, only inside its own managed blocks, so your hand-written text stays.
+`sync-plan --to markdown` writes Athena-compatible files, only inside its own managed blocks, so your text stays.
+
+![sync-plan to Markdown: dry run, real run, then nothing to do](docs/snapshots/img/04-markdown.svg)
+
+<details>
+<summary>Text</summary>
 
 <!-- snapshot: docs/snapshots/04-markdown.txt -->
 ```text
@@ -172,13 +297,17 @@ $ symphony-workflow sync-plan --path . --from epics-md --to markdown
   WARNING unphased one_task: a Category with one Task is really a Task
 ```
 
-The dry run told you what would change, the real run did it, and the third run found nothing to do.
+</details>
 
-### 4. Let an agent propose the To-Dos, you approve them
+### 4. Let the agent propose the To-Dos, you approve them
 
-A task with no breakdown gets five fixed steps (Spec, Implement, Tests and QA, Commit, Merge) by default.
-For something more specific, one read-only agent turn writes a proposal you can edit. Nothing reaches a
-tracker until you approve it.
+A task with no breakdown gets five fixed steps by default. For something specific, one read-only agent turn writes a
+proposal you can edit. Nothing reaches a board until you approve it, and `sync-plan` waits instead of writing the steps.
+
+![split-todos proposes To-Dos, the proposal is approved, sync-plan uses it](docs/snapshots/img/05-todos.svg)
+
+<details>
+<summary>Text</summary>
 
 <!-- snapshot: docs/snapshots/05-todos.txt -->
 ```text
@@ -211,13 +340,17 @@ $ symphony-workflow sync-plan --path . --from epics-md --to markdown
   WARNING unphased one_task: a Category with one Task is really a Task
 ```
 
-The proposal is a file: change the wording, drop an item, then approve. Until you do, `sync-plan` waits
-instead of writing the five steps.
+</details>
 
 ### 5. Push the plan to Linear
 
-Categories become milestones, tasks become issues, To-Dos become sub-issues, all inside one project. The
-dry run reads Linear and writes nothing.
+Categories become milestones, tasks become issues, To-Dos become sub-issues. The dry run reads Linear and writes nothing;
+a re-run finds everything by an `sd-id:` line in each description. Use a fresh project name the first time.
+
+![sync-plan to Linear: dry run, create, re-run](docs/snapshots/img/06-linear.svg)
+
+<details>
+<summary>Text (the start and the end of the run)</summary>
 
 <!-- snapshot: docs/snapshots/06-linear.txt -->
 ```text
@@ -246,38 +379,16 @@ $ symphony-workflow sync-plan --path . --from epics-md --to linear --project "De
 ...
 ```
 
-The second run, the one after it, finds every object by an `sd-id:` line it put in each description:
+</details>
 
-<!-- snapshot: docs/snapshots/06-linear.txt -->
-```text
-# run it again: nothing to create or update
-$ symphony-workflow sync-plan --path . --from epics-md --to linear --project "Demo plan"
-  To-Dos for E4: from steps
-Linear project: Demo plan
-  Unchanged    milestone Phase 2
-  Unchanged    issue     Login page
-  Unchanged    sub-issue Build the form
-  Unchanged    sub-issue Wire the API
-  Unchanged    sub-issue Tests
-  Unchanged    issue     Reports
-  Unchanged    sub-issue Phase 1 — Data layer
-  Unchanged    sub-issue Phase 2 — UI
-  Unchanged    milestone Unphased
-  Unchanged    issue     Not in any phase
-  Unchanged    sub-issue Spec
-  Unchanged    sub-issue Implement
-  Unchanged    sub-issue Tests and QA
-  Unchanged    sub-issue Commit
-  Unchanged    sub-issue Merge
-  WARNING unphased one_task: a Category with one Task is really a Task
-```
+### 6. Keep the status in step, both ways
 
-Use a fresh `--project` name the first time: an existing project's hand-made issues have no `sd-id:` line, so
-they would be duplicated, not adopted.
+A change on one side moves to the other. A change on both sides is a conflict: reported and left alone.
 
-### 6. Keep status in step, both ways
+![sync-status pulls, pushes, and reports a conflict](docs/snapshots/img/07-status.svg)
 
-A change on one side moves to the other. A change on both sides is a conflict: it is reported and left alone.
+<details>
+<summary>Text</summary>
 
 <!-- snapshot: docs/snapshots/07-status.txt -->
 ```text
@@ -307,13 +418,17 @@ Conflicts were left as they are: fix one side, then run this again.
 (exit 1)
 ```
 
-Pulling ticks the checkbox in your Markdown file; pushing moves the card. The progress matrix of an
-Athena-style project is not written back: it has five step columns and a board has one status.
+</details>
 
 ### 7. Push the plan to Jira
 
-Categories become Epics, tasks become Stories, To-Dos become Subtasks. The keys it created are saved in
-`docs/context/sync-state.json` (commit that file), because Jira's child lists lag a few seconds behind a create.
+Categories become Epics, tasks become Stories, To-Dos become Subtasks. The keys it made are saved in
+`docs/context/sync-state.json` (commit it), because Jira's child lists lag a few seconds behind a create.
+
+![sync-plan to Jira: dry run, create, re-run](docs/snapshots/img/08-jira.svg)
+
+<details>
+<summary>Text (the start of the run)</summary>
 
 <!-- snapshot: docs/snapshots/08-jira.txt -->
 ```text
@@ -339,19 +454,43 @@ Jira project: ADLC (dry run, nothing written)
 ...
 ```
 
-Running it again finds the cards by marker and the saved keys, so nothing is created twice.
+</details>
 
-## What it will never do
+## Rules the agent follows
 
-- **Delete anything**, in any direction. A card or file that exists on one side only is reported.
-- **Overwrite your text.** Markdown files are only touched inside `<!-- sd:begin ... -->` blocks.
-- **Print a credential.** Keys live in the project's `.env`; checks name what is missing, never the value.
-- **Trust a file it did not write.** A `docs/context/sync-state.json` that names someone else's ticket is
-  ignored; git runs with repository-supplied commands switched off; plan files behind a symlink are refused.
-- **Start Implement on its own.** The background poller plans; a person starts Implement.
+These are in the skills, so the agent follows them without being told:
 
-Two things to know: ids are unique per plan, so two plans must not sync into one Jira project, and the Linear
-and Jira sinks are idempotent only for objects they created themselves.
+- **Read first, write second.** `profile` and a `--dry-run` before anything touches a board.
+- **Never write to a tracker without your go-ahead**, and never delete: a card or file on one side only is reported.
+- **Never print a credential.** Keys live in the project's `.env`; checks say what is missing, not the value.
+- **Never touch what it did not create.** A `sync-state.json` that names someone else's ticket is ignored; a Linear
+  project's hand-made issues are not adopted; git runs with repository-supplied commands switched off.
+- **Prove a change for real.** A throwaway board, a cleanup that deletes only what the run created, then a report.
+- **Start Implement only when you do.** The background poller plans; a person approves.
+
+## For other agents: tool calls
+
+Any agent that can run a command can use the same operations as named tools with a JSON schema:
+
+```bash
+symphony-workflow list-tools                                  # every tool as a JSON schema
+symphony-workflow call get_issue '{"key": "PROJ-1"}'          # validated against the schema before it touches Jira
+```
+
+## Which setup do I need?
+
+| You have | Say / run | It needs |
+|---|---|---|
+| Plan files, no tracker | "show my plan as a board" (`profile`, `sync-plan --to markdown`) | nothing |
+| Plan files, tasks with no To-Dos | "propose To-Dos" (`split-todos`) | Claude credentials the Claude Agent SDK can use |
+| Plan files, you want a Linear board | "put it on Linear" (`sync-plan --to linear --project "Name"`) | `LINEAR_API_KEY`, `SYMPHONY_WORKFLOW_LINEAR_TEAM` |
+| Plan files, you want a Jira board | "put it on Jira" (`sync-plan --to jira --project KEY`) | the three Jira keys in `.env` |
+| A board you want kept in step | "keep it in step" (`sync-status`) | the same as the sink |
+| Jira tickets and an agent to work them | the Plan/Implement loop, see `docs/QUICKSTART.md` | Jira keys and Claude credentials |
+| A Jira hierarchy that rotted | "audit my project" (`audit`, `add-subtasks`, `rollup`) | the three Jira keys |
+
+Credentials go in the project's own gitignored `.env` (`symphony-workflow init-env`), never in a chat. Markdown-only use
+needs none.
 
 ## Reference
 

@@ -56,6 +56,14 @@ Every ticket belongs to the project of the repo you are working on. Take the key
 - Branch, worktree and commit carry the Story key (`KEY-12-short-slug`) so Jira links them.
 - Transition Done only after the pull request is merged (`gh pr view <branch> --json state`), then `rollup`.
 - Ask the owner before a bulk create or bulk transition. Say exactly what ran and what Jira returned.
+- `sync-plan --to jira --project KEY` writes Epic / Story / Subtask from a Markdown plan, idempotent through an
+  `sd-id:` line, never deleting; always `--dry-run` first. The keys it made are kept in `docs/context/sync-state.json`.
+  Two plans must not sync into one project (ids are per plan).
+- To test a Jira change for real, build a throwaway tree in a project you own, note the highest key number first, and
+  delete only the keys the run created (and above that number), then read each back and expect 404. `rollup` closes
+  the Epic too once every child is Done: check it is the Epic you mean to close.
+- A JQL child list lags a few seconds behind a create, and v3 search returns descriptions as ADF; read a card through the
+  v2 issue endpoint (`get`) when you need its text.
 
 ## Audit checklist
 

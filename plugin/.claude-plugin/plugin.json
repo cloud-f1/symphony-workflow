@@ -1,7 +1,7 @@
 {
   "name": "symphony-workflow-ops",
   "description": "Skills for symphony-workflow: operating its Plan/Implement loop and its plan sync (Markdown, Linear, Jira), and working Jira tickets safely (per-project credentials, hierarchy audit). Plus a SessionStart hook that health-checks its FastAPI server. Does NOT install the CLI/server itself -- clone https://github.com/cloud-f1/symphony-workflow and run `uv sync --extra dev` separately; see that repo's docs/PORTABILITY.md.",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "author": {
     "name": "cloud-f1"
   },
