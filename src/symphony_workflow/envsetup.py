@@ -11,7 +11,6 @@ process, and say *which* key is missing rather than stop at the first one.
 from __future__ import annotations
 
 import os
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -20,6 +19,7 @@ import httpx
 
 from symphony_workflow.client import JiraClient, JiraError
 from symphony_workflow.config import JiraConfig
+from symphony_workflow.safepath import run_git
 
 REQUIRED_KEYS = ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN")
 VERIFY_TIMEOUT_SECONDS = 10.0
@@ -55,17 +55,10 @@ def parse_env(text: str) -> dict[str, str]:
 
 
 def _is_gitignored(path: Path) -> bool | None:
-    """True / False from `git check-ignore`; None when this is not a git repo (or git is absent)."""
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(path.resolve().parent), "check-ignore", "-q", path.name],
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return {0: True, 1: False}.get(proc.returncode)
+    """True / False from `git check-ignore`; None when this is not a git repo (or git is absent).
+    Git runs hardened (safepath.run_git): a repository's own config must not run commands."""
+    proc = run_git(path.resolve().parent, "check-ignore", "-q", path.name, timeout=10)
+    return None if proc is None else {0: True, 1: False}.get(proc.returncode)
 
 
 @dataclass

@@ -32,6 +32,7 @@ from symphony_workflow.plan import (
     rollup_status,
     strip_comment_marker,
 )
+from symphony_workflow.safepath import is_safe
 
 EPICS_DIR = Path("docs/epics")
 PROGRESS_FILE = Path("docs/context/epic-progress.md")
@@ -132,8 +133,14 @@ class PhaseRow:
     complete: bool
 
 
-def parse_progress(path: Path) -> list[PhaseRow]:
-    if not path.is_file():
+def progress_path(root: Path) -> Path | None:
+    """The progress file when it exists and is not a symlink out of the project, else None."""
+    path = root / PROGRESS_FILE
+    return path if path.is_file() and is_safe(root, path) else None
+
+
+def parse_progress(path: Path | None) -> list[PhaseRow]:
+    if path is None or not path.is_file():
         return []
     rows: list[PhaseRow] = []
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -149,9 +156,9 @@ def parse_progress(path: Path) -> list[PhaseRow]:
     return rows
 
 
-def parse_matrix(path: Path) -> dict[str, Status]:
+def parse_matrix(path: Path | None) -> dict[str, Status]:
     """Task status from the step matrix: the furthest finished step decides (spec section 4)."""
-    if not path.is_file():
+    if path is None or not path.is_file():
         return {}
     statuses: dict[str, Status] = {}
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -177,6 +184,8 @@ def parse_matrix(path: Path) -> dict[str, Status]:
 def scan_epics(root: Path) -> list[ParsedEpic]:
     epics: list[ParsedEpic] = []
     for path in sorted((root / EPICS_DIR).glob("e[0-9]*.md")):
+        if not is_safe(root, path):  # a symlink could point at any file on the machine
+            continue
         parsed = parse_epic_file(path)
         if parsed:
             epics.append(parsed)
@@ -201,8 +210,8 @@ def load_epics_md(root: Path, *, include_done: bool = False) -> Plan:
     """The project's epics as a neutral plan. Without a progress table everything lands in one
     `Unphased` Category with status from the matrix when there is one, else `todo`."""
     epics = {e.id: e for e in scan_epics(root)}
-    statuses = parse_matrix(root / PROGRESS_FILE)
-    phases = parse_progress(root / PROGRESS_FILE)
+    statuses = parse_matrix(progress_path(root))
+    phases = parse_progress(progress_path(root))
     categories: list[Category] = []
     placed: set[str] = set()
     for row in phases:

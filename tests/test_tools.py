@@ -231,10 +231,11 @@ def test_call_tool_diff_decomposition_without_spec_is_a_clean_error(monkeypatch,
         call_tool(MagicMock(), "diff_decomposition", {"epic_key": "ADLC-9"})
 
 
-def test_local_tools_run_without_a_jira_client(tmp_path) -> None:
+def test_local_tools_run_without_a_jira_client(tmp_path, monkeypatch) -> None:
     from tests._athena import make_project
 
     root = make_project(tmp_path)
+    monkeypatch.chdir(root)  # the tools only accept a path inside the working directory
     profile = call_tool(None, "profile_project", {"path": str(root)})
     assert profile["profile"]["plan"]["epics"] == 4
     assert profile["recommendation_1"]["config"]["plan_source"] == "epics-md"

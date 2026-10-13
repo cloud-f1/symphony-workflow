@@ -29,6 +29,7 @@ from symphony_workflow.plan import (
     assign_plan_ids,
     comment_marker,
 )
+from symphony_workflow.safepath import check_inside, is_safe
 
 EPICS_DIR = Path("docs/epics")
 INDEX_FILE = EPICS_DIR / "EPIC_INDEX.md"
@@ -77,7 +78,8 @@ def task_path(task: Task, root: Path) -> Path:
     """The existing file for this Task when there is exactly one (`e197-*.md`), else a new name."""
     folder = root / EPICS_DIR
     prefix = _prefix(task)
-    matches = sorted(folder.glob(f"{prefix}-*.md")) if folder.is_dir() else []
+    found = folder.glob(f"{prefix}-*.md") if folder.is_dir() else []
+    matches = sorted(m for m in found if is_safe(root, m))
     if len(matches) == 1:
         return matches[0]
     return folder / f"{prefix}-{_slug(task.title)}.md"
@@ -121,6 +123,7 @@ def render_index_block(plan: Plan, root: Path) -> str:
 
 
 def _write(path: Path, content: str, dry_run: bool, root: Path) -> FileChange:
+    check_inside(root, path)
     shown = str(path.relative_to(root))
     if path.exists():
         if path.read_text(encoding="utf-8") == content:
@@ -141,6 +144,7 @@ def write_markdown(plan: Plan, root: Path, *, dry_run: bool = False) -> list[Fil
     for category in plan.categories:
         for task in category.tasks:
             path = task_path(task, root)
+            check_inside(root, path)
             if path.exists():
                 content = merge_block(
                     path.read_text(encoding="utf-8"), "todo", render_todo_block(task)
@@ -149,6 +153,7 @@ def write_markdown(plan: Plan, root: Path, *, dry_run: bool = False) -> list[Fil
                 content = render_task_file(task)
             changes.append(_write(path, content, dry_run, root))
     index = root / INDEX_FILE
+    check_inside(root, index)
     block = render_index_block(plan, root)
     existing = index.read_text(encoding="utf-8") if index.exists() else "# Epic Index\n"
     changes.append(_write(index, merge_block(existing, "index", block), dry_run, root))
@@ -162,7 +167,7 @@ def read_state(plan: Plan, root: Path) -> list[str]:
     for category in plan.categories:
         for task in category.tasks:
             path = task_path(task, root)
-            if not path.is_file():
+            if not path.is_file() or not is_safe(root, path):
                 continue
             ticked: dict[str, bool] = {}
             for line in path.read_text(encoding="utf-8").splitlines():

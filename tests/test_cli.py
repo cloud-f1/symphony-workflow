@@ -1317,6 +1317,7 @@ def test_an_invalid_config_stops_sync_plan(monkeypatch, tmp_path: Path) -> None:
 def test_call_runs_local_tools_without_any_jira_credentials(monkeypatch, tmp_path: Path) -> None:
     _no_creds(monkeypatch)
     root = _plan_project(tmp_path)
+    monkeypatch.chdir(root)  # the tools only accept a path inside the working directory
     result = runner.invoke(app, ["call", "profile_project", json.dumps({"path": str(root)})])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["profile"]["plan"]["epics"] == 4

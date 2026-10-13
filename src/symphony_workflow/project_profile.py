@@ -16,7 +16,6 @@ from __future__ import annotations
 import os
 import re
 import statistics
-import subprocess
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,7 +24,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ValidationError
 
 from symphony_workflow.envsetup import REQUIRED_KEYS, parse_env
-from symphony_workflow.epics_md import EPICS_DIR, PROGRESS_FILE, parse_progress, scan_epics
+from symphony_workflow.epics_md import (
+    EPICS_DIR,
+    PROGRESS_FILE,
+    parse_progress,
+    progress_path,
+    scan_epics,
+)
+from symphony_workflow.safepath import is_safe, run_git
 
 CONFIG_PATH = Path("docs/context/plan-sync.json")
 TRACKER_ENV = "SYMPHONY_WORKFLOW_TRACKER"
@@ -125,7 +131,7 @@ class Profile:
 def _project_env_names(root: Path) -> set[str]:
     """Names with a non-empty value in the project's own `.env` (never the values)."""
     env_file = root / ".env"
-    if not env_file.is_file():
+    if not env_file.is_file() or not is_safe(root, env_file):
         return set()
     values = parse_env(env_file.read_text(encoding="utf-8", errors="replace"))
     return {k for k, v in values.items() if v}
@@ -136,13 +142,8 @@ def _shell_env_names() -> set[str]:
 
 
 def _git_lines(root: Path, *args: str) -> list[str]:
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), *args], capture_output=True, text=True, timeout=15, check=False
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    return proc.stdout.splitlines() if proc.returncode == 0 else []
+    proc = run_git(root, *args)
+    return proc.stdout.splitlines() if proc is not None and proc.returncode == 0 else []
 
 
 def _key_prefixes(root: Path) -> dict[str, int]:
@@ -162,7 +163,7 @@ def profile_project(root: Path) -> Profile:
     """Facts only; no recommendation. Read-only."""
     root = root.resolve()
     epics = scan_epics(root)
-    rows = parse_progress(root / PROGRESS_FILE)
+    rows = parse_progress(progress_path(root))
     plan = PlanSignals(
         epics=len(epics),
         has_index=(root / EPICS_DIR / "EPIC_INDEX.md").is_file(),

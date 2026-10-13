@@ -209,6 +209,7 @@ src/symphony_workflow/
   epics_md.py     # source adapter: an epics-as-markdown project's files -> the neutral plan
   project_profile.py # `profile`: read how a project works, recommend a plan-sync setup (names only, no secrets)
   markdown_sink.py   # neutral plan -> Athena-compatible .md files (managed blocks only), checkbox state back
+  safepath.py     # run_git (repo-config command execution off), is_safe (no symlinks out of the project), scoped_path
   poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements.
                   # Optional triage cadence (ADLC-29, off by default): a slower, batched agent
                   # turn classifies new tickets plan/skip/flag before the normal dispatch path
@@ -272,6 +273,10 @@ template and gitignores it; `check-env [--verify]` reports which keys are missin
 value — `envsetup.py`, ADLC-189). Never commit a token, and never let a test read `.env` — `test_cli.py`'s
 `test_missing_env_vars_exit_with_helpful_message` explicitly clears the relevant env vars via
 `monkeypatch` so the suite stays independent of whatever's in the developer's shell.
+
+## Inspecting a directory you do not control
+
+Plan sync reads and writes a project directory that can be someone else's (a cloned repo, a path an agent passes to a tool). Run git only through `safepath.run_git` (a repo's own `.git/config` can set `core.fsmonitor` to a command, and `git check-ignore` runs it), check every plan file with `safepath.is_safe` / `check_inside` before reading or writing it (no symlinks below the root, resolved path inside it), and give agent-facing tools `safepath.scoped_path` for any path argument. Regression tests: `tests/test_plan_sync_security.py` (ADLC-270).
 
 ## What NOT to do here
 
