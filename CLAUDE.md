@@ -131,11 +131,11 @@ work on a ticket outside the Plan/Implement path should use the same pattern by 
 Confirmed 2026-09-24: the GitHub-for-Jira app is installed and connected (`ADLC-30`, Done) —
 `GET /rest/dev-status/1.0/issue/summary` now shows `repository.byInstanceType` populated
 (previously `{}` for every data type, confirmed missing as of 2026-09-25 before this was fixed).
-**Still unverified**: `branch.byInstanceType` — no correctly-named branch has actually been
-*pushed* to GitHub since the app connected (Plan-phase worktrees never commit, and this repo's
-history is direct-to-main commits, not pushed feature branches), so full end-to-end
-Development-panel linking hasn't been exercised yet. Don't assume it works until a real pushed
-branch confirms it.
+**Verified end to end on 2026-10-14 (ADLC-336)**: a ticket started with `start` and a draft PR opened
+with `pr` showed `pullrequest`, `branch` and `repository` each at 1 on the card's `dev-status` summary,
+about 30 seconds after the push (the app syncs asynchronously: 0 right after the push is normal, wait
+a minute before concluding it did not link). Deleting the remote branch afterwards drops the card's
+branch entry but keeps the PR.
 
 ## The three non-negotiables
 

@@ -17,6 +17,15 @@
   the newest tag Latest.
 - The tracker is the existing `TrackerClient`; roll-up happens only for Jira.
 
+## Verified for real (2026-10-14)
+
+A throwaway ticket went through `start` (branch from `origin/main`, card In Progress, second run
+reuses the worktree), a commit and `pr --draft`; the card's Development panel then showed 1 PR, 1
+branch, 1 repository after about 30 seconds. `land` refused an open and a closed PR and changed
+nothing; its merged path ran against the really merged PR #38 (verified, main fast-forwarded,
+remote branch already gone). gh's JSON field names were read from a real merged PR. The ticket,
+branches and worktree were removed afterwards; the closed throwaway PR remains on GitHub.
+
 ## Decisions taken
 
 Deleting the remote branch after merge drops the card's branch entry but keeps the PR; the PR is the

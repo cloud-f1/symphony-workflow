@@ -29,8 +29,10 @@ GET /rest/dev-status/1.0/issue/summary?issueId=<id>
 ```
 
 returns counts for `pullrequest`, `branch`, `build` and `repository`. A card that was started with
-`start` and had a PR opened should show at least one pull request; a branch count of 0 after the
-remote branch was deleted is normal.
+`start` and had a PR opened should show at least one pull request and one branch. **The app syncs
+asynchronously**: right after the push the counts can still be 0 (the repository showed first, the
+PR and branch about 30 seconds later in a real run), so wait a minute before deciding it did not
+link. A branch count of 0 after the remote branch was deleted is normal.
 
 ## When a card does not link
 
