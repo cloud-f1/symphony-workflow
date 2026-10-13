@@ -449,6 +449,20 @@ Jira project: ADLC (dry run, nothing written)
 
 </details>
 
+## 出貨：分支、PR、合併、發版
+
+Jira 會把分支、commit 和 pull request 掛到卡片上，是因為分支名稱裡有票號。agent 用五個指令，讓票號不會在途中掉掉：
+
+| 步驟 | 指令 | 會發生什麼 |
+|---|---|---|
+| 開始 | `start ADLC-12` | 從最新的 `origin/main` 建立分支 `ADLC-12-<slug>` 和 worktree；卡片移到 In Progress |
+| Commit | `check-commit` | 標題長得像 `feat(scope): 改了什麼 (ADLC-12)`；plugin 的 hook 會擋下忘了票號的 commit |
+| 開 PR | `pr ADLC-12` | 推送並開 PR，標題和內文都帶票號；卡片移到 In Review |
+| 收尾 | `land ADLC-12` | 到 GitHub 確認 PR 已合併，更新 `main`，刪除遠端分支、worktree 和本機分支；卡片變成 Done 並往上收 |
+| 發版 | `release 0.4.0` | 跑發版檢查、打 tag、推 tag，並用 CHANGELOG 建立 GitHub Release；`changelog-draft` 依 commit 產生該版的段落 |
+
+不會強制任何事：有未提交變更的 worktree 不會被動，還沒合併的 PR 什麼都不會改。可選的 Jira 設定（smart commits、Create branch 按鈕、PR 合併時移動卡片）寫在 [docs/JIRA_GIT_SETUP.md](docs/JIRA_GIT_SETUP.md)。
+
 ## agent 遵守的規則
 
 這些寫在 skill 裡，所以 agent 不需要被告知就會遵守：

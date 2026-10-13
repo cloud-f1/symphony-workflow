@@ -456,6 +456,20 @@ Jira project: ADLC (dry run, nothing written)
 
 </details>
 
+## Ship it: branch, PR, merge, release
+
+Jira links a branch, its commits and its pull request to a card because the ticket key is in the branch name. The agent uses five commands so the key is never dropped:
+
+| Step | Command | What happens |
+|---|---|---|
+| Begin | `start ADLC-12` | Branch `ADLC-12-<slug>` and a worktree from a fresh `origin/main`; the card moves to In Progress |
+| Commit | `check-commit` | Subjects look like `feat(scope): what changed (ADLC-12)`; the plugin hook blocks one that forgets the key |
+| Open | `pr ADLC-12` | Pushes and opens the PR with the key in its title and body; the card moves to In Review |
+| Finish | `land ADLC-12` | Verifies on GitHub that the PR merged, updates `main`, deletes the remote branch, the worktree and the local branch; the card goes Done and rolls up |
+| Release | `release 0.4.0` | Runs the release gate, tags, pushes the tag and creates the GitHub Release from the CHANGELOG; `changelog-draft` writes the section from the commits |
+
+Nothing is forced: a worktree with uncommitted changes is left alone, and an unmerged PR changes nothing. The optional Jira settings (smart commits, the Create branch button, moving a card when a PR merges) are in [docs/JIRA_GIT_SETUP.md](docs/JIRA_GIT_SETUP.md).
+
 ## Rules the agent follows
 
 These are in the skills, so the agent follows them without being told:
