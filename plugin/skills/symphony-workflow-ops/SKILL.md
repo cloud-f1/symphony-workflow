@@ -144,10 +144,13 @@ Target shape is about 1 : 3 : 9. None of this touches a tracker unless you pass 
 - `sync-plan --to linear [--project NAME] [--dry-run]` creates the Project, milestones, issues and sub-issues (an
   `sd-id:` line makes a re-run update in place; **hand-made issues without the marker are ignored, so a re-run
   against a project built another way duplicates them: use a fresh `--project`**).
-- `sync-status --to linear [--direction both|push|pull] [--dry-run]` moves To-Do status both ways; a change on both
-  sides is a conflict, reported and left alone (exit 1). The progress matrix is not written back.
-- The Linear sink and `sync-status` are mock-tested; run `--dry-run` against a throwaway project first. There is no Jira
-  sink yet: for Jira use `decompose` / `sync-decomposition`. Git is only ever run through `safepath.run_git`.
+- `sync-plan --to jira --project KEY [--dry-run]` writes Category = Epic, Task = Story, To-Do = Subtask (the same `sd-id:`
+  marker; the issue keys it made are kept in `docs/context/sync-state.json` because a JQL child list lags a create).
+- `sync-status --to linear|jira [--direction both|push|pull] [--dry-run]` moves To-Do status both ways; a change on both
+  sides is a conflict, reported and left alone (exit 1). The progress matrix is not written back. For Jira run
+  `sync-plan --to jira` first: it only looks at the cards in that key map.
+- Both sinks were run against the real services on a throwaway project (and deleted afterwards), but still start with
+  `--dry-run`. Git is only ever run through `safepath.run_git`.
 
 ## Branch naming — required, not optional
 

@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -41,9 +41,11 @@ _RANK: dict[str, int] = {"todo": 0, "blocked": 1, "in_progress": 1, "done": 2}
 
 
 class SyncState(BaseModel):
-    """What the last sync left behind: status per entry id, no secrets."""
+    """What the last sync left behind, no secrets: status per entry id, and (Jira) the issue key
+    each entry was given, because a JQL child list lags a few seconds behind a create."""
 
     status: dict[str, Status] = Field(default_factory=dict)
+    keys: dict[str, str] = Field(default_factory=dict)
 
 
 def load_state(root: Path) -> SyncState:
@@ -124,6 +126,53 @@ def decide(
     return "conflict"
 
 
+@dataclass
+class Card:
+    """One tracker card as the sync sees it: its status in plan terms and whatever the backend
+    needs to move it."""
+
+    status: Status
+    handle: Any
+
+
+class StatusBackend(Protocol):
+    def cards(self, plan: Plan) -> dict[str, Card]:
+        """Entry id -> card, for every To-Do and Task of `plan` that has one in the tracker."""
+        ...
+
+    def move(self, card: Card, status: Status, *, dry_run: bool) -> bool:
+        """Move the card; False when the tracker has no state or transition for `status`."""
+        ...
+
+
+class LinearStatusBackend:
+    def __init__(
+        self, client: LinearClient, project_name: str, status_map: dict[str, Status] | None = None
+    ) -> None:
+        self._client, self._project = client, project_name
+        self._status_map = status_map
+        self._states: list[dict[str, Any]] = []
+
+    def cards(self, plan: Plan) -> dict[str, Card]:
+        project = self._client.find_project(self._project)
+        issues = self._client.list_project_issues(project["id"]) if project else []
+        if issues:
+            self._states = self._client.team_workflow_states(self._client.resolve_team_id())
+        return {
+            i_id: Card(remote_status(i.get("state"), self._status_map), i)
+            for i in issues
+            if (i_id := extract_marker(i.get("description")))
+        }
+
+    def move(self, card: Card, status: Status, *, dry_run: bool) -> bool:
+        state_id = pick_state_id(status, self._states)
+        if state_id is None:
+            return False
+        if not dry_run:
+            self._client.set_issue_state(card.handle["id"], state_id)
+        return True
+
+
 def sync_status(
     plan: Plan,
     client: LinearClient,
@@ -134,23 +183,28 @@ def sync_status(
     dry_run: bool = False,
     status_map: dict[str, Status] | None = None,
 ) -> StatusReport:
+    """Linear flavour of `sync_status_with`."""
+    backend = LinearStatusBackend(client, project_name, status_map)
+    return sync_status_with(plan, backend, base=base, direction=direction, dry_run=dry_run)
+
+
+def sync_status_with(
+    plan: Plan,
+    backend: StatusBackend,
+    *,
+    base: SyncState,
+    direction: Direction = "both",
+    dry_run: bool = False,
+) -> StatusReport:
     """Compare and apply. A pull changes `plan` in memory (the caller writes the Markdown), a push
     moves the card now unless `dry_run`. Returns what happened and the state to save."""
     assign_plan_ids(plan)
-    project = client.find_project(project_name)
-    issues = client.list_project_issues(project["id"]) if project else []
-    cards = {i_id: i for i in issues if (i_id := extract_marker(i.get("description")))}
-    states = client.team_workflow_states(client.resolve_team_id()) if issues else []
-    new_state = SyncState(status=dict(base.status))
+    cards = backend.cards(plan)
+    new_state = SyncState(status=dict(base.status), keys=dict(base.keys))
     changes: list[StatusChange] = []
 
-    def move(card: dict[str, Any], status: Status) -> bool:
-        state_id = pick_state_id(status, states)
-        if state_id is None:
-            return False
-        if not dry_run:
-            client.set_issue_state(card["id"], state_id)
-        return True
+    def move(card: Card, status: Status) -> bool:
+        return backend.move(card, status, dry_run=dry_run)
 
     def record(entry: str, kind: Literal["task", "to-do"], title: str, action: str,
                mine: Status, theirs: Status | None, was: Status) -> None:  # fmt: skip
@@ -164,7 +218,7 @@ def sync_status(
                 if card is None:
                     record(entry, "to-do", todo.title, "orphan", todo.status, None, "todo")
                     continue
-                theirs = remote_status(card.get("state"), status_map)
+                theirs = card.status
                 was = base.status.get(entry, "todo")
                 action = decide(todo.status, theirs, was)
                 if (action == "pull" and direction == "push") or (
@@ -194,7 +248,7 @@ def sync_status(
             if card_task is None or not task.todos or direction == "pull" or unsettled:
                 continue  # a Task waits for its To-Dos to agree before it moves
             derived = rollup_status([t.status for t in task.todos])
-            theirs = remote_status(card_task.get("state"), status_map)
+            theirs = card_task.status
             if _RANK[derived] > _RANK[theirs] and move(card_task, derived):
                 record(task.id or task.title, "task", task.title, "push", derived, theirs, theirs)
     return StatusReport(changes=changes, new_state=new_state)
