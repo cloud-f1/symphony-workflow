@@ -30,7 +30,8 @@ Plans. If `/health` doesn't respond, then start it as below.
 
 ```bash
 uv sync --extra dev
-cp .env.example .env   # fill in JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN
+uv run symphony-workflow init-env   # creates .env (gitignored) with empty keys; fill in JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN
+uv run symphony-workflow check-env --verify   # names missing keys, one read-only call; never prints a value
 uv run --env-file .env uvicorn symphony_workflow.api:app --port 8811
 ```
 

@@ -249,14 +249,27 @@ TOOLS: dict[str, Tool] = {
             SearchIssuesArgs,
             _search_issues,
         ),
-        Tool("create_issue", "Create a new Jira issue.", CreateIssueArgs, _create_issue),
+        Tool(
+            "create_issue",
+            "Create a new Jira issue. Link it with `parent` (an Epic's key for a Story, a Story's "
+            "key for a Subtask), the field team-managed projects use; `epic` is the classic Epic "
+            "Link field and fails there with 'not on the appropriate screen'.",
+            CreateIssueArgs,
+            _create_issue,
+        ),
         Tool(
             "update_issue",
             "Update an existing Jira issue's summary, description and/or parent (re-parent).",
             UpdateIssueArgs,
             _update_issue,
         ),
-        Tool("add_comment", "Add a comment to an issue.", AddCommentArgs, _add_comment),
+        Tool(
+            "add_comment",
+            "Add a comment to an issue. Jira renders the body as wiki markup, not Markdown: a "
+            "leading # is a numbered list, not a heading, so use bold lines instead.",
+            AddCommentArgs,
+            _add_comment,
+        ),
         Tool(
             "transition_issue",
             "Move an issue through a named workflow transition (e.g. 'In Progress', 'Done').",

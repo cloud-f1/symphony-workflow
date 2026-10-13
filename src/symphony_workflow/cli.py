@@ -146,14 +146,14 @@ def _jira_client() -> JiraClient:
         raise typer.Exit(code=1) from exc
 
 
-@app.command("list-tools")
+@app.command("list-tools", rich_help_panel="Agent tool calls")
 def list_tools() -> None:
     """Print every available tool as a JSON schema an agent can read."""
     schemas = [tool.json_schema() for tool in TOOLS.values()]
     typer.echo(json.dumps(schemas, indent=2))
 
 
-@app.command("call")
+@app.command("call", rich_help_panel="Agent tool calls")
 def call(
     tool_name: str = typer.Argument(..., help="Tool name, e.g. get_issue"),
     args_json: str = typer.Argument("{}", help="Tool arguments as a JSON object"),
@@ -211,7 +211,7 @@ def _print_audit(result: AuditResult, *, as_json: bool) -> None:
         )
 
 
-@app.command("audit")
+@app.command("audit", rich_help_panel="Tickets")
 def audit_command(
     project: str = typer.Argument(..., help="Jira project key, e.g. ADLC"),
     open_only: bool = typer.Option(False, "--open", help="Skip Stories that are already Done"),
@@ -260,7 +260,7 @@ def _print_add_subtasks(result: AddSubtasksResult, *, as_json: bool) -> None:
             typer.echo(f"    warning: {warning}")
 
 
-@app.command("add-subtasks")
+@app.command("add-subtasks", rich_help_panel="Tickets")
 def add_subtasks_command(
     plan_file: Path = typer.Argument(  # noqa: B008
         ..., help='JSON file: {"PROJ-12": ["Add X", "Tests: unit"], ...}'
@@ -301,7 +301,7 @@ def add_subtasks_command(
     _print_add_subtasks(result, as_json=as_json)
 
 
-@app.command("rollup")
+@app.command("rollup", rich_help_panel="Tickets")
 def rollup_command(
     key: str = typer.Argument(..., help="The Subtask just completed (a Story or Epic also works)"),
     dry_run: bool = typer.Option(
@@ -333,7 +333,7 @@ def rollup_command(
     _print_rollup(result, as_json=as_json)
 
 
-@app.command("get")
+@app.command("get", rich_help_panel="Tickets")
 def get_issue(key: str) -> None:
     """Fetch a single issue. Works against either tracker backend."""
     with _client() as client:
@@ -345,7 +345,7 @@ def get_issue(key: str) -> None:
     typer.echo(issue.model_dump_json(indent=2))
 
 
-@app.command("search")
+@app.command("search", rich_help_panel="Tickets")
 def search_issues(jql: str, max_results: int = 50) -> None:
     """Search issues with JQL. Jira-only -- Linear has no JQL equivalent (ADLC-57)."""
     with _jira_client() as client:
@@ -359,7 +359,7 @@ def search_issues(jql: str, max_results: int = 50) -> None:
     typer.echo(f"\n{result.total} total")
 
 
-@app.command("comment")
+@app.command("comment", rich_help_panel="Tickets")
 def add_comment(key: str, body: str) -> None:
     """Add a comment to an issue. Works against either tracker backend."""
     with _client() as client:
@@ -371,7 +371,7 @@ def add_comment(key: str, body: str) -> None:
     typer.echo(f"Comment added to {key}")
 
 
-@app.command("transition")
+@app.command("transition", rich_help_panel="Tickets")
 def transition_issue(key: str, transition_name: str) -> None:
     """Move an issue through a named workflow transition/state. Works against
     either tracker backend."""
@@ -410,7 +410,7 @@ def _load_run(issue_key: str) -> Run:
     return Run.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-@app.command("plan")
+@app.command("plan", rich_help_panel="Plan and implement")
 def plan(
     key: str,
     max_turns: int | None = typer.Option(
@@ -462,7 +462,7 @@ def plan(
     )
 
 
-@app.command("implement")
+@app.command("implement", rich_help_panel="Plan and implement")
 def implement(
     key: str,
     max_turns: int | None = typer.Option(
@@ -512,11 +512,11 @@ def implement(
     typer.echo(f"Implement finished for {key} — state: {updated.state.value}")
 
 
-@app.command("decompose")
+@app.command("decompose", rich_help_panel="Plan and implement")
 def decompose(key: str) -> None:
     """Break a Jira Epic into Stories/Tasks for human review -- read-only, no
-    Jira writes. Renders docs/runs/<key>/decomposition.md; turning a reviewed
-    decomposition into real Jira Stories/Subtasks is ADLC-47, not this command.
+    Jira writes. Renders docs/runs/<key>/decomposition.md; after reviewing it,
+    `sync-decomposition` turns it into real Jira Stories/Subtasks.
     Jira-only (ADLC-57's non-goals).
     """
     with _jira_client() as client:
@@ -538,7 +538,7 @@ def decompose(key: str) -> None:
     )
 
 
-@app.command("sync-decomposition")
+@app.command("sync-decomposition", rich_help_panel="Plan and implement")
 def sync_decomposition(
     key: str,
     project: str | None = typer.Option(
@@ -632,7 +632,7 @@ def _print_diff(report: DiffReport) -> None:
         typer.echo(f"  {item.kind:<20} {item.level:<8} {item.id or '-':<8} {where}{extra}")
 
 
-@app.command("diff-decomposition")
+@app.command("diff-decomposition", rich_help_panel="Plan and implement")
 def diff_decomposition_cmd(
     key: str,
     adopt: bool = typer.Option(
@@ -751,7 +751,7 @@ def _print_profile(profile: Profile) -> None:
     )
 
 
-@app.command("profile")
+@app.command("profile", rich_help_panel="Plan sync (Markdown, Linear, Jira)")
 def profile_command(
     path: Path = _ROOT_OPTION,
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
@@ -816,7 +816,7 @@ def _print_plan(plan: Plan) -> None:
             typer.echo(f"    {task.id}  {task.title}  [{task.status}]  ({len(task.todos)} to-dos)")
 
 
-@app.command("import-plan")
+@app.command("import-plan", rich_help_panel="Plan sync (Markdown, Linear, Jira)")
 def import_plan_command(
     path: Path = _ROOT_OPTION,
     include_done: bool = typer.Option(False, "--include-done", help="Also import completed phases"),
@@ -848,7 +848,7 @@ def import_plan_command(
         typer.echo(f"  WARNING {f.where} {f.rule}: {f.detail}")
 
 
-@app.command("sync-plan")
+@app.command("sync-plan", rich_help_panel="Plan sync (Markdown, Linear, Jira)")
 def sync_plan_command(
     path: Path = _ROOT_OPTION,
     source: str | None = typer.Option(
@@ -864,15 +864,19 @@ def sync_plan_command(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change, write nothing"),
     include_done: bool = typer.Option(False, "--include-done", help="Also sync completed phases"),
 ) -> None:
-    """Sync a plan into Markdown files in the project's docs/ (ADLC-202). Idempotent; never deletes.
+    """Write a plan to Markdown, Linear or Jira (ADLC-202, 203, 275). Idempotent; never deletes.
+
+    --to markdown writes Athena-compatible files under docs/epics (only the managed blocks are
+    rewritten, hand-written text stays). --to linear needs LINEAR_API_KEY and
+    SYMPHONY_WORKFLOW_LINEAR_TEAM and --project NAME; --to jira needs the Jira credentials and
+    --project KEY. Category = milestone / Epic, Task = issue / Story, To-Do = sub-issue / Subtask.
+    Start with --dry-run: it reads the tracker and writes nothing.
 
     Settings come from docs/context/plan-sync.json. With no config and no --from/--to nothing is
-    touched:
-    the recommendation is printed and the command stops, so run `profile --write` first (or pass
-    both flags).
-    Only the managed blocks of a file are rewritten; hand-written sections stay as they are.
+    touched: the recommendation is printed and the command stops, so run `profile --write` first
+    (or pass both flags).
 
-    Exit codes: 0 ok, 1 not configured, 2 bad input or a sink that is not built yet.
+    Exit codes: 0 ok, 1 not configured, 2 bad input or missing credentials, 3 the tracker failed.
     """
     try:
         config = load_config(path)
@@ -995,7 +999,7 @@ def _sync_plan_to_linear(plan: Plan, project: str, dry_run: bool) -> None:
         typer.echo(f"  WARNING {f.where} {f.rule}: {f.detail}")
 
 
-@app.command("sync-status")
+@app.command("sync-status", rich_help_panel="Plan sync (Markdown, Linear, Jira)")
 def sync_status_command(
     path: Path = _ROOT_OPTION,
     to: str | None = typer.Option(None, "--to", help="linear or jira"),
@@ -1090,7 +1094,7 @@ def sync_status_command(
         raise typer.Exit(code=1)
 
 
-@app.command("split-todos")
+@app.command("split-todos", rich_help_panel="Plan sync (Markdown, Linear, Jira)")
 def split_todos_command(
     path: Path = _ROOT_OPTION,
     approve: bool = typer.Option(False, "--approve", help="Approve the reviewed proposal"),
@@ -1128,7 +1132,7 @@ def split_todos_command(
 _ENV_PATH_OPTION = typer.Option(Path(".env"), "--path", help="The credentials file to use")
 
 
-@app.command("init-env")
+@app.command("init-env", rich_help_panel="Setup")
 def init_env_command(path: Path = _ENV_PATH_OPTION) -> None:
     """Create this project's `.env` from a template and make sure git ignores it (ADLC-189).
 
@@ -1153,7 +1157,7 @@ def init_env_command(path: Path = _ENV_PATH_OPTION) -> None:
     )
 
 
-@app.command("check-env")
+@app.command("check-env", rich_help_panel="Setup")
 def check_env_command(
     path: Path = _ENV_PATH_OPTION,
     verify: bool = typer.Option(
