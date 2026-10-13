@@ -105,7 +105,7 @@ def test_normalise_keeps_every_source_inside_the_guardrail(
 ) -> None:
     out = normalise_todos(raw)
     assert len(out) == expected_len and MIN_TODOS <= len(out) <= MAX_TODOS
-    assert out[-1].lower().startswith("test")
+    assert "test" in out[-1].lower()
 
 
 def test_normalise_adds_a_tests_todo_when_the_agent_forgot_it() -> None:
@@ -188,3 +188,28 @@ def test_an_agent_answer_without_todos_is_an_error(monkeypatch) -> None:
     monkeypatch.setattr(agent_runner, "run_plan", fake_run_plan)
     with pytest.raises(ValueError, match="no `todos` list"):
         asyncio.run(split_with_agent(Task(id="t1", title="x"), cwd="."))
+
+
+def test_a_tests_item_that_does_not_start_with_tests_is_not_duplicated() -> None:
+    # a real agent run produced "Write and run tests ..." in the middle of its list
+    raw = ["Scope it", "Write and run tests for the change", "Wire the API", "Ship it"]
+    out = normalise_todos(raw)
+    assert out[-1] == "Write and run tests for the change" and len(out) == 4
+    assert sum("test" in t.lower() for t in out) == 1
+
+
+def test_a_word_that_merely_contains_test_is_not_a_tests_item() -> None:
+    out = normalise_todos(["Update the latest release notes", "Wire it up"])
+    assert out[-1] == TESTS_TODO and "Update the latest release notes" in out
+
+
+def test_hybrid_waits_for_a_pending_proposal_instead_of_writing_the_steps() -> None:
+    # sync-plan before --approve must not bake the five steps in (they'd read as the author's own)
+    plan = _plan()
+    bare_id = plan.categories[0].tasks[1].id
+    pending = Proposal(approved=False, tasks={bare_id: ["Do x", "Tests: x"]})
+    assert fill_todos(plan, "hybrid", pending) == {}
+    assert plan.categories[0].tasks[1].todos == []
+    # a pending proposal that does not cover this Task changes nothing
+    other = Proposal(approved=False, tasks={"someone-else": ["a", "b"]})
+    assert list(fill_todos(_plan(), "hybrid", other).values()) == ["steps"]

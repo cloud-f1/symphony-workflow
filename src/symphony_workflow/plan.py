@@ -172,7 +172,7 @@ def check_plan(plan: Plan) -> list[Finding]:
                     Finding("many_todos", tw, f"{m} To-Dos: aim for {MIN_TODOS} to {MAX_TODOS}")
                 )
             is_steps = tuple(t.title for t in task.todos) == STEP_TITLES
-            if not is_steps and not task.todos[-1].title.strip().lower().startswith("test"):
+            if not is_steps and not re.search(r"\btest", task.todos[-1].title, re.IGNORECASE):
                 findings.append(Finding("no_tests_todo", tw, "the last To-Do should be the tests"))
     return findings
 

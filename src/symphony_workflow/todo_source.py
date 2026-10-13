@@ -17,6 +17,7 @@ normalised to it (`normalise_todos`), an own breakdown outside it is passed thro
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from symphony_workflow.safepath import check_inside
 PROPOSAL_JSON = "docs/context/todo-proposal.json"
 PROPOSAL_MD = "docs/context/todo-proposal.md"
 TESTS_TODO = "Tests: cover the acceptance criteria"
+_TESTS_WORD = re.compile(r"\btest", re.IGNORECASE)  # test, tests, testing; not "latest"
 
 # What the agent is asked for: a flat list, nothing else. The code decides where it goes.
 TODO_SPLIT_SCHEMA = {
@@ -53,8 +55,10 @@ def five_steps() -> list[Todo]:
 def normalise_todos(titles: list[str]) -> list[str]:
     """Inside the guardrail: no blanks, at most `MAX_TODOS`, the last one is the tests."""
     cleaned = [t.strip() for t in titles if t and t.strip()]
-    tests = next((t for t in reversed(cleaned) if t.lower().startswith("test")), TESTS_TODO)
-    body = [t for t in cleaned if t != tests]
+    # An agent words the tests item freely ("Write and run tests ..."): any item that mentions tests
+    # counts, and is moved last; only when there is none is one added.
+    tests = next((t for t in reversed(cleaned) if _TESTS_WORD.search(t)), TESTS_TODO)
+    body = [t for t in cleaned if t != tests and not _TESTS_WORD.search(t)]
     body = body[: MAX_TODOS - 1]
     result = [*body, tests]
     while len(result) < MIN_TODOS:  # a lone item is a Task, not a To-Do list
@@ -159,6 +163,8 @@ def fill_todos(plan: Plan, source: str, proposal: Proposal | None = None) -> dic
                 task.todos = [Todo(title=t) for t in normalise_todos(titles)]
                 origins[task_id] = "proposal"
                 continue
+        if source == "hybrid" and proposal and not proposal.approved and task_id in proposal.tasks:
+            continue  # a reviewer is looking at this one; writing the steps now would hide it
         if source in ("hybrid", "steps"):
             task.todos = five_steps()
             origins[task_id] = "steps"
