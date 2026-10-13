@@ -113,7 +113,7 @@ in-process (a fourth way to drive a ticket, alongside the API, the poller, and `
   `docs/context/plan-sync.json` after confirming), `import-plan` reads epics-as-markdown files into the neutral plan,
   `sync-plan --to markdown` writes it back as Markdown (idempotent, only managed blocks, never deletes). With no
   config `sync-plan` prints the recommendation and exits 1 without touching anything. Jira and Linear sinks come in
-  later stories (ADLC-203). `profile_project` / `import_plan` are also tools and `call` runs them without Jira credentials.
+  later stories (ADLC-203). **`split-todos [--approve]`** (ADLC-201) proposes To-Dos for Tasks with none behind a review file; `sync-plan` uses only an approved one, else the five steps. `profile_project` / `import_plan` are also tools and `call` runs them without Jira credentials.
 
 See `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for design detail.
 
@@ -209,6 +209,7 @@ src/symphony_workflow/
   epics_md.py     # source adapter: an epics-as-markdown project's files -> the neutral plan
   project_profile.py # `profile`: read how a project works, recommend a plan-sync setup (names only, no secrets)
   markdown_sink.py   # neutral plan -> Athena-compatible .md files (managed blocks only), checkbox state back
+  todo_source.py  # layer-3 To-Dos: approved agent proposal (split-todos), five workflow steps, 2-to-6 guardrail
   safepath.py     # run_git (repo-config command execution off), is_safe (no symlinks out of the project), scoped_path
   poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements.
                   # Optional triage cadence (ADLC-29, off by default): a slower, batched agent

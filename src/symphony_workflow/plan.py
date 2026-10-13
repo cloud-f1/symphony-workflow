@@ -52,6 +52,8 @@ def strip_comment_marker(text: str) -> str:
 MIN_TASKS, MAX_TASKS = 2, 8
 MIN_TODOS, MAX_TODOS = 2, 6
 SPLIT_TODOS = 8  # above this the message says "split the Task"
+# The fixed fallback To-Dos (ADLC-201): they line up with the Athena status matrix columns.
+STEP_TITLES = ("Spec", "Implement", "Tests and QA", "Commit", "Merge")
 
 
 class Todo(BaseModel):
@@ -169,7 +171,8 @@ def check_plan(plan: Plan) -> list[Finding]:
                 findings.append(
                     Finding("many_todos", tw, f"{m} To-Dos: aim for {MIN_TODOS} to {MAX_TODOS}")
                 )
-            if not task.todos[-1].title.strip().lower().startswith("test"):
+            is_steps = tuple(t.title for t in task.todos) == STEP_TITLES
+            if not is_steps and not task.todos[-1].title.strip().lower().startswith("test"):
                 findings.append(Finding("no_tests_todo", tw, "the last To-Do should be the tests"))
     return findings
 

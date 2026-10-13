@@ -1324,3 +1324,71 @@ def test_call_runs_local_tools_without_any_jira_credentials(monkeypatch, tmp_pat
     bad_args = json.dumps({"path": str(root), "include_done": "maybe"})
     bad = runner.invoke(app, ["call", "import_plan", bad_args])
     assert bad.exit_code == 1
+
+
+# ---- split-todos and the To-Do sources in sync-plan (plan 0008, ADLC-201) ----
+
+
+def _configured(tmp_path: Path, todo_source: str) -> Path:
+    root = _plan_project(tmp_path)
+    (root / "docs/context").mkdir(parents=True, exist_ok=True)
+    (root / "docs/context/plan-sync.json").write_text(
+        json.dumps({"tracker": "markdown", "plan_source": "epics-md", "todo_source": todo_source})
+    )
+    return root
+
+
+def test_sync_plan_fills_the_five_steps_for_a_task_without_a_breakdown(tmp_path: Path) -> None:
+    root = _configured(tmp_path, "steps")
+    result = runner.invoke(app, ["sync-plan", "--path", str(root), "--include-done"])
+    assert result.exit_code == 0 and "To-Dos for E4: from steps" in result.output
+    text = (root / "docs/epics").glob("e4-*.md").__next__().read_text()
+    assert "- [ ] Spec" in text and "- [ ] Merge" in text
+
+
+def test_sync_plan_with_ai_split_but_no_proposal_says_what_to_run(tmp_path: Path) -> None:
+    root = _configured(tmp_path, "ai-split")
+    result = runner.invoke(app, ["sync-plan", "--path", str(root), "--include-done"])
+    assert result.exit_code == 0 and "run `split-todos`" in result.output
+    assert "from steps" not in result.output
+
+
+def test_split_todos_writes_a_pending_proposal_and_approve_unlocks_it(
+    monkeypatch, tmp_path: Path
+) -> None:
+    root = _configured(tmp_path, "ai-split")
+
+    async def fake_split(task, *, cwd):
+        return ["Build it", "Tests: it"]
+
+    monkeypatch.setattr(cli_module, "split_with_agent", fake_split)
+    made = runner.invoke(app, ["split-todos", "--path", str(root), "--include-done"])
+    assert made.exit_code == 0, made.output
+    saved = json.loads((root / "docs/context/todo-proposal.json").read_text())
+    assert saved["approved"] is False and saved["tasks"]
+
+    before = runner.invoke(app, ["sync-plan", "--path", str(root), "--include-done"])
+    assert "from proposal" not in before.output  # not approved yet: nothing is used
+
+    approved = runner.invoke(app, ["split-todos", "--path", str(root), "--approve"])
+    assert approved.exit_code == 0 and "Approved" in approved.output
+    after = runner.invoke(app, ["sync-plan", "--path", str(root), "--include-done"])
+    assert "from proposal" in after.output
+
+
+def test_split_todos_reports_an_agent_failure_with_exit_3(monkeypatch, tmp_path: Path) -> None:
+    root = _configured(tmp_path, "ai-split")
+
+    async def boom(task, *, cwd):
+        raise cli_module.AgentRunError("no auth")
+
+    monkeypatch.setattr(cli_module, "split_with_agent", boom)
+    result = runner.invoke(app, ["split-todos", "--path", str(root), "--include-done"])
+    assert result.exit_code == 3 and "no auth" in result.output
+    assert not (root / "docs/context/todo-proposal.json").exists()
+
+
+def test_split_todos_approve_without_a_proposal_is_a_clean_error(tmp_path: Path) -> None:
+    root = _configured(tmp_path, "ai-split")
+    result = runner.invoke(app, ["split-todos", "--path", str(root), "--approve"])
+    assert result.exit_code == 2 and "split-todos" in result.output
