@@ -1,0 +1,60 @@
+$ symphony-workflow sync-plan --path . --from epics-md --to linear --project "Demo plan" --dry-run
+  To-Dos for E4: from steps
+Linear project: Demo plan (dry run, nothing written)
+  Would create milestone Phase 2
+  Would create issue     Login page
+  Would create sub-issue Build the form
+  Would create sub-issue Wire the API
+  Would create sub-issue Tests
+  Would create issue     Reports
+  Would create sub-issue Phase 1 — Data layer
+  Would create sub-issue Phase 2 — UI
+  Would create milestone Unphased
+  Would create issue     Not in any phase
+  Would create sub-issue Spec
+  Would create sub-issue Implement
+  Would create sub-issue Tests and QA
+  Would create sub-issue Commit
+  Would create sub-issue Merge
+  WARNING unphased one_task: a Category with one Task is really a Task
+
+$ symphony-workflow sync-plan --path . --from epics-md --to linear --project "Demo plan"
+  To-Dos for E4: from steps
+Linear project: Demo plan
+  Created      milestone Phase 2
+  Created      issue     Login page
+  Created      sub-issue Build the form
+  Created      sub-issue Wire the API
+  Created      sub-issue Tests
+  Created      issue     Reports
+  Created      sub-issue Phase 1 — Data layer
+  Created      sub-issue Phase 2 — UI
+  Created      milestone Unphased
+  Created      issue     Not in any phase
+  Created      sub-issue Spec
+  Created      sub-issue Implement
+  Created      sub-issue Tests and QA
+  Created      sub-issue Commit
+  Created      sub-issue Merge
+  WARNING unphased one_task: a Category with one Task is really a Task
+
+# run it again: nothing to create or update
+$ symphony-workflow sync-plan --path . --from epics-md --to linear --project "Demo plan"
+  To-Dos for E4: from steps
+Linear project: Demo plan
+  Unchanged    milestone Phase 2
+  Unchanged    issue     Login page
+  Unchanged    sub-issue Build the form
+  Unchanged    sub-issue Wire the API
+  Unchanged    sub-issue Tests
+  Unchanged    issue     Reports
+  Unchanged    sub-issue Phase 1 — Data layer
+  Unchanged    sub-issue Phase 2 — UI
+  Unchanged    milestone Unphased
+  Unchanged    issue     Not in any phase
+  Unchanged    sub-issue Spec
+  Unchanged    sub-issue Implement
+  Unchanged    sub-issue Tests and QA
+  Unchanged    sub-issue Commit
+  Unchanged    sub-issue Merge
+  WARNING unphased one_task: a Category with one Task is really a Task

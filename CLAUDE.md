@@ -269,6 +269,10 @@ uv run ruff format .             # format
 uv run symphony-workflow list-tools     # sanity-check the tool registry
 ```
 
+## README and snapshots
+
+`README.md` (guidance first, reference below `## Reference`) and `README.zh-TW.md` carry real output as snapshots from `docs/snapshots/*.txt`, marked `<!-- snapshot: docs/snapshots/NN-name.txt -->` before each code block; `tests/test_readme.py` checks both languages have the same headings and snapshots and that every block is a verbatim excerpt. The files were captured by running the commands in a throwaway directory with `--path .` (so no local path appears) against `tests/_athena.make_project`, a real model for the To-Do proposal, and a throwaway Linear project and Jira tree deleted afterwards; if you re-capture, do the same and re-read the output for names before committing (this repo is public).
+
 ## Secrets
 
 Real credentials live only in a local, gitignored `.env` (`symphony-workflow init-env` creates it from a

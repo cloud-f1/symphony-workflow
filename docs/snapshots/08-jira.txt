@@ -1,0 +1,60 @@
+$ symphony-workflow sync-plan --path . --from epics-md --to jira --project ADLC --dry-run
+  To-Dos for E4: from steps
+Jira project: ADLC (dry run, nothing written)
+  Would create epic     Phase 2
+  Would create story    Login page
+  Would create subtask  Build the form
+  Would create subtask  Wire the API
+  Would create subtask  Tests
+  Would create story    Reports
+  Would create subtask  Phase 1 — Data layer
+  Would create subtask  Phase 2 — UI
+  Would create epic     Unphased
+  Would create story    Not in any phase
+  Would create subtask  Spec
+  Would create subtask  Implement
+  Would create subtask  Tests and QA
+  Would create subtask  Commit
+  Would create subtask  Merge
+  WARNING unphased one_task: a Category with one Task is really a Task
+
+$ symphony-workflow sync-plan --path . --from epics-md --to jira --project ADLC
+  To-Dos for E4: from steps
+Jira project: ADLC
+  Created      epic     Phase 2 ADLC-311
+  Created      story    Login page ADLC-312
+  Created      subtask  Build the form ADLC-313
+  Created      subtask  Wire the API ADLC-314
+  Created      subtask  Tests ADLC-315
+  Created      story    Reports ADLC-316
+  Created      subtask  Phase 1 — Data layer ADLC-317
+  Created      subtask  Phase 2 — UI ADLC-318
+  Created      epic     Unphased ADLC-319
+  Created      story    Not in any phase ADLC-320
+  Created      subtask  Spec ADLC-321
+  Created      subtask  Implement ADLC-322
+  Created      subtask  Tests and QA ADLC-323
+  Created      subtask  Commit ADLC-324
+  Created      subtask  Merge ADLC-325
+  WARNING unphased one_task: a Category with one Task is really a Task
+
+# run it again: nothing to create or update
+$ symphony-workflow sync-plan --path . --from epics-md --to jira --project ADLC
+  To-Dos for E4: from steps
+Jira project: ADLC
+  Unchanged    epic     Phase 2 ADLC-311
+  Unchanged    story    Login page ADLC-312
+  Unchanged    subtask  Build the form ADLC-313
+  Unchanged    subtask  Wire the API ADLC-314
+  Unchanged    subtask  Tests ADLC-315
+  Unchanged    story    Reports ADLC-316
+  Unchanged    subtask  Phase 1 — Data layer ADLC-317
+  Unchanged    subtask  Phase 2 — UI ADLC-318
+  Unchanged    epic     Unphased ADLC-319
+  Unchanged    story    Not in any phase ADLC-320
+  Unchanged    subtask  Spec ADLC-321
+  Unchanged    subtask  Implement ADLC-322
+  Unchanged    subtask  Tests and QA ADLC-323
+  Unchanged    subtask  Commit ADLC-324
+  Unchanged    subtask  Merge ADLC-325
+  WARNING unphased one_task: a Category with one Task is really a Task
