@@ -14,7 +14,7 @@ Epic A **Adaptive plan sync: AI and Athena plans to Jira, Linear or Markdown, tw
 | S4 Layer-3 To-Do generation | pass implementation phases through; AI split behind the review gate; five-step fallback; 2-to-6 guardrail; Tests |
 | S5 Markdown sink | render index, Task files, To-Do checklists; parse checkbox state back; idempotent re-run; `sync-plan --to markdown`; Tests |
 | S6 Linear sink | `TrackerClient` create / update / children; ProjectMilestone and sub-issues; Linear status mapping; `sync-plan --to linear`; Tests |
-| S7 Two-way status sync | status mapping tables; `--pull` and `--push`; conflict detection and reporting; `on-approve` hook decision; Tests |
+| S7 Two-way status sync | status mapping tables; `--pull` and `--push`; conflict detection and reporting; Tests (`on-approve` is deferred, see spec) |
 | S8 Docs, skills and release | README and QUICKSTART; `CLAUDE.md`; plugin skills (both copies); CHANGELOG, version bump, release script check for `marketplace.json`; Tests of the docs examples where possible |
 
 Epic B **Plan-sync adoption review (stage 2)** — one Story, opened only when Epic A is Done.

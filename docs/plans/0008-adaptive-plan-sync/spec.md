@@ -58,8 +58,8 @@ Status mapping for the Task: its status is the **furthest finished step** of the
 
 ## 5. Push and record modes (the project picks)
 
-- **push**: `manual` (default; run `sync-plan`, `--dry-run` first), `on-approve` (an optional hook that runs `sync-plan` after
-  a plan is approved). Never on Implement.
+- **push**: `manual` (the only mode in the first release; run `sync-plan`, `--dry-run` first). `on-approve` (a hook that runs
+  `sync-plan` after a plan is approved) comes later. Never on Implement.
 - **record**: `markdown` (default; the Athena-compatible files plus `sync-state.json` mirror the tracker), `none`.
 - **direction**: `--push` (plan to tracker), `--pull` (tracker status to plan), default both, in that order.
 
@@ -97,7 +97,9 @@ files and does not call those scripts. Unknown sections are preserved on write.
 Every new capability gets a CLI subcommand and a registered tool, with `respx`-mocked tests. Decompose an Epic into Stories
 before building (`CLAUDE.md`). No credential, personal path or consumer project name in code, tests or docs. Public repo.
 
-## Open questions
+## Decisions on the last open questions *(agreed 2026-10-13, the owner took the recommendations)*
 
-1. Is `on-approve` worth building in the first release, or only `manual`?
-2. Should `profile --write` run automatically the first time `sync-plan` is invoked in an unconfigured project?
+1. **Push mode in the first release: `manual` only.** `on-approve` stays out until `manual` has been used on a real project.
+2. **No silent first-run write.** In an unconfigured project `sync-plan` prints the `profile` recommendation and stops with a
+   non-zero exit; the config file is only written by `profile --write` after the user confirms. No tracker or file is touched
+   before that.
