@@ -1,0 +1,19 @@
+$ symphony-workflow init-env
+Created .env (owner-only permissions).
+Added .env to .gitignore.
+Next: fill in JIRA_BASE_URL, JIRA_EMAIL and JIRA_API_TOKEN, then run `symphony-workflow check-env --verify`.
+
+$ symphony-workflow check-env
+.env: found
+  MISSING  JIRA_BASE_URL
+  MISSING  JIRA_EMAIL
+  MISSING  JIRA_API_TOKEN
+(exit 1)
+
+# you paste the base URL and your e-mail, forget the token:
+$ symphony-workflow check-env
+.env: found
+  ok       JIRA_BASE_URL
+  ok       JIRA_EMAIL
+  MISSING  JIRA_API_TOKEN
+(exit 1)

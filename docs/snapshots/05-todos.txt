@@ -1,0 +1,27 @@
+$ symphony-workflow split-todos --path .
+Proposed To-Dos for 1 Task(s): docs/context/todo-proposal.md
+Review docs/context/todo-proposal.json, then run `symphony-workflow split-todos --approve`.
+
+# docs/context/todo-proposal.json is what you review and edit:
+{
+  "approved": false,
+  "tasks": {
+    "E4": [
+      "Clarify and document the scope/requirements for this task (since it's currently in no phase and criteria is unspecified)",
+      "Implement the core change needed to satisfy the requirement",
+      "Update related docs/config and wire the change into the existing system",
+      "Write and run tests covering the acceptance criteria, confirm they pass"
+    ]
+  }
+}
+
+$ symphony-workflow split-todos --path . --approve
+Approved 1 Task(s) in docs/context/todo-proposal.json.
+
+$ symphony-workflow sync-plan --path . --from epics-md --to markdown
+  To-Dos for E4: from proposal
+  Updated      docs/epics/e1-login.md
+  Updated      docs/epics/e2-reports.md
+  Updated      docs/epics/e4-loose.md
+  Created      docs/epics/EPIC_INDEX.md
+  WARNING unphased one_task: a Category with one Task is really a Task

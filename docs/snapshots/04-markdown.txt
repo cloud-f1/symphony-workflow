@@ -1,0 +1,23 @@
+$ symphony-workflow sync-plan --path . --from epics-md --to markdown --dry-run
+  To-Dos for E4: from steps
+  Would update docs/epics/e1-login.md
+  Would update docs/epics/e2-reports.md
+  Would update docs/epics/e4-loose.md
+  Would create docs/epics/EPIC_INDEX.md
+  WARNING unphased one_task: a Category with one Task is really a Task
+
+$ symphony-workflow sync-plan --path . --from epics-md --to markdown
+  To-Dos for E4: from steps
+  Updated      docs/epics/e1-login.md
+  Updated      docs/epics/e2-reports.md
+  Updated      docs/epics/e4-loose.md
+  Created      docs/epics/EPIC_INDEX.md
+  WARNING unphased one_task: a Category with one Task is really a Task
+
+# run it again: nothing to do
+$ symphony-workflow sync-plan --path . --from epics-md --to markdown
+  Unchanged    docs/epics/e1-login.md
+  Unchanged    docs/epics/e2-reports.md
+  Unchanged    docs/epics/e4-loose.md
+  Unchanged    docs/epics/EPIC_INDEX.md
+  WARNING unphased one_task: a Category with one Task is really a Task

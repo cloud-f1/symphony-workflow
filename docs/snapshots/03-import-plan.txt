@@ -1,0 +1,9 @@
+$ symphony-workflow import-plan --path .
+plan: 2 categor(ies), 3 task(s), 5 to-do(s)
+  phase-2  Phase 2  [in_progress]
+    E1  Login page  [in_progress]  (3 to-dos)
+    E2  Reports  [todo]  (2 to-dos)
+  unphased  Unphased  [todo]
+    E4  Not in any phase  [todo]  (0 to-dos)
+  WARNING unphased one_task: a Category with one Task is really a Task
+  WARNING E4 no_todos: no To-Dos yet (layer-3 generation fills them in)

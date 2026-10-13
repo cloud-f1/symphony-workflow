@@ -1,0 +1,24 @@
+# in Linear someone moves 'Build the form' to Done; you pull it:
+$ symphony-workflow sync-status --path . --to linear --project "Demo plan"
+Linear project: Demo plan
+  pull      to-do  E1.d1  plan=todo tracker=done (last sync: todo)
+  1 pull
+
+# you tick 'Wire the API' in docs/epics/e1-login.md; push it:
+$ symphony-workflow sync-status --path . --to linear --project "Demo plan"
+Linear project: Demo plan
+  push      to-do  E1.d2  plan=done tracker=todo (last sync: todo)
+  1 push
+
+# nothing left to do:
+$ symphony-workflow sync-status --path . --to linear --project "Demo plan"
+Linear project: Demo plan
+  nothing to do
+
+# both sides change 'Tests' differently: a conflict, left alone
+$ symphony-workflow sync-status --path . --to linear --project "Demo plan"
+Linear project: Demo plan
+  conflict  to-do  E1.d3  plan=done tracker=in_progress (last sync: todo)
+  1 conflict
+Conflicts were left as they are: fix one side, then run this again.
+(exit 1)
