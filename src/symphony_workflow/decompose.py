@@ -11,9 +11,8 @@ CLAUDE.md's "Adding a new tool"/layering notes and the ADLC-46 ticket's
 design guidance).
 
 Renders `docs/runs/<epic-key>/decomposition.md` (human review) and
-`decomposition.json` (the structured seam a later `sync-decomposition`
-command — ADLC-47, not built here — will read to create the real Jira
-Stories/Subtasks once a human has reviewed the markdown).
+`decomposition.json` (the structured seam `sync-decomposition` reads to
+create the real Jira Stories/Subtasks once a human has reviewed the markdown).
 """
 
 from __future__ import annotations

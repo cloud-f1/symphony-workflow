@@ -43,7 +43,7 @@ if [ -n "$status" ]; then
 fi
 
 if [ ! -f "$REPO_ROOT/.env" ]; then
-  emit "symphony-workflow API server is not running, and $REPO_ROOT/.env is missing -- cannot auto-start. Copy .env.example to .env and fill in Jira credentials first."
+  emit "symphony-workflow API server is not running, and $REPO_ROOT/.env is missing -- cannot auto-start. Run `symphony-workflow init-env` there, fill in the empty keys, then `symphony-workflow check-env --verify`."
   exit 0
 fi
 

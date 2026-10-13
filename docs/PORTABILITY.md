@@ -190,7 +190,7 @@ at the repo root makes this repo itself a (private, single-plugin) marketplace.
 ```
 # 1. Clone and set up the actual CLI/server (still required, plugin or not):
 git clone https://github.com/cloud-f1/symphony-workflow
-cd symphony-workflow && uv sync --extra dev && cp .env.example .env   # fill in Jira creds
+cd symphony-workflow && uv sync --extra dev && uv run symphony-workflow init-env   # then fill in the Jira creds; check with `check-env --verify`
 
 # 2. Add this repo as a plugin marketplace, then install from it, from inside
 #    a Claude Code session (either a private GitHub remote or a local path

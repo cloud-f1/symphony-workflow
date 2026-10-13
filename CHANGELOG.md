@@ -7,6 +7,10 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.9.2 — 2026-10-13
+
+**Refresh of everything a person or an agent reads** (plan 0008 stage 3, ADLC-208): `symphony-workflow --help` groups the commands in panels (Tickets, Plan and implement, Plan sync, Setup, Agent tool calls); `sync-plan`'s help describes all three sinks and its exit codes; the `create_issue` and `add_comment` tool descriptions carry the two gotchas that cost real time (`parent` vs `epic`, wiki markup instead of Markdown); the SessionStart hooks, both skills and `docs/PORTABILITY.md` say `init-env` / `check-env` instead of `cp .env.example`; two docstrings that still called `sync-decomposition` unbuilt are fixed; the plugin description and keywords name what it ships. New `tests/test_surface.py` fails when a command is missing from a help panel, a tool description is thin, the two skill copies drift (sections that differ on purpose are listed and explained), or a hook points at the old setup; it caught existing drift between the copies on its first run, both intentional.
+
 ## 0.9.1 — 2026-10-13
 
 **Security fix in the Jira sink** (found by an automated review of the 0.9.0 commit, reproduced first): the id-to-key map in `docs/context/sync-state.json` is a file in the project directory, which may be someone else's, and 0.9.0 trusted it blindly, so a map naming another project's ticket (or a ticket in the same project that this plan did not create) made `sync-plan --to jira` overwrite its summary and description and `sync-status --to jira` move it. A key is now used only when it is in the target project and the card carries this entry's own `sd-id:` marker; otherwise it is dropped and the entry is found by marker or created. `JiraStatusBackend` takes `project_key` and applies the same check; `sync-status --to jira` takes it from `--project`, `SYMPHONY_WORKFLOW_JIRA_PROJECT`, or the keys already in the map. Ids are unique per plan, so two plans must not sync into one Jira project. Re-verified live on a throwaway tree.
