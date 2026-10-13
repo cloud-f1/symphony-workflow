@@ -38,7 +38,7 @@ import typer
 
 from symphony_workflow.agent_runner import AgentRunError
 from symphony_workflow.client import JiraClient, JiraError
-from symphony_workflow.config import ConfigError
+from symphony_workflow.config import ConfigError, LinearConfig
 from symphony_workflow.decompose import DecomposeError, assign_ids, execute_decompose
 from symphony_workflow.drift import DiffReport, apply_update, diff_decomposition
 from symphony_workflow.envsetup import EnvExistsError, check_env, init_env, verify_env
@@ -51,6 +51,8 @@ from symphony_workflow.hierarchy import (
     add_subtasks,
     audit,
 )
+from symphony_workflow.linear_client import LinearClient, LinearError
+from symphony_workflow.linear_sink import sync_plan_to_linear
 from symphony_workflow.markdown_sink import write_markdown
 from symphony_workflow.orchestrator import (
     RUNS_DOCS_ROOT,
@@ -845,7 +847,10 @@ def sync_plan_command(
         None, "--from", help="epics-md or decomposition (default: the config)"
     ),
     epic: str | None = typer.Option(None, "--epic", help="Epic key, for --from decomposition"),
-    to: str | None = typer.Option(None, "--to", help="markdown (jira and linear come later)"),
+    to: str | None = typer.Option(None, "--to", help="markdown or linear (jira comes later)"),
+    project: str | None = typer.Option(
+        None, "--project", help="Linear project name (default: the plan's name)"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change, write nothing"),
     include_done: bool = typer.Option(False, "--include-done", help="Also sync completed phases"),
 ) -> None:
@@ -875,10 +880,9 @@ def sync_plan_command(
     config = config or PlanSyncConfig()
     source = source or config.plan_source
     to = to or config.tracker
-    if to != "markdown":
+    if to not in ("markdown", "linear"):
         typer.echo(
-            f"The {to} sink is not built yet (plan 0008, Story ADLC-203); use --to markdown.",
-            err=True,
+            f"The {to} sink is not built yet (plan 0008); use --to markdown or linear.", err=True
         )
         raise typer.Exit(code=2)
     if source == "epics-md":
@@ -904,6 +908,9 @@ def sync_plan_command(
     origins = fill_todos(plan, config.todo_source, proposal)
     for task_id, origin in origins.items():
         typer.echo(f"  To-Dos for {task_id}: from {origin}")
+    if to == "linear":
+        _sync_plan_to_linear(plan, project or plan.name or path.resolve().name, dry_run)
+        return
     try:
         changes = write_markdown(plan, path, dry_run=dry_run)
     except UnsafePathError as exc:
@@ -921,6 +928,27 @@ def sync_plan_command(
         f.rule == "no_todos" for f in check_plan(plan)
     ):
         typer.echo("  Some Tasks have no To-Dos: run `split-todos`, review, then `--approve`.")
+
+
+def _sync_plan_to_linear(plan: Plan, project: str, dry_run: bool) -> None:
+    try:
+        config = LinearConfig.from_env()
+    except ConfigError as exc:
+        typer.echo(f"{exc} (set them in this project's .env; see `check-env`)", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Linear project: {project}{' (dry run, nothing written)' if dry_run else ''}")
+    try:
+        with LinearClient(config) as client:
+            changes = sync_plan_to_linear(plan, client, project_name=project, dry_run=dry_run)
+    except LinearError as exc:
+        typer.echo(f"Linear error: {exc}", err=True)
+        raise typer.Exit(code=3) from exc
+    label = {"create": "Would create" if dry_run else "Created",
+             "update": "Would update" if dry_run else "Updated"}  # fmt: skip
+    for change in changes:
+        typer.echo(f"  {label.get(change.action, 'Unchanged'):12} {change.kind:9} {change.title}")
+    for f in check_plan(plan):
+        typer.echo(f"  WARNING {f.where} {f.rule}: {f.detail}")
 
 
 @app.command("split-todos")

@@ -323,3 +323,109 @@ def test_http_error_status_raises_linear_error(linear_config: LinearConfig) -> N
     respx.post(f"{LINEAR_API_URL}/").mock(return_value=httpx.Response(401, text="Unauthorized"))
     with LinearClient(linear_config) as client, pytest.raises(LinearError, match="401"):
         client.get_myself()
+
+
+# ---- plan-sync writes (ADLC-203) ----
+
+
+def _mock_one(marker: str, data: dict) -> None:
+    respx.post(f"{LINEAR_API_URL}/").mock(side_effect=_route_for(marker, {"data": data}))
+
+
+@respx.mock
+def test_resolve_team_id_and_a_missing_team(linear_config: LinearConfig) -> None:
+    _mock_one("query Team", {"teams": {"nodes": [{"id": "team-1", "key": "GAI"}]}})
+    assert LinearClient(linear_config).resolve_team_id() == "team-1"
+    respx.reset()
+    _mock_one("query Team", {"teams": {"nodes": []}})
+    with pytest.raises(LinearError, match="No Linear team"):
+        LinearClient(linear_config).resolve_team_id()
+
+
+@respx.mock
+def test_find_project_is_a_read_and_returns_none_when_absent(linear_config: LinearConfig) -> None:
+    _mock_one("query Project(", {"projects": {"nodes": []}})
+    assert LinearClient(linear_config).find_project("Nope") is None
+
+
+@respx.mock
+def test_create_project_sends_the_team_and_fails_loudly(linear_config: LinearConfig) -> None:
+    sent: list[dict] = []
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content)["variables"])
+        return httpx.Response(200, json={"data": {"projectCreate": {"success": False}}})
+
+    respx.post(f"{LINEAR_API_URL}/").mock(side_effect=responder)
+    with pytest.raises(LinearError, match="Failed to create project"):
+        LinearClient(linear_config).create_project("P", "team-1")
+    assert sent[0]["input"] == {"name": "P", "teamIds": ["team-1"]}
+
+
+@respx.mock
+def test_list_project_issues_follows_pagination(linear_config: LinearConfig) -> None:
+    pages = iter(
+        [
+            {"nodes": [{"id": "a"}], "pageInfo": {"hasNextPage": True, "endCursor": "c1"}},
+            {"nodes": [{"id": "b"}], "pageInfo": {"hasNextPage": False, "endCursor": None}},
+        ]
+    )
+    cursors: list[str | None] = []
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        cursors.append(json.loads(request.content)["variables"]["after"])
+        return httpx.Response(200, json={"data": {"project": {"issues": next(pages)}}})
+
+    respx.post(f"{LINEAR_API_URL}/").mock(side_effect=responder)
+    assert [i["id"] for i in LinearClient(linear_config).list_project_issues("p1")] == ["a", "b"]
+    assert cursors == [None, "c1"]
+
+
+@respx.mock
+def test_create_plan_issue_sends_only_the_fields_that_are_set(linear_config: LinearConfig) -> None:
+    sent: list[dict] = []
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content)["variables"]["input"])
+        ok = {"issueCreate": {"success": True, "issue": {"id": "i1", "identifier": "GAI-1"}}}
+        return httpx.Response(200, json={"data": ok})
+
+    respx.post(f"{LINEAR_API_URL}/").mock(side_effect=responder)
+    client = LinearClient(linear_config)
+    created = client.create_plan_issue(
+        team_id="t", title="T", description="d", parent_id="p", state_id=None
+    )
+    assert created == {"id": "i1", "identifier": "GAI-1"}
+    assert sent[0] == {"teamId": "t", "title": "T", "description": "d", "parentId": "p"}
+
+
+@respx.mock
+def test_update_plan_issue_never_sends_a_state(linear_config: LinearConfig) -> None:
+    sent: list[dict] = []
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content)["variables"])
+        return httpx.Response(200, json={"data": {"issueUpdate": {"success": True}}})
+
+    respx.post(f"{LINEAR_API_URL}/").mock(side_effect=responder)
+    LinearClient(linear_config).update_plan_issue("i1", title="T", description="d")
+    assert sent[0] == {"id": "i1", "input": {"title": "T", "description": "d"}}
+
+
+@respx.mock
+def test_milestone_create_and_update_fail_loudly(linear_config: LinearConfig) -> None:
+    respx.post(f"{LINEAR_API_URL}/").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"projectMilestoneCreate": {"success": False},
+                                "projectMilestoneUpdate": {"success": False}}}
+        )
+    )  # fmt: skip
+    client = LinearClient(linear_config)
+    with pytest.raises(LinearError, match="create milestone"):
+        client.create_project_milestone("p", "M", "d")
+    with pytest.raises(LinearError, match="update milestone"):
+        client.update_project_milestone("m1", "M", "d")
+
+
+def test_the_client_has_no_delete_for_plan_objects() -> None:
+    assert not [n for n in dir(LinearClient) if "delete" in n.lower() or "archive" in n.lower()]
