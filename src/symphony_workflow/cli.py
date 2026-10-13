@@ -75,6 +75,9 @@ from symphony_workflow.project_profile import (
 from symphony_workflow.rollup import RollupAborted, RollupNotFound, RollupResult, rollup
 from symphony_workflow.runs import Run, RunStore, RunTransitionError
 from symphony_workflow.safepath import UnsafePathError
+from symphony_workflow.status_sync import load_state as load_sync_state
+from symphony_workflow.status_sync import save_state as save_sync_state
+from symphony_workflow.status_sync import sync_status
 from symphony_workflow.sync_decomposition import (
     SyncDecompositionError,
     execute_sync_decomposition,
@@ -949,6 +952,76 @@ def _sync_plan_to_linear(plan: Plan, project: str, dry_run: bool) -> None:
         typer.echo(f"  {label.get(change.action, 'Unchanged'):12} {change.kind:9} {change.title}")
     for f in check_plan(plan):
         typer.echo(f"  WARNING {f.where} {f.rule}: {f.detail}")
+
+
+@app.command("sync-status")
+def sync_status_command(
+    path: Path = _ROOT_OPTION,
+    to: str | None = typer.Option(None, "--to", help="linear (the only tracker so far)"),
+    direction: str = typer.Option("both", "--direction", help="both, push or pull"),
+    project: str | None = typer.Option(None, "--project", help="Linear project name"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change, write nothing"),
+    include_done: bool = typer.Option(False, "--include-done", help="Also cover completed phases"),
+) -> None:
+    """Two-way status sync between the plan's checkboxes and Linear (ADLC-204).
+
+    Each To-Do is compared three ways (status at the last sync, in the plan, in Linear): a change on
+    one side moves to the other (pull writes the checkboxes, push moves the card), a change on both
+    sides is a conflict that is reported and left alone. Tasks follow the roll-up of their To-Dos,
+    forward only. Nothing is deleted. Exit codes: 0 ok, 1 conflicts, 2 bad input, 3 Linear failed.
+    """
+    try:
+        config = load_config(path) or PlanSyncConfig()
+        base = load_sync_state(path)
+        proposal = load_proposal(path)
+    except (UnsafePathError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    to = to or config.tracker
+    if to != "linear" or direction not in ("both", "push", "pull"):
+        typer.echo("sync-status needs --to linear and --direction both, push or pull.", err=True)
+        raise typer.Exit(code=2)
+    try:
+        linear_config = LinearConfig.from_env()
+    except ConfigError as exc:
+        typer.echo(f"{exc} (set them in this project's .env; see `check-env`)", err=True)
+        raise typer.Exit(code=2) from exc
+    plan = load_epics_md(path, include_done=include_done or config.include_done)
+    assign_plan_ids(plan)
+    fill_todos(plan, config.todo_source, proposal)
+    name = project or plan.name or path.resolve().name
+    typer.echo(f"Linear project: {name}{' (dry run, nothing written)' if dry_run else ''}")
+    try:
+        with LinearClient(linear_config) as client:
+            report = sync_status(
+                plan, client, project_name=name, base=base, direction=direction,  # type: ignore[arg-type]
+                dry_run=dry_run, status_map=config.status_map,
+            )  # fmt: skip
+    except LinearError as exc:
+        typer.echo(f"Linear error: {exc}", err=True)
+        raise typer.Exit(code=3) from exc
+    for change in report.changes:
+        if change.action == "unchanged":
+            continue
+        typer.echo(
+            f"  {change.action:9} {change.kind:6} {change.id}  "
+            f"plan={change.plan} tracker={change.tracker} (last sync: {change.base})"
+        )
+    counts = {a: sum(1 for c in report.changes if c.action == a) for a in
+              ("pull", "push", "conflict", "orphan", "skipped", "no_state")}  # fmt: skip
+    summary = ", ".join(f"{n} {a}" for a, n in counts.items() if n)
+    typer.echo(f"  {summary or 'nothing to do'}")
+    if not dry_run:
+        try:
+            if counts["pull"]:
+                write_markdown(plan, path)
+            save_sync_state(path, report.new_state)
+        except UnsafePathError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=2) from exc
+    if report.conflicts:
+        typer.echo("Conflicts were left as they are: fix one side, then run this again.", err=True)
+        raise typer.Exit(code=1)
 
 
 @app.command("split-todos")

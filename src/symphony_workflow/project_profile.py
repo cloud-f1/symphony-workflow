@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from symphony_workflow.envsetup import REQUIRED_KEYS, parse_env
 from symphony_workflow.epics_md import (
@@ -56,6 +56,10 @@ class PlanSyncConfig(BaseModel):
     push: Literal["manual"] = "manual"  # `on-approve` is not in the first release
     record: Literal["markdown", "none"] = "markdown"
     include_done: bool = False
+    # Linear workflow-state NAME (lower case) -> plan status, checked before the state category.
+    status_map: dict[str, Literal["todo", "in_progress", "done", "blocked"]] = Field(
+        default_factory=dict
+    )
 
 
 def load_config(root: Path) -> PlanSyncConfig | None:
