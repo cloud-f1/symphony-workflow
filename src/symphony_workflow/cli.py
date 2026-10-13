@@ -59,7 +59,7 @@ from symphony_workflow.orchestrator import (
     execute_implement,
     execute_plan,
 )
-from symphony_workflow.plan import Plan, check_plan, from_decomposition
+from symphony_workflow.plan import Plan, assign_plan_ids, check_plan, from_decomposition
 from symphony_workflow.project_profile import (
     CONFIG_PATH,
     PlanSyncConfig,
@@ -79,6 +79,15 @@ from symphony_workflow.sync_decomposition import (
     load_decomposition,
     load_state,
     save_decomposition,
+)
+from symphony_workflow.todo_source import (
+    PROPOSAL_JSON,
+    approve_proposal,
+    fill_todos,
+    load_proposal,
+    propose,
+    save_proposal,
+    split_with_agent,
 )
 from symphony_workflow.tools import LOCAL_TOOLS, TOOLS, call_tool
 from symphony_workflow.tracker import ConfigError as TrackerConfigError
@@ -887,6 +896,15 @@ def sync_plan_command(
         typer.echo(f"Unknown source {source!r}: use epics-md or decomposition", err=True)
         raise typer.Exit(code=2)
     try:
+        proposal = load_proposal(path)
+    except (UnsafePathError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    assign_plan_ids(plan)
+    origins = fill_todos(plan, config.todo_source, proposal)
+    for task_id, origin in origins.items():
+        typer.echo(f"  To-Dos for {task_id}: from {origin}")
+    try:
         changes = write_markdown(plan, path, dry_run=dry_run)
     except UnsafePathError as exc:
         typer.echo(str(exc), err=True)
@@ -899,6 +917,45 @@ def sync_plan_command(
         typer.echo(f"  {label.get(change.action, 'Unchanged'):12} {change.path}")
     for f in check_plan(plan):
         typer.echo(f"  WARNING {f.where} {f.rule}: {f.detail}")
+    if config.todo_source in ("hybrid", "ai-split") and any(
+        f.rule == "no_todos" for f in check_plan(plan)
+    ):
+        typer.echo("  Some Tasks have no To-Dos: run `split-todos`, review, then `--approve`.")
+
+
+@app.command("split-todos")
+def split_todos_command(
+    path: Path = _ROOT_OPTION,
+    approve: bool = typer.Option(False, "--approve", help="Approve the reviewed proposal"),
+    include_done: bool = typer.Option(False, "--include-done", help="Also cover completed phases"),
+) -> None:
+    """Propose To-Dos for Tasks that have none, behind a human review gate (ADLC-201).
+
+    Runs one read-only agent turn per Task and writes docs/context/todo-proposal.{json,md}. Edit
+    the JSON, then run again with --approve; `sync-plan` only uses an approved proposal, so nothing
+    reaches a tracker before a human has looked. Exit codes: 0 ok, 1 nothing to do, 2 bad input,
+    3 the agent failed.
+    """
+    plan = load_epics_md(path, include_done=include_done)
+    assign_plan_ids(plan)
+    try:
+        if approve:
+            proposal = approve_proposal(path, plan)
+            typer.echo(f"Approved {len(proposal.tasks)} Task(s) in {path / PROPOSAL_JSON}.")
+            return
+        proposal = asyncio.run(propose(plan, lambda t: split_with_agent(t, cwd=str(path))))
+        if not proposal.tasks:
+            typer.echo("Every Task already has To-Dos; nothing to propose.")
+            raise typer.Exit(code=1)
+        json_path, md_path = save_proposal(path, proposal, plan)
+    except (UnsafePathError, ValueError, FileNotFoundError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    except AgentRunError as exc:
+        typer.echo(f"The agent failed: {exc}", err=True)
+        raise typer.Exit(code=3) from exc
+    typer.echo(f"Proposed To-Dos for {len(proposal.tasks)} Task(s): {md_path}")
+    typer.echo(f"Review {json_path}, then run `symphony-workflow split-todos --approve`.")
 
 
 _ENV_PATH_OPTION = typer.Option(Path(".env"), "--path", help="The credentials file to use")
