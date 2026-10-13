@@ -56,6 +56,33 @@ def test_profile_does_not_run_commands_from_the_repo_config(tmp_path: Path) -> N
     assert profile.tracker.key_prefixes == {"PROJ": 1}  # the history is still read
 
 
+def test_profile_does_not_run_gpg_program_from_the_repo_config(tmp_path: Path) -> None:
+    # log.showSignature makes `git log` verify a signed commit, and gpg.program names the verifier.
+    marker = tmp_path / "PWNED-gpg"
+    repo = _evil_repo(tmp_path, tmp_path / "unused")
+    script = tmp_path / "evil-gpg.sh"
+    script.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
+    script.chmod(0o755)
+    tree = subprocess.run(
+        ["git", "-C", str(repo), "write-tree"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    raw = (
+        f"tree {tree}\nauthor t <t@e.c> 1 +0000\ncommitter t <t@e.c> 1 +0000\n"
+        "gpgsig -----BEGIN PGP SIGNATURE-----\n \n x\n -----END PGP SIGNATURE-----\n\n"
+        "feat: signed (PROJ-2)\n"
+    )
+    commit = subprocess.run(
+        ["git", "-C", str(repo), "hash-object", "-t", "commit", "-w", "--stdin"],
+        input=raw, check=True, capture_output=True, text=True,
+    ).stdout.strip()  # fmt: skip
+    subprocess.run(["git", "-C", str(repo), "reset", "-q", "--soft", commit], check=True)
+    for key, value in (("log.showSignature", "true"), ("gpg.program", str(script))):
+        subprocess.run(["git", "-C", str(repo), "config", key, value], check=True)
+    profile = profile_project(repo)
+    assert not marker.exists(), "git ran gpg.program from an untrusted .git/config"
+    assert profile.tracker.key_prefixes == {"PROJ": 1}  # the signed commit is still read
+
+
 def test_check_env_and_init_env_do_not_run_commands_from_the_repo_config(tmp_path: Path) -> None:
     marker = tmp_path / "PWNED-env"
     repo = _evil_repo(tmp_path, marker)

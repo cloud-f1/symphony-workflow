@@ -152,7 +152,7 @@ def _key_prefixes(root: Path) -> dict[str, int]:
         match = _BRANCH_KEY_RE.match(branch.split("/")[-1])
         if match:
             counts[match.group(1)] += 1
-    for subject in _git_lines(root, "log", "-n", "200", "--format=%s"):
+    for subject in _git_lines(root, "log", "--no-show-signature", "-n", "200", "--format=%s"):
         match = _SUBJECT_KEY_RE.search(subject)
         if match:
             counts[match.group(1) or match.group(2)] += 1
