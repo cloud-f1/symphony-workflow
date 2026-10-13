@@ -95,3 +95,21 @@ def test_plugin_metadata_names_what_it_ships() -> None:
     assert "plan sync" in meta["description"].lower() and "linear" in meta["keywords"]
     skills = {p.name for p in (REPO / "plugin/skills").iterdir() if p.is_dir()}
     assert skills == {"symphony-workflow-ops", "jira-ticket-ops"}
+
+
+def test_marketplace_describes_itself_and_matches_the_plugin() -> None:
+    """`claude plugin validate --strict .` fails on a marketplace with no description; an entry that
+    differs from plugin.json confuses people choosing what to install."""
+    import json
+
+    market = json.loads((REPO / ".claude-plugin/marketplace.json").read_text())
+    meta = json.loads((REPO / "plugin/.claude-plugin/plugin.json").read_text())
+    assert market.get("description", "").strip()
+    assert [p["description"] for p in market["plugins"]] == [meta["description"]]
+
+
+def test_the_readmes_say_how_to_install_the_plugin() -> None:
+    line = "/plugin install symphony-workflow-ops --marketplace cloud-f1/symphony-workflow"
+    for name in ("README.md", "README.zh-TW.md"):
+        text = (REPO / name).read_text(encoding="utf-8")
+        assert "/plugin marketplace add cloud-f1/symphony-workflow" in text and line in text
