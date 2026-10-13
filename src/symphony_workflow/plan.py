@@ -53,6 +53,7 @@ MIN_TASKS, MAX_TASKS = 2, 8
 MIN_TODOS, MAX_TODOS = 2, 6
 SPLIT_TODOS = 8  # above this the message says "split the Task"
 # The fixed fallback To-Dos (ADLC-201): they line up with the Athena status matrix columns.
+OWN_ORIGINS = ("checklist", "phases", "stories")
 STEP_TITLES = ("Spec", "Implement", "Tests and QA", "Commit", "Merge")
 
 
@@ -70,6 +71,8 @@ class Task(BaseModel):
     acceptance_criteria: list[str] = Field(default_factory=list)
     status: Status = "todo"
     todos: list[Todo] = Field(default_factory=list)
+    # Where the To-Dos came from: checklist / phases / stories (the author's own), proposal, steps.
+    todo_origin: str = ""
 
 
 class Category(BaseModel):
@@ -172,7 +175,8 @@ def check_plan(plan: Plan) -> list[Finding]:
                     Finding("many_todos", tw, f"{m} To-Dos: aim for {MIN_TODOS} to {MAX_TODOS}")
                 )
             is_steps = tuple(t.title for t in task.todos) == STEP_TITLES
-            if not is_steps and not re.search(r"\btest", task.todos[-1].title, re.IGNORECASE):
+            own = task.todo_origin in OWN_ORIGINS  # an author's own list is not second-guessed
+            if not is_steps and not own and not re.search(r"\btest", task.todos[-1].title, re.I):
                 findings.append(Finding("no_tests_todo", tw, "the last To-Do should be the tests"))
     return findings
 

@@ -161,11 +161,11 @@ def fill_todos(plan: Plan, source: str, proposal: Proposal | None = None) -> dic
             titles = proposal.tasks.get(task_id)
             if titles:
                 task.todos = [Todo(title=t) for t in normalise_todos(titles)]
-                origins[task_id] = "proposal"
+                task.todo_origin = origins[task_id] = "proposal"
                 continue
         if source == "hybrid" and proposal and not proposal.approved and task_id in proposal.tasks:
             continue  # a reviewer is looking at this one; writing the steps now would hide it
         if source in ("hybrid", "steps"):
             task.todos = five_steps()
-            origins[task_id] = "steps"
+            task.todo_origin = origins[task_id] = "steps"
     return origins

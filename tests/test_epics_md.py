@@ -148,3 +148,47 @@ def test_a_project_without_a_progress_table_gets_one_unphased_category(tmp_path:
 
 def test_a_project_with_no_epics_gives_an_empty_plan(tmp_path: Path) -> None:
     assert load_epics_md(tmp_path).categories == []
+
+
+# ---- projects without a phase table: group, do not pile into one category (stage 2 finding) ----
+
+
+def _flat_project(tmp_path: Path, n: int) -> Path:
+    epics = tmp_path / "docs/epics"
+    epics.mkdir(parents=True)
+    for i in range(1, n + 1):
+        (epics / f"e{i}-thing-{i}.md").write_text(f"# E{i} — Thing {i}\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_a_flat_project_is_grouped_in_eights_in_numeric_order(tmp_path: Path) -> None:
+    plan = load_epics_md(_flat_project(tmp_path, 20))
+    assert [len(c.tasks) for c in plan.categories] == [8, 8, 4]
+    assert [c.id for c in plan.categories] == ["unphased", "unphased-2", "unphased-3"]
+    # numeric, not alphabetical: E2 comes before E10, so a group never straddles by accident
+    assert [t.id for t in plan.categories[0].tasks] == [f"E{i}" for i in range(1, 9)]
+    assert plan.categories[1].tasks[0].id == "E9" and plan.categories[2].tasks[-1].id == "E20"
+    assert plan.categories[0].title == "Unphased 1 (E1 to E8)"
+
+
+def test_grouping_ids_stay_put_when_epics_are_added_later(tmp_path: Path) -> None:
+    before = load_epics_md(_flat_project(tmp_path, 10))
+    for i in (11, 12):
+        (tmp_path / f"docs/epics/e{i}-more.md").write_text(f"# E{i} — More\n", encoding="utf-8")
+    after = load_epics_md(tmp_path)
+    assert [c.id for c in before.categories] == ["unphased", "unphased-2"]
+    assert [c.id for c in after.categories] == ["unphased", "unphased-2"]
+    assert [t.id for t in after.categories[0].tasks] == [t.id for t in before.categories[0].tasks]
+
+
+def test_eight_or_fewer_stay_one_unphased_category(tmp_path: Path) -> None:
+    plan = load_epics_md(_flat_project(tmp_path, 8))
+    assert [c.id for c in plan.categories] == ["unphased"]
+    assert plan.categories[0].title == "Unphased"  # unchanged for existing synced projects
+
+
+def test_tasks_carry_where_their_to_dos_came_from(tmp_path: Path) -> None:
+    plan = load_epics_md(make_project(tmp_path), include_done=True)
+    origins = {t.id: t.todo_origin for c in plan.categories for t in c.tasks}
+    assert origins["E1"] == "stories" and origins["E2"] == "phases" and origins["E3"] == "checklist"
+    assert origins["E4"] == ""  # no breakdown of its own
