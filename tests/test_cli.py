@@ -1285,12 +1285,12 @@ def test_sync_plan_uses_the_saved_config(monkeypatch, tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output  # tracker=markdown comes from the recommendation
 
 
-def test_sync_plan_jira_sink_is_not_built_yet(monkeypatch, tmp_path: Path) -> None:
+def test_sync_plan_rejects_an_unknown_sink(monkeypatch, tmp_path: Path) -> None:
     _no_creds(monkeypatch)
     root = _plan_project(tmp_path)
-    args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "jira"]
+    args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "trello"]
     result = runner.invoke(app, args)
-    assert result.exit_code == 2 and "not built yet" in result.output
+    assert result.exit_code == 2 and "Unknown sink" in result.output
 
 
 def test_sync_plan_to_linear_without_credentials_stops_cleanly(monkeypatch, tmp_path: Path) -> None:
@@ -1566,3 +1566,89 @@ def test_sync_status_needs_credentials_and_a_valid_direction(monkeypatch, tmp_pa
         app, ["sync-status", "--path", str(root), "--to", "linear", "--direction", "sideways"]
     )
     assert bad.exit_code == 2
+
+
+# ---- sync-plan / sync-status --to jira (plan 0008, ADLC-275) ----
+
+
+def _jira_env(monkeypatch):
+    from tests.test_jira_sink import FakeJira
+
+    _no_creds(monkeypatch)
+    monkeypatch.setenv("JIRA_BASE_URL", "https://example.atlassian.net")
+    monkeypatch.setenv("JIRA_EMAIL", "a@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "tok-not-printed")
+    monkeypatch.delenv("SYMPHONY_WORKFLOW_JIRA_PROJECT", raising=False)
+    fake = FakeJira()
+
+    class Ctx:
+        def __init__(self, config) -> None:
+            pass
+
+        def __enter__(self):
+            return fake
+
+        def __exit__(self, *exc) -> None:
+            return None
+
+    monkeypatch.setattr(cli_module, "JiraClient", Ctx)
+    return fake
+
+
+def test_sync_plan_to_jira_needs_a_project_key(monkeypatch, tmp_path: Path) -> None:
+    _jira_env(monkeypatch)
+    root = _plan_project(tmp_path)
+    args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "jira"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 2 and "--project KEY" in result.output
+
+
+def test_sync_plan_to_jira_dry_run_then_real_run_then_quiet_rerun(monkeypatch, tmp_path) -> None:
+    fake = _jira_env(monkeypatch)
+    root = _plan_project(tmp_path)
+    args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "jira"]
+    dry = runner.invoke(app, [*args, "--project", "ZZ", "--dry-run"])
+    assert dry.exit_code == 0 and "Would create" in dry.output and not fake.issues
+    assert not (root / "docs/context/sync-state.json").exists()
+    assert "tok-not-printed" not in dry.output
+
+    real = runner.invoke(app, [*args, "--project", "ZZ"])
+    assert real.exit_code == 0 and "Created" in real.output and fake.issues
+    state = json.loads((root / "docs/context/sync-state.json").read_text())
+    assert state["keys"] and all(k.startswith("ZZ-") for k in state["keys"].values())
+
+    fake.calls.clear()
+    again = runner.invoke(app, [*args, "--project", "ZZ"])
+    assert again.exit_code == 0 and "Created" not in again.output and fake.calls == []
+
+
+def test_sync_plan_to_jira_reports_an_api_error_with_exit_3(monkeypatch, tmp_path) -> None:
+    fake = _jira_env(monkeypatch)
+    fake.fail_on = "Login page"
+    root = _plan_project(tmp_path)
+    args = [
+        "sync-plan",
+        "--path",
+        str(root),
+        "--from",
+        "epics-md",
+        "--to",
+        "jira",
+        "--project",
+        "ZZ",
+    ]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 3 and "Jira error" in result.output
+
+
+def test_sync_status_to_jira_pulls_a_change_made_in_jira(monkeypatch, tmp_path: Path) -> None:
+    fake = _jira_env(monkeypatch)
+    root = _plan_project(tmp_path)
+    plan_args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "jira"]
+    assert runner.invoke(app, [*plan_args, "--project", "ZZ"]).exit_code == 0
+    keys = json.loads((root / "docs/context/sync-state.json").read_text())["keys"]
+    fake.issues[keys["E1.d1"]]["cat"] = "done"
+    result = runner.invoke(app, ["sync-status", "--path", str(root), "--to", "jira"])
+    assert result.exit_code == 0 and "pull" in result.output and "E1.d1" in result.output
+    state = json.loads((root / "docs/context/sync-state.json").read_text())
+    assert state["status"]["E1.d1"] == "done" and state["keys"] == keys  # the map is kept

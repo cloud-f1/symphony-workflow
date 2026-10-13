@@ -32,13 +32,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import typer
 
 from symphony_workflow.agent_runner import AgentRunError
 from symphony_workflow.client import JiraClient, JiraError
-from symphony_workflow.config import ConfigError, LinearConfig
+from symphony_workflow.config import ConfigError, JiraConfig, LinearConfig
 from symphony_workflow.decompose import DecomposeError, assign_ids, execute_decompose
 from symphony_workflow.drift import DiffReport, apply_update, diff_decomposition
 from symphony_workflow.envsetup import EnvExistsError, check_env, init_env, verify_env
@@ -51,6 +52,7 @@ from symphony_workflow.hierarchy import (
     add_subtasks,
     audit,
 )
+from symphony_workflow.jira_sink import JiraStatusBackend, sync_plan_to_jira
 from symphony_workflow.linear_client import LinearClient, LinearError
 from symphony_workflow.linear_sink import sync_plan_to_linear
 from symphony_workflow.markdown_sink import write_markdown
@@ -75,9 +77,12 @@ from symphony_workflow.project_profile import (
 from symphony_workflow.rollup import RollupAborted, RollupNotFound, RollupResult, rollup
 from symphony_workflow.runs import Run, RunStore, RunTransitionError
 from symphony_workflow.safepath import UnsafePathError
+from symphony_workflow.status_sync import (
+    LinearStatusBackend,
+    sync_status_with,
+)
 from symphony_workflow.status_sync import load_state as load_sync_state
 from symphony_workflow.status_sync import save_state as save_sync_state
-from symphony_workflow.status_sync import sync_status
 from symphony_workflow.sync_decomposition import (
     SyncDecompositionError,
     execute_sync_decomposition,
@@ -850,9 +855,11 @@ def sync_plan_command(
         None, "--from", help="epics-md or decomposition (default: the config)"
     ),
     epic: str | None = typer.Option(None, "--epic", help="Epic key, for --from decomposition"),
-    to: str | None = typer.Option(None, "--to", help="markdown or linear (jira comes later)"),
+    to: str | None = typer.Option(None, "--to", help="markdown, linear or jira"),
     project: str | None = typer.Option(
-        None, "--project", help="Linear project name (default: the plan's name)"
+        None,
+        "--project",
+        help="Linear: the project name (default: the plan's name). Jira: the project KEY.",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change, write nothing"),
     include_done: bool = typer.Option(False, "--include-done", help="Also sync completed phases"),
@@ -883,10 +890,8 @@ def sync_plan_command(
     config = config or PlanSyncConfig()
     source = source or config.plan_source
     to = to or config.tracker
-    if to not in ("markdown", "linear"):
-        typer.echo(
-            f"The {to} sink is not built yet (plan 0008); use --to markdown or linear.", err=True
-        )
+    if to not in ("markdown", "linear", "jira"):
+        typer.echo(f"Unknown sink {to!r}: use markdown, linear or jira.", err=True)
         raise typer.Exit(code=2)
     if source == "epics-md":
         plan = load_epics_md(path, include_done=include_done or config.include_done)
@@ -914,6 +919,9 @@ def sync_plan_command(
     if to == "linear":
         _sync_plan_to_linear(plan, project or plan.name or path.resolve().name, dry_run)
         return
+    if to == "jira":
+        _sync_plan_to_jira(plan, path, project, dry_run)
+        return
     try:
         changes = write_markdown(plan, path, dry_run=dry_run)
     except UnsafePathError as exc:
@@ -931,6 +939,39 @@ def sync_plan_command(
         f.rule == "no_todos" for f in check_plan(plan)
     ):
         typer.echo("  Some Tasks have no To-Dos: run `split-todos`, review, then `--approve`.")
+
+
+def _sync_plan_to_jira(plan: Plan, path: Path, project: str | None, dry_run: bool) -> None:
+    project_key = project or os.environ.get("SYMPHONY_WORKFLOW_JIRA_PROJECT", "")
+    if not project_key:
+        typer.echo("--to jira needs --project KEY (or SYMPHONY_WORKFLOW_JIRA_PROJECT).", err=True)
+        raise typer.Exit(code=2)
+    try:
+        jira_config = JiraConfig.from_env()
+        state = load_sync_state(path)
+    except (ConfigError, UnsafePathError, ValueError) as exc:
+        typer.echo(f"{exc} (Jira credentials: this project's .env, see `check-env`)", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Jira project: {project_key}{' (dry run, nothing written)' if dry_run else ''}")
+    try:
+        with JiraClient(jira_config) as client:
+            changes, keys = sync_plan_to_jira(
+                plan, client, project_key=project_key, keys=state.keys, dry_run=dry_run
+            )
+    except JiraError as exc:
+        typer.echo(f"Jira error: {exc}", err=True)
+        raise typer.Exit(code=3) from exc
+    label = {"create": "Would create" if dry_run else "Created",
+             "update": "Would update" if dry_run else "Updated"}  # fmt: skip
+    for change in changes:
+        key = f" {change.key}" if change.key else ""
+        action = label.get(change.action, "Unchanged")
+        typer.echo(f"  {action:12} {change.kind:8} {change.title}{key}")
+    if not dry_run:
+        state.keys = keys
+        save_sync_state(path, state)
+    for f in check_plan(plan):
+        typer.echo(f"  WARNING {f.where} {f.rule}: {f.detail}")
 
 
 def _sync_plan_to_linear(plan: Plan, project: str, dry_run: bool) -> None:
@@ -957,7 +998,7 @@ def _sync_plan_to_linear(plan: Plan, project: str, dry_run: bool) -> None:
 @app.command("sync-status")
 def sync_status_command(
     path: Path = _ROOT_OPTION,
-    to: str | None = typer.Option(None, "--to", help="linear (the only tracker so far)"),
+    to: str | None = typer.Option(None, "--to", help="linear or jira"),
     direction: str = typer.Option("both", "--direction", help="both, push or pull"),
     project: str | None = typer.Option(None, "--project", help="Linear project name"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change, write nothing"),
@@ -978,27 +1019,43 @@ def sync_status_command(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
     to = to or config.tracker
-    if to != "linear" or direction not in ("both", "push", "pull"):
-        typer.echo("sync-status needs --to linear and --direction both, push or pull.", err=True)
+    if to not in ("linear", "jira") or direction not in ("both", "push", "pull"):
+        typer.echo(
+            "sync-status needs --to linear or jira and --direction both, push or pull.", err=True
+        )
         raise typer.Exit(code=2)
-    try:
-        linear_config = LinearConfig.from_env()
-    except ConfigError as exc:
-        typer.echo(f"{exc} (set them in this project's .env; see `check-env`)", err=True)
-        raise typer.Exit(code=2) from exc
     plan = load_epics_md(path, include_done=include_done or config.include_done)
     assign_plan_ids(plan)
     fill_todos(plan, config.todo_source, proposal)
-    name = project or plan.name or path.resolve().name
-    typer.echo(f"Linear project: {name}{' (dry run, nothing written)' if dry_run else ''}")
     try:
-        with LinearClient(linear_config) as client:
-            report = sync_status(
-                plan, client, project_name=name, base=base, direction=direction,  # type: ignore[arg-type]
-                dry_run=dry_run, status_map=config.status_map,
-            )  # fmt: skip
-    except LinearError as exc:
-        typer.echo(f"Linear error: {exc}", err=True)
+        if to == "linear":
+            name = project or plan.name or path.resolve().name
+            linear_config = LinearConfig.from_env()
+            typer.echo(f"Linear project: {name}{' (dry run, nothing written)' if dry_run else ''}")
+            with LinearClient(linear_config) as linear:
+                report = sync_status_with(
+                    plan,
+                    LinearStatusBackend(linear, name, config.status_map),
+                    base=base,
+                    direction=direction,  # type: ignore[arg-type]
+                    dry_run=dry_run,
+                )
+        else:
+            jira_config = JiraConfig.from_env()
+            typer.echo(f"Jira (cards from the last sync-plan){' (dry run)' if dry_run else ''}")
+            with JiraClient(jira_config) as jira:
+                report = sync_status_with(
+                    plan,
+                    JiraStatusBackend(jira, base.keys, config.status_map),
+                    base=base,
+                    direction=direction,  # type: ignore[arg-type]
+                    dry_run=dry_run,
+                )
+    except ConfigError as exc:
+        typer.echo(f"{exc} (set them in this project's .env; see `check-env`)", err=True)
+        raise typer.Exit(code=2) from exc
+    except (LinearError, JiraError) as exc:
+        typer.echo(f"{to.capitalize()} error: {exc}", err=True)
         raise typer.Exit(code=3) from exc
     for change in report.changes:
         if change.action == "unchanged":

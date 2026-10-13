@@ -7,6 +7,10 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.9.0 — 2026-10-13
+
+**Jira sink** (plan 0008, ADLC-275): `sync-plan --to jira --project KEY [--dry-run]` writes a plan as Jira Epics (Categories), Stories (Tasks) and Subtasks (To-Dos), idempotent through the same `sd-id:` marker, never deleting, an existing card keeping the status Jira has. The issue keys it made are saved in `docs/context/sync-state.json` (`keys`) because a JQL child list lags a few seconds behind a create; cards made before that map existed are adopted by marker through the v2 issue endpoint (v3 search returns ADF). `sync-status --to jira` runs the same three-way status sync against those cards; `sync_status_with` now takes a backend, with `LinearStatusBackend` and `JiraStatusBackend`. Run live on a throwaway tree in a real project (create, re-run, pull, push, conflict) and cleaned up afterwards. Also in this release: a project with no phase table is grouped in eights, and `no_tests_todo` only warns on generated To-Dos (stage-2 review of 18 projects). New module `jira_sink.py`.
+
 **Plan sync, from the stage-2 review of 18 real projects** (ADLC-206): a project without a phase table is no longer one giant Category (it had 40 to 210 Tasks); `import-plan` / `sync-plan` group it in eights in numeric epic order (`unphased`, `unphased-2`, ... so ids stay put when epics are appended; up to eight stay one `Unphased`). The `no_tests_todo` warning now only applies to generated To-Dos (a proposal), not to an author's own checklist, phases or story headings; Tasks carry `todo_origin` for that. Measured on the real data: `too_many_tasks` 13 to 1, `no_tests_todo` 254 to 0, categories 487 to 578 (1 : 3.4 to 1 : 2.9 against a target of 1 : 3).
 
 ## 0.8.1 — 2026-10-13

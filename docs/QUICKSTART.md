@@ -106,11 +106,12 @@ uv run symphony-workflow split-todos --path .              # To-Dos for Tasks th
 uv run symphony-workflow split-todos --path . --approve
 uv run symphony-workflow sync-plan --path . --to linear --project "My plan" --dry-run
 uv run symphony-workflow sync-status --path . --to linear --project "My plan" --dry-run
+uv run symphony-workflow sync-plan --path . --to jira --project KEY --dry-run     # Jira: Epic / Story / Subtask
 ```
 
 Put `LINEAR_API_KEY` and `SYMPHONY_WORKFLOW_LINEAR_TEAM` in the project's `.env`, never in a chat. Use a fresh
 `--project` name for a first run: issues in an existing project that were made another way have no `sd-id:` marker and
-would be duplicated. The Linear sink is mock-tested only so far, so keep `--dry-run` on until the output looks right.
+would be duplicated. Both sinks were run against the real services on a throwaway project (and cleaned up afterwards), but keep `--dry-run` on until the output looks right. For Jira the keys of the cards it made are kept in `docs/context/sync-state.json`; commit that file, it is how a re-run finds them.
 
 ## 7. Run the tests
 
