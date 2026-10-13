@@ -7,7 +7,26 @@ description: Audit, create, comment on, transition and roll up Jira tickets for 
 
 Use the `symphony-workflow` CLI for every Jira read and write. Fall back to raw Jira REST only for what the CLI has no command for (creating a project, searching with extra fields). Do not use a Jira MCP server for this work.
 
-This skill does not install the CLI. Clone `cloud-f1/symphony-workflow`, run `uv sync --extra dev`, and run commands as `uv run --env-file .env symphony-workflow ...` from that checkout. `.env` holds `JIRA_BASE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN`. Never print or copy them. If the CLI is missing, say so and stop.
+This skill does not install the CLI. Clone `cloud-f1/symphony-workflow`, run `uv sync --extra dev`, and run commands as `uv run --env-file .env symphony-workflow ...` from that checkout. If the CLI is missing, say so and stop.
+
+## Credentials: one `.env` per project
+
+Linking a project to Jira needs its own credentials, kept in that project's root, never in the plugin and never in git. The CLI has no `--env-file` of its own; the flag belongs to `uv run`, which loads the file into the environment.
+
+Before the first Jira call in a project, check without reading any value:
+
+```bash
+test -f .env && grep -c '^JIRA_BASE_URL=.\+' .env && grep -c '^JIRA_EMAIL=.\+' .env && grep -c '^JIRA_API_TOKEN=.\+' .env
+git check-ignore -q .env && echo ignored || echo NOT-IGNORED
+```
+
+Each `grep -c` must print `1`. If `.env` is missing, a key is empty, or it prints `NOT-IGNORED`, stop and tell the user what to do. Do not create the file with a token in it, and do not ask for the token in chat:
+
+1. Add `.env` to `.gitignore` first (the user confirms the edit).
+2. Create the file from the checkout's template: `cp <symphony-workflow checkout>/.env.example .env`.
+3. The user fills in `JIRA_BASE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN` themselves, in their editor or with the `!` prefix in the prompt.
+
+Then verify with one read-only call (`get KEY-1`, any existing ticket of the project). A 401 or 403 means the token or email is wrong; say so and stop. Never print, echo, `cat` or commit `.env`. Credentials from a different Jira site or project must not be reused: one project, one file.
 
 ## Pick the project key first
 
