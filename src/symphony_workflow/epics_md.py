@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from symphony_workflow.plan import (
+    MAX_TASKS,
     Category,
     Plan,
     Status,
@@ -203,6 +204,7 @@ def _task(epic: ParsedEpic, status: Status) -> Task:
         acceptance_criteria=epic.acceptance_criteria,
         status=status,
         todos=todos,
+        todo_origin=epic.todo_origin,
     )
 
 
@@ -233,17 +235,29 @@ def load_epics_md(root: Path, *, include_done: bool = False) -> Plan:
                 tasks=tasks,
             )
         )
-    loose = [e for eid, e in epics.items() if eid not in placed]
+    loose = sorted(
+        (e for eid, e in epics.items() if eid not in placed),
+        key=lambda e: (int(re.sub(r"\D", "", e.id) or 0), e.id),  # E2 before E10
+    )
     if loose and (not phases or include_done or any(not row.complete for row in phases)):
-        tasks = [_task(e, statuses.get(e.id, "todo")) for e in loose]
-        categories.append(
-            Category(
-                id="unphased",
-                title="Unphased",
-                status=rollup_status([t.status for t in tasks]),
-                tasks=tasks,
+        # Without a phase table everything would pile into one Category (seen with 40 to 210 Tasks).
+        # Group by position in groups of MAX_TASKS; the first keeps the id `unphased`
+        # and later ones are `unphased-2`..., so ids stay put when epics are appended.
+        size = MAX_TASKS
+        for k, start in enumerate(range(0, len(loose), size), start=1):
+            chunk = loose[start : start + size]
+            tasks = [_task(e, statuses.get(e.id, "todo")) for e in chunk]
+            single = len(loose) <= size
+            categories.append(
+                Category(
+                    id="unphased" if k == 1 else f"unphased-{k}",
+                    title="Unphased"
+                    if single
+                    else f"Unphased {k} ({chunk[0].id} to {chunk[-1].id})",
+                    status=rollup_status([t.status for t in tasks]),
+                    tasks=tasks,
+                )
             )
-        )
     for category in categories:
         if category.status != "done":
             category.status = rollup_status([t.status for t in category.tasks])

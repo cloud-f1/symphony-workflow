@@ -52,7 +52,7 @@ def test_five_steps_fill_only_tasks_without_a_breakdown() -> None:
     own, bare = plan.categories[0].tasks
     assert [t.title for t in own.todos] == ["Write it", "Tests: it"]  # the author's list is kept
     assert [t.title for t in bare.todos] == list(STEP_TITLES)
-    assert origins == {bare.id: "steps"}
+    assert origins == {bare.id: "steps"} and bare.todo_origin == "steps"
 
 
 def test_the_five_steps_do_not_trip_the_last_is_tests_warning() -> None:
@@ -82,6 +82,7 @@ def test_an_approved_proposal_beats_the_five_steps_in_hybrid() -> None:
     proposal = Proposal(approved=True, tasks={bare_id: ["Do x", "Do y", "Tests: x"]})
     assert fill_todos(plan, "hybrid", proposal) == {bare_id: "proposal"}
     assert [t.title for t in plan.categories[0].tasks[1].todos] == ["Do x", "Do y", "Tests: x"]
+    assert plan.categories[0].tasks[1].todo_origin == "proposal"
 
 
 def test_hybrid_falls_back_to_steps_for_a_task_the_proposal_skips() -> None:

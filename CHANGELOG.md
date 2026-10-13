@@ -7,6 +7,8 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+**Plan sync, from the stage-2 review of 18 real projects** (ADLC-206): a project without a phase table is no longer one giant Category (it had 40 to 210 Tasks); `import-plan` / `sync-plan` group it in eights in numeric epic order (`unphased`, `unphased-2`, ... so ids stay put when epics are appended; up to eight stay one `Unphased`). The `no_tests_todo` warning now only applies to generated To-Dos (a proposal), not to an author's own checklist, phases or story headings; Tasks carry `todo_origin` for that. Measured on the real data: `too_many_tasks` 13 to 1, `no_tests_todo` 254 to 0, categories 487 to 578 (1 : 3.4 to 1 : 2.9 against a target of 1 : 3).
+
 ## 0.8.1 — 2026-10-13
 
 Found by running `split-todos` against a real model: an agent that words its tests item freely ("Write and run tests ...") no longer gets a second, duplicate tests To-Do appended (any item starting a word with `test` counts, `latest` does not), and `check_plan` accepts the same wording. Also, with `todo_source` `hybrid`, `sync-plan` no longer writes the five fallback steps for a Task that has a proposal waiting for review: they would have been read as the author's own breakdown and the approved proposal never used. The live agent split (ADLC-226) is now verified end to end.

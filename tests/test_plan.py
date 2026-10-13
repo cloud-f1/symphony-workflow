@@ -127,3 +127,21 @@ def test_rollup_status_from_children() -> None:
 def test_marker_helpers_are_the_ones_every_sink_shares() -> None:
     assert extract_marker(f"text\n\n{marker_line('c1.t2')}") == "c1.t2"
     assert extract_marker("no marker") is None
+
+
+def test_no_tests_warning_is_for_generated_to_dos_not_an_authors_own_breakdown() -> None:
+    def task(origin: str) -> Task:
+        todos = [Todo(title="Design it"), Todo(title="Build it"), Todo(title="Ship it")]
+        return Task(id=f"t-{origin or 'none'}", title="T", todos=todos, todo_origin=origin)
+
+    plan = Plan(
+        categories=[
+            Category(
+                id="c",
+                title="C",
+                tasks=[task(o) for o in ("stories", "phases", "checklist", "proposal", "")],
+            )
+        ]
+    )
+    flagged = {f.where for f in check_plan(plan) if f.rule == "no_tests_todo"}
+    assert flagged == {"t-proposal", "t-none"}  # the author's own three are left alone
