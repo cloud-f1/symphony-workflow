@@ -29,7 +29,7 @@ def _issue(
     subtasks: int | None = None,
     summary: str = "",
 ) -> HierarchyIssue:
-    level = {"Epic": 1, "Subtask": -1}.get(kind, 0)
+    level = {"Epic": 1, "Subtask": -1, "Sub-task": -1}.get(kind, 0)
     category = {"Done": "done", "In Progress": "indeterminate"}.get(status, "new")
     return HierarchyIssue(
         key=key, summary=summary or key, status=status, status_category=category, issue_type=kind,
@@ -94,6 +94,20 @@ def test_a_healthy_project_has_no_findings() -> None:
     result = audit(FakeClient(_healthy()), "P")
     assert result.ok and result.findings == []
     assert (result.epics, result.stories) == (1, 1)
+
+
+def test_stories_count_excludes_subtasks_spelled_sub_task() -> None:
+    """ADLC-142: the JQL excludes `Subtask` by name, so company-managed `Sub-task` issues come back
+    in the "stories" search. They must not be counted as Stories (101 reported, 19 exist)."""
+    issues = [
+        _issue("P-1", "Epic"),
+        _issue("P-2", "Story", "Done", parent="P-1", subtasks=2),
+        _issue("P-10", "Sub-task", "Done", parent="P-2"),
+        _issue("P-11", "Sub-task", "Done", parent="P-2"),
+    ]
+    result = audit(FakeClient(issues), "P")
+    assert (result.epics, result.stories) == (1, 1)
+    assert result.ok and result.findings == []
 
 
 def test_story_without_subtasks_story_without_epic_and_epic_without_stories_are_errors() -> None:
