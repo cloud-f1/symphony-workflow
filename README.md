@@ -17,6 +17,8 @@ symphony-workflow transition CF1-1 Done
 symphony-workflow rollup CF1-7 --dry-run                         # Subtask done -> close Story/Epic when all children are
 ```
 
+**Picking the project up?** `docs/HANDOVER.md` has the state, links and open items.
+
 **New here?** `docs/QUICKSTART.md` is a linear walkthrough from `uv sync` to driving a real
 ticket through Plan/Implement — this README is the pitch, not a tutorial.
 
