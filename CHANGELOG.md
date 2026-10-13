@@ -7,6 +7,10 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.9.1 — 2026-10-13
+
+**Security fix in the Jira sink** (found by an automated review of the 0.9.0 commit, reproduced first): the id-to-key map in `docs/context/sync-state.json` is a file in the project directory, which may be someone else's, and 0.9.0 trusted it blindly, so a map naming another project's ticket (or a ticket in the same project that this plan did not create) made `sync-plan --to jira` overwrite its summary and description and `sync-status --to jira` move it. A key is now used only when it is in the target project and the card carries this entry's own `sd-id:` marker; otherwise it is dropped and the entry is found by marker or created. `JiraStatusBackend` takes `project_key` and applies the same check; `sync-status --to jira` takes it from `--project`, `SYMPHONY_WORKFLOW_JIRA_PROJECT`, or the keys already in the map. Ids are unique per plan, so two plans must not sync into one Jira project. Re-verified live on a throwaway tree.
+
 ## 0.9.0 — 2026-10-13
 
 **Jira sink** (plan 0008, ADLC-275): `sync-plan --to jira --project KEY [--dry-run]` writes a plan as Jira Epics (Categories), Stories (Tasks) and Subtasks (To-Dos), idempotent through the same `sd-id:` marker, never deleting, an existing card keeping the status Jira has. The issue keys it made are saved in `docs/context/sync-state.json` (`keys`) because a JQL child list lags a few seconds behind a create; cards made before that map existed are adopted by marker through the v2 issue endpoint (v3 search returns ADF). `sync-status --to jira` runs the same three-way status sync against those cards; `sync_status_with` now takes a backend, with `LinearStatusBackend` and `JiraStatusBackend`. Run live on a throwaway tree in a real project (create, re-run, pull, push, conflict) and cleaned up afterwards. Also in this release: a project with no phase table is grouped in eights, and `no_tests_todo` only warns on generated To-Dos (stage-2 review of 18 projects). New module `jira_sink.py`.

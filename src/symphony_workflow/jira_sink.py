@@ -103,18 +103,34 @@ class _Finder:
         return self._cache[label]
 
     def find(self, entry_id: str, parent_key: str | None) -> HierarchyIssue | None:
-        if entry_id in self.keys:
-            try:
-                return self._client.get_hierarchy_issue(self.keys[entry_id])
-            except JiraError as exc:
-                if exc.status_code != 404:
-                    raise
-                del self.keys[entry_id]  # the card was deleted by hand: treat as missing
+        cached = self.keys.get(entry_id)
+        if cached is not None:
+            issue = _trusted(self._client, self._project, entry_id, cached)
+            if issue is not None:
+                return issue
+            del self.keys[entry_id]  # stale, deleted by hand, or not ours: never act on it
         for issue in self._candidates(parent_key):
             if extract_marker(issue.description) == entry_id:
                 self.keys[entry_id] = issue.key
                 return issue
         return None
+
+
+def _trusted(
+    client: JiraClient, project_key: str, entry_id: str, key: str
+) -> HierarchyIssue | None:
+    """The card `key` when it really is the card for `entry_id`, else None. The key map is a file
+    in the project directory, which may be someone else's: a key naming another project, or a card
+    whose `sd-id:` marker is not this entry's, must never be updated or moved."""
+    if not key.startswith(f"{project_key}-"):
+        return None
+    try:
+        issue = client.get_hierarchy_issue(key)
+    except JiraError as exc:
+        if exc.status_code == 404:
+            return None
+        raise
+    return issue if extract_marker(issue.description) == entry_id else None
 
 
 def sync_plan_to_jira(
@@ -186,15 +202,19 @@ def sync_plan_to_jira(
 
 class JiraStatusBackend:
     """`sync-status` against Jira. Cards are the ones in the `keys` map (so run `sync-plan --to
-    jira` first); each is read through v2, one call per entry."""
+    jira` first), each read through v2 and used only when it is in `project_key` and carries this
+    entry's marker (the map is a file in the project directory: see `_trusted`)."""
 
     def __init__(
         self,
         client: JiraClient,
         keys: dict[str, str],
         status_map: dict[str, Status] | None = None,
+        *,
+        project_key: str,
     ) -> None:
         self._client, self._keys, self._status_map = client, keys, status_map
+        self._project = project_key
 
     def cards(self, plan: Plan) -> dict[str, Card]:
         wanted = [t.id for c in plan.categories for t in c.tasks] + [
@@ -202,13 +222,10 @@ class JiraStatusBackend:
         ]
         found: dict[str, Card] = {}
         for entry_id in wanted:
-            if entry_id and entry_id in self._keys:
-                try:
-                    issue = self._client.get_hierarchy_issue(self._keys[entry_id])
-                except JiraError as exc:
-                    if exc.status_code == 404:
-                        continue  # deleted by hand: reported as an orphan
-                    raise
+            if not entry_id or entry_id not in self._keys:
+                continue
+            issue = _trusted(self._client, self._project, entry_id, self._keys[entry_id])
+            if issue is not None:
                 found[entry_id] = Card(remote_status(issue, self._status_map), issue)
         return found
 
