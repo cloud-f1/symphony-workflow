@@ -72,6 +72,7 @@ from symphony_workflow.project_profile import (
 )
 from symphony_workflow.rollup import RollupAborted, RollupNotFound, RollupResult, rollup
 from symphony_workflow.runs import Run, RunStore, RunTransitionError
+from symphony_workflow.safepath import UnsafePathError
 from symphony_workflow.sync_decomposition import (
     SyncDecompositionError,
     execute_sync_decomposition,
@@ -885,7 +886,11 @@ def sync_plan_command(
     else:
         typer.echo(f"Unknown source {source!r}: use epics-md or decomposition", err=True)
         raise typer.Exit(code=2)
-    changes = write_markdown(plan, path, dry_run=dry_run)
+    try:
+        changes = write_markdown(plan, path, dry_run=dry_run)
+    except UnsafePathError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
     label = {
         "create": "Would create" if dry_run else "Created",
         "update": "Would update" if dry_run else "Updated",

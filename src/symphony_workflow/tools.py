@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
@@ -22,6 +21,7 @@ from symphony_workflow.hierarchy import AddSubtasksAborted, PlanError, add_subta
 from symphony_workflow.plan import check_plan
 from symphony_workflow.project_profile import profile_project, recommend
 from symphony_workflow.rollup import RollupAborted, RollupNotFound, rollup
+from symphony_workflow.safepath import scoped_path
 from symphony_workflow.sync_decomposition import (
     SyncDecompositionError,
     load_decomposition,
@@ -216,7 +216,7 @@ def _get_myself(client: JiraClient, args: GetMyselfArgs) -> dict[str, Any]:
 
 
 def _profile_project(_client: None, args: ProfileProjectArgs) -> dict[str, Any]:
-    profile = profile_project(Path(args.path))
+    profile = profile_project(scoped_path(args.path))
     first, refined = recommend(profile)
     return {
         "profile": profile.as_dict(),
@@ -226,7 +226,7 @@ def _profile_project(_client: None, args: ProfileProjectArgs) -> dict[str, Any]:
 
 
 def _import_plan(_client: None, args: ImportPlanArgs) -> dict[str, Any]:
-    plan = load_epics_md(Path(args.path), include_done=args.include_done)
+    plan = load_epics_md(scoped_path(args.path), include_done=args.include_done)
     return {
         "plan": plan.model_dump(),
         "counts": list(plan.counts()),
