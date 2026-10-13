@@ -95,9 +95,15 @@ def audit(
     result = AuditResult(project=project)
     not_done = " AND statusCategory != Done" if open_only else ""
     epics = client.search_hierarchy(f"project = {project} AND issuetype = Epic ORDER BY key ASC")
-    stories = client.search_hierarchy(
-        f"project = {project} AND issuetype not in (Epic, Subtask){not_done} ORDER BY key ASC"
-    )
+    # The JQL excludes `Subtask` by name only; a company-managed project spells it `Sub-task`, so
+    # those come back too. Filter by hierarchy level before counting (ADLC-142).
+    stories = [
+        issue
+        for issue in client.search_hierarchy(
+            f"project = {project} AND issuetype not in (Epic, Subtask){not_done} ORDER BY key ASC"
+        )
+        if hierarchy_level(issue) == _STORY
+    ]
     result.epics, result.stories = len(epics), len(stories)
 
     def add(issue: HierarchyIssue, rule: str, severity: str, detail: str = "") -> None:
@@ -119,8 +125,6 @@ def audit(
             add(epic, "epic_without_stories", "error", "an Epic needs Stories")
 
     for story in stories:
-        if hierarchy_level(story) != _STORY:
-            continue
         check_assignee(story)
         if not story.parent_key:
             add(story, "no_epic", "error", "a Story belongs under an Epic")
