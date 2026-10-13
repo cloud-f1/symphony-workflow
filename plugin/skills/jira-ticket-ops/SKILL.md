@@ -13,20 +13,20 @@ This skill does not install the CLI. Clone `cloud-f1/symphony-workflow`, run `uv
 
 Linking a project to Jira needs its own credentials, kept in that project's root, never in the plugin and never in git. The CLI has no `--env-file` of its own; the flag belongs to `uv run`, which loads the file into the environment.
 
-Before the first Jira call in a project, check without reading any value:
+Before the first Jira call in a project, check it. The command names missing keys and never prints a value:
 
 ```bash
-test -f .env && grep -c '^JIRA_BASE_URL=.\+' .env && grep -c '^JIRA_EMAIL=.\+' .env && grep -c '^JIRA_API_TOKEN=.\+' .env
-git check-ignore -q .env && echo ignored || echo NOT-IGNORED
+uv run symphony-workflow check-env            # keys set? is .env gitignored?
+uv run symphony-workflow check-env --verify   # plus one read-only call to Jira
 ```
 
-Each `grep -c` must print `1`. If `.env` is missing, a key is empty, or it prints `NOT-IGNORED`, stop and tell the user what to do. Do not create the file with a token in it, and do not ask for the token in chat:
+Exit 0 is good, 1 means keys are missing or git would track the file, 3 means `--verify` failed (it says `unauthorized`, `jira-error` or `unreachable`, and which key to fix). Both commands read `.env` themselves, so no `--env-file` is needed; every other command still needs `uv run --env-file .env`. If the check is not good, stop and tell the user. Do not write a token yourself and do not ask for one in chat:
 
-1. Add `.env` to `.gitignore` first (the user confirms the edit).
-2. Create the file from the checkout's template: `cp <symphony-workflow checkout>/.env.example .env`.
-3. The user fills in `JIRA_BASE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN` themselves, in their editor or with the `!` prefix in the prompt.
+1. `uv run symphony-workflow init-env` creates `.env` with empty keys (owner-only permissions), adds it to `.gitignore` and refuses to overwrite an existing file.
+2. The user fills in `JIRA_BASE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN` themselves, in their editor or with the `!` prefix in the prompt.
+3. Run `check-env --verify` again.
 
-Then verify with one read-only call (`get KEY-1`, any existing ticket of the project). A 401 or 403 means the token or email is wrong; say so and stop. Never print, echo, `cat` or commit `.env`. Credentials from a different Jira site or project must not be reused: one project, one file.
+Never print, echo, `cat` or commit `.env`. Credentials from a different Jira site or project must not be reused: one project, one file.
 
 ## Pick the project key first
 

@@ -1108,3 +1108,74 @@ def test_sync_update_creates_missing_and_persists_ids(monkeypatch, tmp_path: Pat
 def test_sync_dry_run_without_update_is_rejected(monkeypatch, tmp_path: Path) -> None:
     _env(monkeypatch, tmp_path)
     assert runner.invoke(app, ["sync-decomposition", "ADLC-27", "--dry-run"]).exit_code == 2
+
+
+# ---- init-env / check-env (ADLC-189) ----
+
+
+def _git_free_env(monkeypatch) -> None:
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+
+
+def test_init_env_creates_the_file_then_refuses_to_overwrite(monkeypatch, tmp_path: Path) -> None:
+    _git_free_env(monkeypatch)
+    env = tmp_path / ".env"
+
+    first = runner.invoke(app, ["init-env", "--path", str(env)])
+    assert first.exit_code == 0, first.output
+    assert env.exists() and "check-env --verify" in first.output
+
+    env.write_text("JIRA_API_TOKEN=keep-me\n")
+    second = runner.invoke(app, ["init-env", "--path", str(env)])
+    assert second.exit_code == 1
+    assert "not overwriting" in second.output
+    assert env.read_text() == "JIRA_API_TOKEN=keep-me\n"
+
+
+def test_check_env_lists_missing_keys_and_exits_1(monkeypatch, tmp_path: Path) -> None:
+    _git_free_env(monkeypatch)
+    env = tmp_path / ".env"
+    env.write_text("JIRA_BASE_URL=https://x.example\nJIRA_EMAIL=\nJIRA_API_TOKEN=sekret-value\n")
+
+    result = runner.invoke(app, ["check-env", "--path", str(env)])
+
+    assert result.exit_code == 1
+    assert "MISSING  JIRA_EMAIL" in result.output
+    assert "sekret-value" not in result.output
+
+
+def test_check_env_missing_file_points_at_init_env(monkeypatch, tmp_path: Path) -> None:
+    _git_free_env(monkeypatch)
+    result = runner.invoke(app, ["check-env", "--path", str(tmp_path / ".env")])
+    assert result.exit_code == 1 and "init-env" in result.output
+
+
+@respx.mock
+def test_check_env_verify_exit_codes_and_json(monkeypatch, tmp_path: Path) -> None:
+    _git_free_env(monkeypatch)
+    env = tmp_path / ".env"
+    env.write_text(f"JIRA_BASE_URL={BASE_URL}\nJIRA_EMAIL=a@b.c\nJIRA_API_TOKEN=sekret-value\n")
+    route = respx.get(f"{BASE_URL}/rest/api/2/myself")
+
+    route.mock(return_value=httpx.Response(200, json={"accountId": "a1", "displayName": "Bot"}))
+    ok = runner.invoke(app, ["check-env", "--path", str(env), "--verify", "--json"])
+    assert ok.exit_code == 0, ok.output
+    payload = json.loads(ok.output)
+    assert payload["ok"] and payload["verify"]["outcome"] == "ok"
+    assert "sekret-value" not in ok.output
+
+    route.mock(return_value=httpx.Response(401))
+    bad = runner.invoke(app, ["check-env", "--path", str(env), "--verify"])
+    assert bad.exit_code == 3
+    assert "unauthorized" in bad.output and "sekret-value" not in bad.output
+
+
+def test_check_env_verify_is_skipped_while_keys_are_missing(monkeypatch, tmp_path: Path) -> None:
+    _git_free_env(monkeypatch)
+    env = tmp_path / ".env"
+    env.write_text("JIRA_BASE_URL=\n")
+    with respx.mock(assert_all_called=False) as router:
+        result = runner.invoke(app, ["check-env", "--path", str(env), "--verify"])
+        assert not router.calls
+    assert result.exit_code == 1 and "verify: skipped" in result.output

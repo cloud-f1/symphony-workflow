@@ -198,6 +198,7 @@ src/symphony_workflow/
   decompose.py    # Epic -> Stories/Tasks, read-only, reuses run_plan()'s output_format wiring
   sync_decomposition.py # decomposition.json -> real Jira Story/Subtask issues
   drift.py        # diff-decomposition + sync --update: ids, sd-id markers, content drift vs Jira
+  envsetup.py     # init-env / check-env: per-project .env creation + key report, never prints values
   poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements.
                   # Optional triage cadence (ADLC-29, off by default): a slower, batched agent
                   # turn classifies new tickets plan/skip/flag before the normal dispatch path
@@ -256,8 +257,9 @@ uv run symphony-workflow list-tools     # sanity-check the tool registry
 
 ## Secrets
 
-Real credentials live only in a local, gitignored `.env` (copy from `.env.example`). Never
-commit a token, and never let a test read `.env` — `test_cli.py`'s
+Real credentials live only in a local, gitignored `.env` (`symphony-workflow init-env` creates it from a
+template and gitignores it; `check-env [--verify]` reports which keys are missing without printing a
+value — `envsetup.py`, ADLC-189). Never commit a token, and never let a test read `.env` — `test_cli.py`'s
 `test_missing_env_vars_exit_with_helpful_message` explicitly clears the relevant env vars via
 `monkeypatch` so the suite stays independent of whatever's in the developer's shell.
 
