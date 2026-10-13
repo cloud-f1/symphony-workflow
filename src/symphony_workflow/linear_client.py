@@ -461,3 +461,16 @@ class LinearClient:
 
     def team_workflow_states(self, team_id: str) -> list[dict[str, Any]]:
         return self._workflow_states(team_id)
+
+    def set_issue_state(self, issue_id: str, state_id: str) -> None:
+        """Move one issue to a workflow state by id (the plan-sync status push, ADLC-204)."""
+        data = self._execute(
+            """
+            mutation IssueState($id: String!, $input: IssueUpdateInput!) {
+                issueUpdate(id: $id, input: $input) { success }
+            }
+            """,
+            variables={"id": issue_id, "input": {"stateId": state_id}},
+        )
+        if not data.get("issueUpdate", {}).get("success"):
+            raise LinearError(f"Failed to set the state of issue {issue_id}")

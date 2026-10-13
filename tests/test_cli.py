@@ -1485,3 +1485,84 @@ def test_sync_plan_to_linear_reports_an_api_error_with_exit_3(monkeypatch, tmp_p
     args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "linear"]
     result = runner.invoke(app, args)
     assert result.exit_code == 3 and "rate limited" in result.output
+
+
+# ---- sync-status (plan 0008, ADLC-204) ----
+
+_STATES = [
+    {"id": "s-todo", "name": "Todo", "type": "unstarted"},
+    {"id": "s-done", "name": "Done", "type": "completed"},
+]
+
+
+class _StatusLinear(_FakeLinearCtx):
+    cards: dict[str, str] = {}  # entry id -> "unstarted" | "completed"
+    moves: list[tuple[str, str]] = []
+
+    def list_project_issues(self, project_id):
+        return [
+            {"id": f"card-{k}", "description": f"sd-id: {k}",
+             "state": {"name": "Done" if v == "completed" else "Todo", "type": v}}
+            for k, v in self.cards.items()
+        ]  # fmt: skip
+
+    def team_workflow_states(self, team_id):
+        return _STATES
+
+    def set_issue_state(self, issue_id, state_id):
+        self.moves.append((issue_id, state_id))
+
+
+def _status_env(monkeypatch, cards: dict[str, str]) -> None:
+    _linear_env(monkeypatch)
+    _StatusLinear.cards, _StatusLinear.moves = cards, []
+    monkeypatch.setattr(cli_module, "LinearClient", _StatusLinear)
+
+
+def test_sync_status_pull_ticks_the_checkbox_and_saves_the_state(monkeypatch, tmp_path) -> None:
+    _status_env(monkeypatch, {"E1.d1": "completed", "E1.d2": "unstarted", "E1.d3": "unstarted"})
+    root = _plan_project(tmp_path)
+    result = runner.invoke(app, ["sync-status", "--path", str(root), "--to", "linear"])
+    assert result.exit_code == 0, result.output
+    assert "pull" in result.output and "E1.d1" in result.output
+    state = json.loads((root / "docs/context/sync-state.json").read_text())
+    assert state["status"]["E1.d1"] == "done"
+    text = next((root / "docs/epics").glob("e1-*.md")).read_text()
+    assert "- [x]" in text.split("## To-Do")[1]  # the managed block now shows it ticked
+
+
+def test_sync_status_dry_run_writes_and_moves_nothing(monkeypatch, tmp_path) -> None:
+    _status_env(monkeypatch, {"E1.d1": "completed"})
+    root = _plan_project(tmp_path)
+    before = {p: p.read_text() for p in root.rglob("*") if p.is_file()}
+    result = runner.invoke(app, ["sync-status", "--path", str(root), "--to", "linear", "--dry-run"])
+    assert result.exit_code == 0 and "dry run" in result.output
+    assert {p: p.read_text() for p in root.rglob("*") if p.is_file()} == before
+    assert _StatusLinear.moves == []
+
+
+def test_sync_status_reports_a_conflict_with_exit_1(monkeypatch, tmp_path) -> None:
+    _status_env(monkeypatch, {"E1.d1": "completed"})
+    root = _plan_project(tmp_path)
+    (root / "docs/context").mkdir(parents=True, exist_ok=True)
+    # last sync saw it in progress; the plan now says todo-or-done differently from Linear
+    (root / "docs/context/sync-state.json").write_text(
+        json.dumps({"status": {"E1.d1": "in_progress"}})
+    )
+    result = runner.invoke(app, ["sync-status", "--path", str(root), "--to", "linear"])
+    assert result.exit_code == 1 and "conflict" in result.output
+    saved = json.loads((root / "docs/context/sync-state.json").read_text())
+    assert saved["status"]["E1.d1"] == "in_progress"  # the conflicted entry's base is untouched
+    assert _StatusLinear.moves == []
+
+
+def test_sync_status_needs_credentials_and_a_valid_direction(monkeypatch, tmp_path) -> None:
+    _no_creds(monkeypatch)
+    monkeypatch.delenv("SYMPHONY_WORKFLOW_LINEAR_TEAM", raising=False)
+    root = _plan_project(tmp_path)
+    missing = runner.invoke(app, ["sync-status", "--path", str(root), "--to", "linear"])
+    assert missing.exit_code == 2 and "LINEAR_API_KEY" in missing.output
+    bad = runner.invoke(
+        app, ["sync-status", "--path", str(root), "--to", "linear", "--direction", "sideways"]
+    )
+    assert bad.exit_code == 2
