@@ -10,7 +10,8 @@ Three rules:
 * `scoped_path`: the agent-facing tools only accept a path inside the current working directory.
 * `run_git`: git runs with the settings a repository could use to execute commands switched off.
   A repo's own `.git/config` can set `core.fsmonitor` to a command that git runs while it reads
-  the index (`git check-ignore` does), and `core.hooksPath` / `core.pager` name more.
+  the index (`git check-ignore` does), and `core.hooksPath` / `core.pager` / `gpg.program` (run to
+  verify a signed commit when `log.showSignature` is set) name more.
   Command-line `-c` settings win over the repository's.
 """
 
@@ -60,6 +61,12 @@ _GIT_HARDENING = (
     "-c", "core.hooksPath=/dev/null",
     "-c", "core.pager=cat",
     "-c", "core.untrackedCache=false",
+    # A signed commit is verified by the program a repo's config names (log.showSignature).
+    "-c", "log.showSignature=false",
+    "-c", "gpg.program=false",
+    "-c", "gpg.ssh.program=false",
+    "-c", "gpg.x509.program=false",
+    "-c", "diff.external=",
 )  # fmt: skip
 
 
