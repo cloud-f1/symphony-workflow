@@ -19,8 +19,9 @@ idempotently. Everything else is missing:
    although most of that can be read from the project itself.
 
 A survey of about 20 sibling projects (docs only; no credential files read) shows what real plans look like: a phase holds a
-median of **3** epics (p10 1, p90 6); an epic holds a median of **8** acceptance checkboxes (p10 4, p90 20); only **2 %** of
-epic files have implementation phases (median 3); and **99.8 %** of the phases ever recorded are already complete.
+median of **3** epics (p10 1, p90 6); an epic holds a median of **7** acceptance checkboxes (p10 4, p90 17); about **21 %** of epic
+files already carry a To-Do breakdown (19 % `### S1:` story headings, 2 % implementation phases) with a median of **4** items
+(p10 3, p90 6); and **99.8 %** of the phases ever recorded are already complete.
 
 ## Goals
 

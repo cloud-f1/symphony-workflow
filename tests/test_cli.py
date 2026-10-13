@@ -1179,3 +1179,147 @@ def test_check_env_verify_is_skipped_while_keys_are_missing(monkeypatch, tmp_pat
         result = runner.invoke(app, ["check-env", "--path", str(env), "--verify"])
         assert not router.calls
     assert result.exit_code == 1 and "verify: skipped" in result.output
+
+
+# ---- profile / import-plan / sync-plan (plan 0008, phase 1) ----
+
+
+def _plan_project(tmp_path: Path) -> Path:
+    from tests._athena import make_project
+
+    return make_project(tmp_path)
+
+
+def _no_creds(monkeypatch) -> None:
+    for name in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "LINEAR_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+
+
+def test_profile_prints_two_recommendations_and_writes_nothing(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    root = _plan_project(tmp_path)
+    result = runner.invoke(app, ["profile", "--path", str(root)])
+    assert result.exit_code == 0, result.output
+    assert "Recommendation 1 (from usage)" in result.output
+    assert "Recommendation 2 (refined from content)" in result.output
+    assert not (root / "docs/context/plan-sync.json").exists()
+
+
+def test_profile_json_is_machine_readable_and_has_no_secret(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    root = _plan_project(tmp_path)
+    (root / ".env").write_text("LINEAR_API_KEY=sekret-value\n")
+    result = runner.invoke(app, ["profile", "--path", str(root), "--json"])
+    assert result.exit_code == 0 and "sekret-value" not in result.output
+    payload = json.loads(result.output)
+    assert payload["recommendation_1"]["config"]["tracker"] == "linear"
+    assert payload["profile"]["tracker"]["linear_credentials"] is True
+
+
+def test_profile_write_asks_first_and_refuses_to_overwrite(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    root = _plan_project(tmp_path)
+    target = root / "docs/context/plan-sync.json"
+
+    declined = runner.invoke(app, ["profile", "--path", str(root), "--write"], input="n\n")
+    assert declined.exit_code == 1 and not target.exists()
+
+    saved = runner.invoke(app, ["profile", "--path", str(root), "--write"], input="y\n")
+    assert saved.exit_code == 0 and json.loads(target.read_text())["plan_source"] == "epics-md"
+
+    again = runner.invoke(app, ["profile", "--path", str(root), "--write", "--yes"])
+    assert again.exit_code == 1 and "already exists" in again.output
+    forced = runner.invoke(
+        app, ["profile", "--path", str(root), "--write", "--yes", "--force", "--use", "1"]
+    )
+    assert forced.exit_code == 0
+
+
+def test_profile_rejects_a_bad_use_value(tmp_path: Path) -> None:
+    assert runner.invoke(app, ["profile", "--path", str(tmp_path), "--use", "3"]).exit_code == 2
+
+
+def test_import_plan_lists_the_pyramid_and_warnings(tmp_path: Path) -> None:
+    root = _plan_project(tmp_path)
+    result = runner.invoke(app, ["import-plan", "--path", str(root)])
+    assert result.exit_code == 0 and "2 categor(ies), 3 task(s), 5 to-do(s)" in result.output
+    assert "E4  Not in any phase" in result.output and "WARNING E4 no_todos" in result.output
+    full = runner.invoke(app, ["import-plan", "--path", str(root), "--include-done", "--json"])
+    assert json.loads(full.output)["counts"][0] == 3
+
+
+def test_sync_plan_in_an_unconfigured_project_touches_nothing(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    root = _plan_project(tmp_path)
+    before = sorted(p.name for p in (root / "docs/epics").iterdir())
+    result = runner.invoke(app, ["sync-plan", "--path", str(root)])
+    assert result.exit_code == 1
+    assert "does not exist, so nothing was touched" in result.output
+    assert "profile --write" in result.output
+    assert sorted(p.name for p in (root / "docs/epics").iterdir()) == before
+
+
+def test_sync_plan_writes_markdown_then_a_rerun_is_unchanged(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    root = _plan_project(tmp_path)
+    args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "markdown"]
+
+    dry = runner.invoke(app, [*args, "--dry-run"])
+    assert dry.exit_code == 0 and "Would update" in dry.output
+    assert "sd:begin todo" not in (root / "docs/epics/e1-login.md").read_text()
+
+    first = runner.invoke(app, args)
+    assert first.exit_code == 0 and "Updated" in first.output and "Created" in first.output
+    assert "sd-id: E1.d1" in (root / "docs/epics/e1-login.md").read_text()
+
+    again = runner.invoke(app, args)
+    assert again.exit_code == 0 and "Updated" not in again.output and "Created" not in again.output
+
+
+def test_sync_plan_uses_the_saved_config(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    root = _plan_project(tmp_path)
+    assert runner.invoke(app, ["profile", "--path", str(root), "--write", "--yes"]).exit_code == 0
+    result = runner.invoke(app, ["sync-plan", "--path", str(root)])
+    assert result.exit_code == 0, result.output  # tracker=markdown comes from the recommendation
+
+
+def test_sync_plan_jira_and_linear_sinks_are_not_built_yet(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    root = _plan_project(tmp_path)
+    for sink in ("jira", "linear"):
+        args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", sink]
+        result = runner.invoke(app, args)
+        assert result.exit_code == 2 and "not built yet" in result.output
+
+
+def test_sync_plan_from_a_decomposition(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    _write_sync_decomposition(tmp_path / "docs/runs")
+    base = ["sync-plan", "--path", str(tmp_path), "--to", "markdown"]
+    result = runner.invoke(app, [*base, "--from", "decomposition", "--epic", "ADLC-27"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "docs/epics/EPIC_INDEX.md").exists()
+    missing = runner.invoke(app, [*base, "--from", "decomposition"])
+    assert missing.exit_code == 2 and "--epic" in missing.output
+    bad = runner.invoke(app, [*base, "--from", "nope"])
+    assert bad.exit_code == 2
+
+
+def test_an_invalid_config_stops_sync_plan(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    (tmp_path / "docs/context").mkdir(parents=True)
+    (tmp_path / "docs/context/plan-sync.json").write_text('{"tracker": "trello"}')
+    assert runner.invoke(app, ["sync-plan", "--path", str(tmp_path)]).exit_code == 2
+
+
+def test_call_runs_local_tools_without_any_jira_credentials(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    root = _plan_project(tmp_path)
+    result = runner.invoke(app, ["call", "profile_project", json.dumps({"path": str(root)})])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["profile"]["plan"]["epics"] == 4
+    bad_args = json.dumps({"path": str(root), "include_done": "maybe"})
+    bad = runner.invoke(app, ["call", "import_plan", bad_args])
+    assert bad.exit_code == 1

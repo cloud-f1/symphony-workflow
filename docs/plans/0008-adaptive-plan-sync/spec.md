@@ -16,7 +16,7 @@ Acceptance criteria are **not** To-Dos: they stay a checklist in the Task descri
 
 ## 2. Pyramid sizing
 
-Observed medians: 3 Tasks per Category, 3 to 5 To-Dos per Task. **Target about 1 : 3 : 9 per batch; each layer about 3x the
+Observed medians: 3 Tasks per Category, 4 To-Dos per Task (p10 3, p90 6) where an epic already has a breakdown. **Target about 1 : 3 : 9 per batch; each layer about 3x the
 one above.** Guardrails (warnings, reused from `audit`): 2 to 8 Tasks per Category, 2 to 6 To-Dos per Task; the last To-Do is
 the tests. A Category with more than 8 Tasks is reported as "split"; a Task with more than 8 To-Dos as "split the Task".
 
@@ -43,12 +43,13 @@ a median above 8 acceptance items leads to "group before creating To-Dos"; more 
 the Category"; a large completed history leads to "keep backfill off". Both are printed with the evidence, so the project
 can override any of them.
 
-The choice is saved in **`docs/context/plan-sync.json`** (committed, no secrets): `tracker`, `plan_source`, `todo_source`,
+The choice is saved in **`docs/context/plan-sync.json`** (committed, no secrets): `tracker`, `plan_source`, `todo_source` (`hybrid`, `breakdown`, `ai-split`, `steps`),
 `push`, `record`, `include_done`. `profile --write` creates it after a confirmation; `sync-plan` reads it and any flag overrides it.
 
 ## 4. Layer-3 source (To-Do) *(agreed: hybrid)*
 
-1. The Task's **implementation phases / checkpoints** when it has them (median 3).
+1. The Task's **own breakdown** when it has one: a `## To-Do` checklist, implementation phases, or `### S1: ...` story
+   headings under `## Stories`. About 21 % of surveyed epics have one (19 % story headings, 2 % phases); median 4.
 2. Otherwise the **`decompose` agent** splits the acceptance criteria into 3 to 5 verb-first To-Dos, last one the tests,
    written to `decomposition.md` for human review first (the existing review gate; no tracker write before approval).
 3. When the agent is unavailable or the user wants it deterministic: the **five workflow steps** (spec, implement, QA, commit,
