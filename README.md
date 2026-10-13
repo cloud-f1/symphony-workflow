@@ -31,6 +31,13 @@ uvx --from git+https://github.com/cloud-f1/symphony-workflow symphony-workflow -
 Add `@vX.Y.Z` to the URL to pin a release (see the tags). To work on the code instead: `git clone`, then
 `uv sync --extra dev` and prefix commands with `uv run`.
 
+**Using Claude Code?** Install the plugin (two skills and a SessionStart hook; it does not install the CLI above):
+
+```text
+/plugin marketplace add cloud-f1/symphony-workflow
+/plugin install symphony-workflow-ops --marketplace cloud-f1/symphony-workflow
+```
+
 **2. Look at a project, change nothing.** From a project that has `docs/epics/*.md`:
 
 ```bash

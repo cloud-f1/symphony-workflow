@@ -28,6 +28,13 @@ uvx --from git+https://github.com/cloud-f1/symphony-workflow symphony-workflow -
 
 在網址後加 `@vX.Y.Z` 可以釘住某個版本（看 tags）。若要改程式碼：`git clone`，再 `uv sync --extra dev`，指令前面加 `uv run`。
 
+**使用 Claude Code？** 安裝 plugin（兩個 skill 加一個 SessionStart hook；它不會安裝上面的 CLI）：
+
+```text
+/plugin marketplace add cloud-f1/symphony-workflow
+/plugin install symphony-workflow-ops --marketplace cloud-f1/symphony-workflow
+```
+
 **2. 看一個專案，什麼都不改。** 在有 `docs/epics/*.md` 的專案裡：
 
 ```bash

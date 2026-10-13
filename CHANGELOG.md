@@ -7,6 +7,8 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+**Plugin install path** (ADLC-54): `.claude-plugin/marketplace.json` now has a description, so `claude plugin validate --strict .` passes (it failed; only `plugin/` had been validated), and its plugin entry matches `plugin.json`; both READMEs say how to install the plugin from Claude Code (`/plugin marketplace add cloud-f1/symphony-workflow`, `/plugin install symphony-workflow-ops --marketplace cloud-f1/symphony-workflow`). Two tests in `tests/test_surface.py` keep both true.
+
 **README rewritten, guidance first, in two languages** (ADLC-262): `README.md` and `README.zh-TW.md` now open with who the tool is for, a five-minute start, a which-setup-do-I-need table and seven use cases, each with a real snapshot from `docs/snapshots/` (a throwaway project, a real model for the To-Do proposal, and a throwaway Linear project and Jira tree that were deleted afterwards); the former README is kept under `## Reference`. `tests/test_readme.py` keeps the two languages the same shape, every snapshot block a verbatim excerpt of its file, every command shown real, and nothing private (a credential, a local path) in the guidance or the snapshots.
 
 ## 0.9.2 — 2026-10-13
