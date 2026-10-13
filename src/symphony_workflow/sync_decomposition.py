@@ -43,12 +43,13 @@ operation is introduced here.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
 from symphony_workflow.client import JiraClient
-from symphony_workflow.decompose import Decomposition, Story
+from symphony_workflow.decompose import Decomposition, Story, Task, assign_ids
 
 
 class SyncDecompositionError(RuntimeError):
@@ -59,12 +60,14 @@ class SyncDecompositionError(RuntimeError):
 
 
 class SyncedTask(BaseModel):
+    id: str | None = None
     title: str
     key: str
     url: str
 
 
 class SyncedStory(BaseModel):
+    id: str | None = None
     title: str
     key: str
     url: str
@@ -104,10 +107,23 @@ def render_story_description(story: Story, definition_of_done: list[str]) -> str
     lines.append("")
     lines.append("Definition of Done:")
     lines.extend(f"- [ ] {item}" for item in definition_of_done)
+    if story.id:
+        lines.extend(["", marker_line(story.id)])
     return "\n".join(lines)
 
 
-def _load_decomposition(epic_key: str, runs_docs_root: Path) -> Decomposition:
+def marker_line(entry_id: str) -> str:
+    """The trailing line that ties a Jira card to its decomposition entry (ADLC-146,
+    `drift.py`). Plain text, so it survives Jira wiki-markup rendering.
+    """
+    return f"sd-id: {entry_id}"
+
+
+def render_task_description(task: Task) -> str:
+    return f"{task.description}\n\n{marker_line(task.id)}" if task.id else task.description
+
+
+def load_decomposition(epic_key: str, runs_docs_root: Path) -> Decomposition:
     path = runs_docs_root / epic_key / "decomposition.json"
     if not path.exists():
         raise SyncDecompositionError(
@@ -132,6 +148,30 @@ def _load_decomposition(epic_key: str, runs_docs_root: Path) -> Decomposition:
     return decomposition
 
 
+def load_state(path: Path) -> dict[str, str]:
+    """`sync-state.json` (id -> Jira key). A cache that survives a lost `sd-id:` marker; the
+    marker in Jira stays the primary link. Missing/unreadable file -> empty (never an error).
+    """
+    try:
+        ids = json.loads(path.read_text(encoding="utf-8")).get("ids", {})
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return {}
+    return {str(k): str(v) for k, v in ids.items()} if isinstance(ids, dict) else {}
+
+
+def save_state(path: Path, epic_key: str, ids: dict[str, str]) -> None:
+    path.write_text(
+        json.dumps({"epic_key": epic_key, "ids": dict(sorted(ids.items()))}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def save_decomposition(epic_key: str, decomposition: Decomposition, runs_docs_root: Path) -> Path:
+    path = runs_docs_root / epic_key / "decomposition.json"
+    path.write_text(decomposition.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return path
+
+
 def execute_sync_decomposition(
     epic_key: str,
     *,
@@ -139,6 +179,7 @@ def execute_sync_decomposition(
     runs_docs_root: Path,
     project_key: str | None = None,
     initial_status: str | None = None,
+    refuse_if_children: bool = False,
 ) -> SyncResult:
     """Read the already-reviewed `decomposition.json` for `epic_key` and
     create one real Story per entry (`parent=epic_key`) plus one real
@@ -166,8 +207,18 @@ def execute_sync_decomposition(
     before a failure stay created -- the caller (CLI layer) is responsible
     for telling the human what was and wasn't created.
     """
-    decomposition = _load_decomposition(epic_key, runs_docs_root)
+    decomposition = load_decomposition(epic_key, runs_docs_root)
     resolved_project_key = project_key or project_key_from_issue_key(epic_key)
+    if refuse_if_children and client.list_children(epic_key):
+        raise SyncDecompositionError(
+            f"{epic_key} already has child issues; creating again would duplicate them. "
+            f"Run `symphony-workflow diff-decomposition {epic_key}` to see the drift, then "
+            f"`symphony-workflow sync-decomposition {epic_key} --update` (add --adopt for "
+            "cards created before ids existed)."
+        )
+    # Stamp stable ids (ADLC-146) so a later diff/--update can match these cards.
+    if assign_ids(decomposition):
+        save_decomposition(epic_key, decomposition, runs_docs_root)
 
     synced_stories: list[SyncedStory] = []
     for story in decomposition.stories:
@@ -185,17 +236,18 @@ def execute_sync_decomposition(
             task_result = client.create_issue(
                 resolved_project_key,
                 task.title,
-                task.description,
+                render_task_description(task),
                 "Subtask",
                 parent=story_result.key,
             )
             if initial_status:
                 client.transition_issue(task_result.key, initial_status)
             synced_tasks.append(
-                SyncedTask(title=task.title, key=task_result.key, url=task_result.url)
+                SyncedTask(id=task.id, title=task.title, key=task_result.key, url=task_result.url)
             )
         synced_stories.append(
             SyncedStory(
+                id=story.id,
                 title=story.title,
                 key=story_result.key,
                 url=story_result.url,
@@ -203,4 +255,7 @@ def execute_sync_decomposition(
             )
         )
 
+    ids = {s.id: s.key for s in synced_stories if s.id}
+    ids.update({t.id: t.key for s in synced_stories for t in s.tasks if t.id})
+    save_state(runs_docs_root / epic_key / "sync-state.json", epic_key, ids)
     return SyncResult(epic_key=epic_key, project_key=resolved_project_key, stories=synced_stories)

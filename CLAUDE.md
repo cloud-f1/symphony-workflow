@@ -104,7 +104,10 @@ in-process (a fourth way to drive a ticket, alongside the API, the poller, and `
 - **`symphony-workflow sync-decomposition <key>`** (ADLC-47) — materializes an already-reviewed
   `decomposition.json` as real Jira Story (`parent=<epic-key>`)/Subtask
   (`parent=<story-key>`) issues via the existing `create_issue` path. Does not re-run the
-  decompose agent.
+  decompose agent. Refuses an Epic that already has children.
+- **`symphony-workflow diff-decomposition <key>`** / **`sync-decomposition <key> --update`** (ADLC-146) —
+  read-only content-drift report (exit 0/1/2/3) and its idempotent apply step; cards are tied to spec entries
+  by `id` + a `sd-id:` description marker (`drift.py`). Never deletes. See `docs/JIRA_HIERARCHY.md`.
 
 See `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for design detail.
 
@@ -194,6 +197,7 @@ src/symphony_workflow/
   rollup.py       # Subtask -> Story -> Epic roll-up: all children Done -> parent Done (forward-only)
   decompose.py    # Epic -> Stories/Tasks, read-only, reuses run_plan()'s output_format wiring
   sync_decomposition.py # decomposition.json -> real Jira Story/Subtask issues
+  drift.py        # diff-decomposition + sync --update: ids, sd-id markers, content drift vs Jira
   poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements.
                   # Optional triage cadence (ADLC-29, off by default): a slower, batched agent
                   # turn classifies new tickets plan/skip/flag before the normal dispatch path

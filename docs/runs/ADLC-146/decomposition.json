@@ -1,0 +1,184 @@
+{
+  "epic_key": "ADLC-146",
+  "stories": [
+    {
+      "title": "Stable identity and sync bookkeeping",
+      "user_story": "As a maintainer of a repo whose specs are the source of truth, I want decomposition entries to have stable ids mapped to Jira keys, so a rename updates a card instead of duplicating it.",
+      "acceptance_criteria": [
+        "Old decomposition.json files without ids still load",
+        "Ids are generated once, written back and stable across re-runs",
+        "--adopt proposes a mapping (exact summary, then order) and writes only after --yes"
+      ],
+      "tasks": [
+        {
+          "title": "Optional id on Story and Task models",
+          "description": "Phase 1"
+        },
+        {
+          "title": "Generate-and-write-back id helper",
+          "description": "Phase 1"
+        },
+        {
+          "title": "Marker line in rendered descriptions",
+          "description": "Phase 1"
+        },
+        {
+          "title": "sync-state.json read/write",
+          "description": "Phase 1"
+        },
+        {
+          "title": "--adopt matching with printed proposal and --yes",
+          "description": "Phase 1"
+        },
+        {
+          "title": "Unit tests: back-compat load, id stability, adopt matches and ambiguities",
+          "description": "Phase 1"
+        }
+      ]
+    },
+    {
+      "title": "diff-decomposition read-only command",
+      "user_story": "As a maintainer of a repo whose specs are the source of truth, I want to compare a decomposition with the live Epic, Stories and Subtasks, so I can see drift without changing anything.",
+      "acceptance_criteria": [
+        "Each entry is classified ok/missing/summary-changed/description-changed/orphan/parent-differs (status-differs only with an expected status)",
+        "Description normalization produces no false drift on untouched cards",
+        "Exit codes 0 clean, 1 drift, 2 invalid input or epic mismatch, 3 Jira error; --json output"
+      ],
+      "tasks": [
+        {
+          "title": "Traversal via list_children/get_issue and per-entry classification",
+          "description": "Phase 2"
+        },
+        {
+          "title": "Description normalization (line endings, whitespace, wiki escaping)",
+          "description": "Phase 2"
+        },
+        {
+          "title": "CLI command with table and --json output and exit codes",
+          "description": "Phase 2"
+        },
+        {
+          "title": "diff_decomposition tool-registry entry",
+          "description": "Phase 2"
+        },
+        {
+          "title": "Fake-client tests for every classification, epic mismatch, empty Epic",
+          "description": "Phase 2"
+        }
+      ]
+    },
+    {
+      "title": "sync-decomposition --update",
+      "user_story": "As a maintainer of a repo whose specs are the source of truth, I want to apply the safe part of a diff, so Jira follows the spec after it changes.",
+      "acceptance_criteria": [
+        "Creates missing cards, updates changed summary/description, never deletes",
+        "--dry-run prints the plan with no writes; re-running changes nothing",
+        "Stops at the first Jira error, reports what was done, exits 3"
+      ],
+      "tasks": [
+        {
+          "title": "Create-missing then update-changed pipeline",
+          "description": "Phase 3"
+        },
+        {
+          "title": "--dry-run and --status handling",
+          "description": "Phase 3"
+        },
+        {
+          "title": "Stop-at-first-error reporting and exit codes",
+          "description": "Phase 3"
+        },
+        {
+          "title": "Decide and document plain sync-decomposition on an Epic that already has children",
+          "description": "Phase 3"
+        },
+        {
+          "title": "Idempotent re-run test",
+          "description": "Phase 3"
+        }
+      ]
+    },
+    {
+      "title": "Re-parent support in update_issue",
+      "user_story": "As a maintainer of a repo whose specs are the source of truth, I want to move a Subtask to another Story through the tool layer, so splitting an oversized Story needs no hand-made REST call.",
+      "acceptance_criteria": [
+        "update_issue accepts an optional parent and sets fields.parent",
+        "Parent is read back from the issue itself because JQL child lists lag",
+        "diff can fix parent-differs through it"
+      ],
+      "tasks": [
+        {
+          "title": "JiraClient parent update with respx test",
+          "description": "Extras"
+        },
+        {
+          "title": "update_issue tool field and dispatch test",
+          "description": "Extras"
+        },
+        {
+          "title": "Use it from --update for parent-differs",
+          "description": "Extras"
+        }
+      ]
+    },
+    {
+      "title": "Live validation",
+      "user_story": "As a maintainer of a repo whose specs are the source of truth, I want the new commands proven against a real multi-Story Epic and a throwaway Epic, so I can trust them before shipping.",
+      "acceptance_criteria": [
+        "Read-only diff against a real multi-Story Epic shows the expected findings and no false drift",
+        "--update proven end to end on a throwaway ADLC Epic, never on a consumer's live cards"
+      ],
+      "tasks": [
+        {
+          "title": "Read-only diff run against a real Epic provided by the requester",
+          "description": "Phase 4"
+        },
+        {
+          "title": "Throwaway Epic: create, diff, change spec, --update, diff clean",
+          "description": "Phase 4"
+        },
+        {
+          "title": "Record findings in docs/plans/0007-jira-diff-sync/implement.md",
+          "description": "Phase 4"
+        }
+      ]
+    },
+    {
+      "title": "Docs and release",
+      "user_story": "As a maintainer of a repo whose specs are the source of truth, I want the new commands documented and released, so a session installing the plugin sees them.",
+      "acceptance_criteria": [
+        "README, CLAUDE.md, JIRA_HIERARCHY.md (content drift section), both ops skill copies and jira-ticket-ops updated",
+        "CHANGELOG Unreleased, minor version bump, release cut",
+        "Consumer adapter contract documented"
+      ],
+      "tasks": [
+        {
+          "title": "README and CLAUDE.md",
+          "description": "Phase 5"
+        },
+        {
+          "title": "JIRA_HIERARCHY.md content-drift section and adapter contract",
+          "description": "Phase 5"
+        },
+        {
+          "title": "symphony-workflow-ops canonical and plugin copies, jira-ticket-ops",
+          "description": "Phase 5"
+        },
+        {
+          "title": "CHANGELOG, version bump, release",
+          "description": "Phase 5"
+        }
+      ]
+    }
+  ],
+  "definition_of_done": [
+    "Unit tests added for all new/changed code; HTTP calls mocked with respx — no live Jira access in tests (CLAUDE.md “the three non-negotiables” #3).",
+    "If a Jira operation was added or changed: a typed client.py method AND a matching tools.py Tool entry (pydantic args model), both reachable via `symphony-workflow list-tools`/`call` (CLAUDE.md “the three non-negotiables” #2).",
+    "A Typer CLI subcommand added only if a human needs a friendly entry point for it — not every tool needs one (CLAUDE.md “Adding a new tool”, step 4).",
+    "`uv run ruff check .` and `uv run ruff format --check .` both pass clean (CLAUDE.md “Code style”).",
+    "`uv run pytest` passes in full (CLAUDE.md “the three non-negotiables” #3).",
+    "Type hints on all new code; pydantic models for anything crossing a boundary such as an HTTP response or tool input (CLAUDE.md “Code style”).",
+    "No bare `except Exception: pass`; typed exceptions (e.g. JiraError) caught specifically (CLAUDE.md “Code style”).",
+    "No org-specific values (cloud-f1.atlassian.net, CF1 field IDs, ADLC, a hardcoded target-repo path) baked into client.py/orchestrator.py/poller.py — configuration goes through env vars (CLAUDE.md “What NOT to do here”)."
+  ]
+}

@@ -1,6 +1,6 @@
 # 0007 — Jira drift detection and re-sync: implementation log
 
-> A log, not a plan written in advance: tick items and add dated entries as work ships. Nothing below is done yet.
+> A log, not a plan written in advance: tick items and add dated entries as work ships. Tracked as ADLC-146 (Stories ADLC-147..).
 
 ## Start here (for the session that picks this up)
 
@@ -43,3 +43,17 @@
 
 ## Log
 - 2026-10-12 — plan written as a handover; no code yet.
+- 2026-10-12 — implemented under ADLC-146: ids + `sd-id` marker (Phase 1), `diff-decomposition` (Phase 2),
+  `sync-decomposition --update` (Phase 3), `update_issue` re-parent. Live check on a throwaway ADLC Epic: create ->
+  diff clean -> change spec -> diff shows rename/description/new task -> `--update` -> clean -> re-run is a no-op.
+  Finding: the v3 `search/jql` returns descriptions as ADF, so descriptions are read per child via the v2 issue
+  endpoint (one extra call per card). `diff --adopt` against an older, retro-documented Epic matched every card by
+  summary and reported the missing markers. Decisions: plain `sync-decomposition` refuses an Epic with children
+  (open question 1). Added in a second pass: `sync-state.json` cache, `parent-differs` (diff + `--update`
+  re-parent, proven live by moving a Subtask by hand), and the `diff_decomposition` tool. Live read-only run against a
+  real multi-Story consumer Epic (5 Stories / ~40 Subtasks, scratch adapter, zero writes): every card matched by
+  summary with `--adopt`; findings were the expected ones -- a Story split into two Jira Stories shows as one missing
+  Story plus two orphan Stories (the adapter must map phases to Stories), a Subtask created only in Jira is an orphan,
+  and descriptions differ everywhere because the consumer's cards were written by a different generator (first
+  `--update --adopt` rewrites them once and stamps markers). Still not done: `--expect-status`, Epic -> In Progress
+  (open questions 2 and 3).

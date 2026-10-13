@@ -21,6 +21,7 @@ Every ticket belongs to the project of the repo you are working on. Take the key
 | List or audit by JQL | `search 'project = KEY ORDER BY key ASC'` |
 | Check the hierarchy | `audit KEY --open` (read-only; add `--assignee-me` to require an owner) |
 | Add Sub-tasks to Stories | `add-subtasks plan.json --dry-run`, then again without it |
+| Check Jira against a saved decomposition | `diff-decomposition EPIC-1` (read-only; exit 1 = drift), then `sync-decomposition EPIC-1 --update --dry-run` and without `--dry-run` |
 | Comment | `comment KEY-12 "text"` |
 | Move a ticket | `transition KEY-12 "In Progress"` |
 | Close upward after a merge | `rollup KEY-12 --dry-run`, then without `--dry-run` |
