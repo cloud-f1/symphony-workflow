@@ -188,8 +188,11 @@ def sync_status(
                     new_state.status[entry] = todo.status
 
             card_task = cards.get(task.id or "")
-            if card_task is None or not task.todos or direction == "pull":
-                continue
+            unsettled = any(
+                c.action == "conflict" for c in changes if c.id.startswith(f"{task.id}.")
+            )
+            if card_task is None or not task.todos or direction == "pull" or unsettled:
+                continue  # a Task waits for its To-Dos to agree before it moves
             derived = rollup_status([t.status for t in task.todos])
             theirs = remote_status(card_task.get("state"), status_map)
             if _RANK[derived] > _RANK[theirs] and move(card_task, derived):

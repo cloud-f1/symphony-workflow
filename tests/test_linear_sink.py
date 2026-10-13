@@ -204,3 +204,28 @@ def test_no_matching_state_means_none() -> None:
 )  # fmt: skip
 def test_reverse_mapping(state_type, status) -> None:
     assert status_from_state(state_type) == status
+
+
+def _linear_style(description: str) -> str:
+    """What a real Linear returns: a blank line is put before a list (seen live)."""
+    out: list[str] = []
+    for line in description.split("\n"):
+        if line.startswith("- ") and out and out[-1].strip() and not out[-1].startswith("- "):
+            out.append("")
+        out.append(line)
+    return "\n".join(out)
+
+
+def test_a_rerun_is_quiet_when_linear_normalises_the_markdown() -> None:
+    fake = FakeLinear()
+    sync_plan_to_linear(_plan(), fake, project_name="Proj")
+    for node in fake.issues + fake.milestones:  # what a read-back from the real API looks like
+        node["description"] = _linear_style(node["description"])
+    assert fake.issues[0]["description"] != _plan_description_sent(fake)  # the fake did normalise
+    fake.calls.clear()
+    changes = sync_plan_to_linear(_plan(), fake, project_name="Proj")
+    assert {c.action for c in changes} == {"unchanged"} and fake.calls == []
+
+
+def _plan_description_sent(fake: FakeLinear) -> str:
+    return "Let users in\n\nAcceptance criteria:\n- [ ] a\n\nsd-id: c1.t1"
