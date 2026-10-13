@@ -108,6 +108,12 @@ in-process (a fourth way to drive a ticket, alongside the API, the poller, and `
 - **`symphony-workflow diff-decomposition <key>`** / **`sync-decomposition <key> --update`** (ADLC-146) —
   read-only content-drift report (exit 0/1/2/3) and its idempotent apply step; cards are tied to spec entries
   by `id` + a `sd-id:` description marker (`drift.py`). Never deletes. See `docs/JIRA_HIERARCHY.md`.
+- **`symphony-workflow profile`** / **`import-plan`** / **`sync-plan`** (plan 0008, ADLC-197) — local, tracker-free:
+  `profile` reads how a project works and recommends a setup (two recommendations; `--write` saves
+  `docs/context/plan-sync.json` after confirming), `import-plan` reads epics-as-markdown files into the neutral plan,
+  `sync-plan --to markdown` writes it back as Markdown (idempotent, only managed blocks, never deletes). With no
+  config `sync-plan` prints the recommendation and exits 1 without touching anything. Jira and Linear sinks come in
+  later stories (ADLC-203). `profile_project` / `import_plan` are also tools and `call` runs them without Jira credentials.
 
 See `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for design detail.
 
@@ -199,6 +205,10 @@ src/symphony_workflow/
   sync_decomposition.py # decomposition.json -> real Jira Story/Subtask issues
   drift.py        # diff-decomposition + sync --update: ids, sd-id markers, content drift vs Jira
   envsetup.py     # init-env / check-env: per-project .env creation + key report, never prints values
+  plan.py         # neutral Category -> Task -> To-Do plan, ids, pyramid guardrails (plan 0008)
+  epics_md.py     # source adapter: an epics-as-markdown project's files -> the neutral plan
+  project_profile.py # `profile`: read how a project works, recommend a plan-sync setup (names only, no secrets)
+  markdown_sink.py   # neutral plan -> Athena-compatible .md files (managed blocks only), checkbox state back
   poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements.
                   # Optional triage cadence (ADLC-29, off by default): a slower, batched agent
                   # turn classifies new tickets plan/skip/flag before the normal dispatch path

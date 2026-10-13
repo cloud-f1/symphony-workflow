@@ -5,6 +5,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## Unreleased
+
+**Plan sync, phase 1** (plan `docs/plans/0008-adaptive-plan-sync/`, ADLC-197): `symphony-workflow profile [--path] [--json] [--write]` reads how a project already works (plan files, tracker credential key *names*, issue keys in git history, the shape of the plan) and prints two recommendations, the second refined from content; `--write` saves `docs/context/plan-sync.json` after asking. `import-plan` reads an epics-as-markdown project into a neutral Category / Task / To-Do plan with pyramid guardrail warnings. `sync-plan --to markdown [--from epics-md|decomposition] [--dry-run]` writes it as Markdown in `docs/epics/` (idempotent, only managed `<!-- sd:begin -->` blocks, never deletes); in an unconfigured project it prints the recommendation and stops. New tools `profile_project` and `import_plan`; `call` runs them without Jira credentials. New modules `plan.py`, `epics_md.py`, `project_profile.py`, `markdown_sink.py`.
+
 ## 0.7.0 — 2026-10-13
 
 **`symphony-workflow init-env [--path]`** and **`check-env [--path] [--verify] [--json]`** (ADLC-189): per-project Jira

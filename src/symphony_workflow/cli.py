@@ -42,6 +42,7 @@ from symphony_workflow.config import ConfigError
 from symphony_workflow.decompose import DecomposeError, assign_ids, execute_decompose
 from symphony_workflow.drift import DiffReport, apply_update, diff_decomposition
 from symphony_workflow.envsetup import EnvExistsError, check_env, init_env, verify_env
+from symphony_workflow.epics_md import load_epics_md
 from symphony_workflow.hierarchy import (
     AddSubtasksAborted,
     AddSubtasksResult,
@@ -50,12 +51,24 @@ from symphony_workflow.hierarchy import (
     add_subtasks,
     audit,
 )
+from symphony_workflow.markdown_sink import write_markdown
 from symphony_workflow.orchestrator import (
     RUNS_DOCS_ROOT,
     TARGET_REPO,
     WORKSPACE_ROOT,
     execute_implement,
     execute_plan,
+)
+from symphony_workflow.plan import Plan, check_plan, from_decomposition
+from symphony_workflow.project_profile import (
+    CONFIG_PATH,
+    PlanSyncConfig,
+    Profile,
+    Recommendation,
+    load_config,
+    profile_project,
+    recommend,
+    save_config,
 )
 from symphony_workflow.rollup import RollupAborted, RollupNotFound, RollupResult, rollup
 from symphony_workflow.runs import Run, RunStore, RunTransitionError
@@ -66,7 +79,7 @@ from symphony_workflow.sync_decomposition import (
     load_state,
     save_decomposition,
 )
-from symphony_workflow.tools import TOOLS, call_tool
+from symphony_workflow.tools import LOCAL_TOOLS, TOOLS, call_tool
 from symphony_workflow.tracker import ConfigError as TrackerConfigError
 from symphony_workflow.tracker import TrackerClient, TrackerError, get_tracker_client, require_jira
 from symphony_workflow.workspace import WorkspaceError, WorkspaceManager
@@ -133,6 +146,14 @@ def call(
         typer.echo(f"Invalid JSON arguments: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
+    if tool_name in LOCAL_TOOLS:  # local-file tools need no tracker credentials
+        try:
+            result = call_tool(None, tool_name, raw_args)
+        except (KeyError, ValueError) as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(json.dumps(result, indent=2, default=str))
+        return
     with _jira_client() as client:
         try:
             result = call_tool(client, tool_name, raw_args)
@@ -674,6 +695,205 @@ def _sync_update(
             "create" if action.action == "create" else f"{action.action} {','.join(action.fields)}"
         )
         typer.echo(f"  {label}: {what} {action.level} {action.key or ''} {action.summary}".rstrip())
+
+
+_ROOT_OPTION = typer.Option(Path("."), "--path", help="The project root")
+
+
+def _print_recommendation(title: str, rec: Recommendation) -> None:
+    c = rec.config
+    typer.echo(
+        f"{title}: tracker={c.tracker} plan_source={c.plan_source} todo_source={c.todo_source} "
+        f"push={c.push} record={c.record} include_done={str(c.include_done).lower()}"
+    )
+    for note in rec.notes:
+        typer.echo(f"  - {note.topic}: {note.evidence} -> {note.advice}")
+
+
+def _print_profile(profile: Profile) -> None:
+    p, t, c = profile.plan, profile.tracker, profile.content
+    typer.echo(f"Project: {profile.root}")
+    typer.echo(
+        f"Plan files: {p.epics} epic file(s); index={p.has_index} progress={p.has_progress} "
+        f"strategy-log={p.has_strategy_log}; plan folders={p.plan_folders}; "
+        f"athena commands={p.athena_commands}"
+    )
+    keys = ", ".join(f"{k} ({v})" for k, v in t.key_prefixes.items()) or "none"
+    typer.echo(
+        f"Tracker: jira credentials={t.jira_credentials} linear credentials={t.linear_credentials} "
+        f"SYMPHONY_WORKFLOW_TRACKER={t.tracker_env or 'unset'}; issue keys in history: {keys}"
+    )
+    typer.echo(
+        f"Content: {c.phases} phase(s) ({c.open_phases} not complete), {c.epics} epic(s), "
+        f"tasks per phase median={c.tasks_per_category_median}, "
+        f"acceptance items median={c.acceptance_median}, "
+        f"epics with a ready-made To-Do breakdown={c.ready_todo_share:.0%}"
+    )
+
+
+@app.command("profile")
+def profile_command(
+    path: Path = _ROOT_OPTION,
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+    write: bool = typer.Option(
+        False, "--write", help=f"Save a recommendation to {CONFIG_PATH} (asks first)"
+    ),
+    use: int = typer.Option(2, "--use", help="Which recommendation to save with --write: 1 or 2"),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation with --write"),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing config with --write"),
+) -> None:
+    """Read how this project already works and recommend a plan-sync setup (ADLC-199). Read-only.
+
+    Prints what it found (plan files, tracker credential key NAMES, issue keys in history, the shape
+    of the
+    plan), Recommendation 1 from usage and Recommendation 2 refined from content. Never prints a
+    credential
+    value. With --write the chosen recommendation is saved, after confirmation, for `sync-plan`.
+
+    Exit codes: 0 ok, 1 --write refused (a config exists, or the answer was no), 2 bad arguments.
+    """
+    if use not in (1, 2):
+        typer.echo("--use must be 1 or 2", err=True)
+        raise typer.Exit(code=2)
+    profile = profile_project(path)
+    first, refined = recommend(profile)
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "profile": profile.as_dict(),
+                    "recommendation_1": first.as_dict(),
+                    "recommendation_2": refined.as_dict(),
+                },
+                indent=2,
+            )
+        )
+    else:
+        _print_profile(profile)
+        _print_recommendation("Recommendation 1 (from usage)", first)
+        _print_recommendation("Recommendation 2 (refined from content)", refined)
+    if not write:
+        return
+    chosen = first if use == 1 else refined
+    target = path / CONFIG_PATH
+    if target.exists() and not force:
+        typer.echo(f"{target} already exists; pass --force to overwrite.", err=True)
+        raise typer.Exit(code=1)
+    if not yes and not typer.confirm(f"Save recommendation {use} to {target}?", default=False):
+        typer.echo("Nothing written.", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"Saved {save_config(path, chosen.config)}")
+
+
+def _print_plan(plan: Plan) -> None:
+    categories, tasks, todos = plan.counts()
+    typer.echo(
+        f"{plan.name or 'plan'}: {categories} categor(ies), {tasks} task(s), {todos} to-do(s)"
+    )
+    for category in plan.categories:
+        typer.echo(f"  {category.id}  {category.title}  [{category.status}]")
+        for task in category.tasks:
+            typer.echo(f"    {task.id}  {task.title}  [{task.status}]  ({len(task.todos)} to-dos)")
+
+
+@app.command("import-plan")
+def import_plan_command(
+    path: Path = _ROOT_OPTION,
+    include_done: bool = typer.Option(False, "--include-done", help="Also import completed phases"),
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+) -> None:
+    """Read the project's epics-as-markdown files into the neutral Category / Task / To-Do plan
+    (ADLC-200).
+
+    Read-only. Prints the plan and any pyramid guardrail warnings. Completed phases are skipped
+    unless
+    --include-done is given. Writes nothing.
+    """
+    plan = load_epics_md(path, include_done=include_done)
+    findings = check_plan(plan)
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "plan": plan.model_dump(),
+                    "counts": list(plan.counts()),
+                    "findings": [f.as_dict() for f in findings],
+                },
+                indent=2,
+            )
+        )
+        return
+    _print_plan(plan)
+    for f in findings:
+        typer.echo(f"  WARNING {f.where} {f.rule}: {f.detail}")
+
+
+@app.command("sync-plan")
+def sync_plan_command(
+    path: Path = _ROOT_OPTION,
+    source: str | None = typer.Option(
+        None, "--from", help="epics-md or decomposition (default: the config)"
+    ),
+    epic: str | None = typer.Option(None, "--epic", help="Epic key, for --from decomposition"),
+    to: str | None = typer.Option(None, "--to", help="markdown (jira and linear come later)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change, write nothing"),
+    include_done: bool = typer.Option(False, "--include-done", help="Also sync completed phases"),
+) -> None:
+    """Sync a plan into Markdown files in the project's docs/ (ADLC-202). Idempotent; never deletes.
+
+    Settings come from docs/context/plan-sync.json. With no config and no --from/--to nothing is
+    touched:
+    the recommendation is printed and the command stops, so run `profile --write` first (or pass
+    both flags).
+    Only the managed blocks of a file are rewritten; hand-written sections stay as they are.
+
+    Exit codes: 0 ok, 1 not configured, 2 bad input or a sink that is not built yet.
+    """
+    try:
+        config = load_config(path)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    if config is None and not (source and to):
+        first, refined = recommend(profile_project(path))
+        typer.echo(f"{path / CONFIG_PATH} does not exist, so nothing was touched. Recommendation:")
+        _print_recommendation("Recommendation 2 (refined from content)", refined)
+        typer.echo(
+            "Save it with `symphony-workflow profile --write`, or pass --from and --to.", err=True
+        )
+        raise typer.Exit(code=1)
+    config = config or PlanSyncConfig()
+    source = source or config.plan_source
+    to = to or config.tracker
+    if to != "markdown":
+        typer.echo(
+            f"The {to} sink is not built yet (plan 0008, Story ADLC-203); use --to markdown.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    if source == "epics-md":
+        plan = load_epics_md(path, include_done=include_done or config.include_done)
+    elif source == "decomposition":
+        if not epic:
+            typer.echo("--from decomposition needs --epic KEY", err=True)
+            raise typer.Exit(code=2)
+        try:
+            plan = from_decomposition(load_decomposition(epic, path / "docs/runs"))
+        except SyncDecompositionError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=2) from exc
+    else:
+        typer.echo(f"Unknown source {source!r}: use epics-md or decomposition", err=True)
+        raise typer.Exit(code=2)
+    changes = write_markdown(plan, path, dry_run=dry_run)
+    label = {
+        "create": "Would create" if dry_run else "Created",
+        "update": "Would update" if dry_run else "Updated",
+    }
+    for change in changes:
+        typer.echo(f"  {label.get(change.action, 'Unchanged'):12} {change.path}")
+    for f in check_plan(plan):
+        typer.echo(f"  WARNING {f.where} {f.rule}: {f.detail}")
 
 
 _ENV_PATH_OPTION = typer.Option(Path(".env"), "--path", help="The credentials file to use")

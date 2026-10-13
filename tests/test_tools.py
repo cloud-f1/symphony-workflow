@@ -25,6 +25,8 @@ def test_tools_registry_has_expected_names() -> None:
         "audit_hierarchy",
         "add_subtasks",
         "diff_decomposition",
+        "profile_project",
+        "import_plan",
     }
 
 
@@ -227,3 +229,23 @@ def test_call_tool_diff_decomposition_without_spec_is_a_clean_error(monkeypatch,
     monkeypatch.setattr(orchestrator_module, "RUNS_DOCS_ROOT", tmp_path)
     with pytest.raises(JiraError, match="No decomposition found"):
         call_tool(MagicMock(), "diff_decomposition", {"epic_key": "ADLC-9"})
+
+
+def test_local_tools_run_without_a_jira_client(tmp_path) -> None:
+    from tests._athena import make_project
+
+    root = make_project(tmp_path)
+    profile = call_tool(None, "profile_project", {"path": str(root)})
+    assert profile["profile"]["plan"]["epics"] == 4
+    assert profile["recommendation_1"]["config"]["plan_source"] == "epics-md"
+    imported = call_tool(None, "import_plan", {"path": str(root)})
+    assert imported["counts"] == [2, 3, 5]
+    assert {f["rule"] for f in imported["findings"]} >= {"no_todos"}
+    full = call_tool(None, "import_plan", {"path": str(root), "include_done": True})
+    assert full["counts"][0] == 3
+
+
+def test_local_tools_are_marked_so_the_cli_skips_the_credential_check() -> None:
+    from symphony_workflow.tools import LOCAL_TOOLS
+
+    assert LOCAL_TOOLS == {"profile_project", "import_plan"}

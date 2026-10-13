@@ -10,13 +10,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
 from symphony_workflow.client import JiraClient, JiraError
 from symphony_workflow.drift import diff_decomposition
+from symphony_workflow.epics_md import load_epics_md
 from symphony_workflow.hierarchy import AddSubtasksAborted, PlanError, add_subtasks, audit
+from symphony_workflow.plan import check_plan
+from symphony_workflow.project_profile import profile_project, recommend
 from symphony_workflow.rollup import RollupAborted, RollupNotFound, rollup
 from symphony_workflow.sync_decomposition import (
     SyncDecompositionError,
@@ -80,6 +84,15 @@ class DiffDecompositionArgs(BaseModel):
     adopt: bool = False
 
 
+class ProfileProjectArgs(BaseModel):
+    path: str = "."
+
+
+class ImportPlanArgs(BaseModel):
+    path: str = "."
+    include_done: bool = False
+
+
 class AddSubtasksArgs(BaseModel):
     plan: dict[str, list[str]]
     dry_run: bool = False
@@ -101,7 +114,7 @@ class Tool:
     name: str
     description: str
     args_model: type[BaseModel]
-    handler: Callable[[JiraClient, Any], Any]
+    handler: Callable[[Any, Any], Any]
 
     def json_schema(self) -> dict[str, Any]:
         return {
@@ -202,6 +215,25 @@ def _get_myself(client: JiraClient, args: GetMyselfArgs) -> dict[str, Any]:
     return client.get_myself().model_dump()
 
 
+def _profile_project(_client: None, args: ProfileProjectArgs) -> dict[str, Any]:
+    profile = profile_project(Path(args.path))
+    first, refined = recommend(profile)
+    return {
+        "profile": profile.as_dict(),
+        "recommendation_1": first.as_dict(),
+        "recommendation_2": refined.as_dict(),
+    }
+
+
+def _import_plan(_client: None, args: ImportPlanArgs) -> dict[str, Any]:
+    plan = load_epics_md(Path(args.path), include_done=args.include_done)
+    return {
+        "plan": plan.model_dump(),
+        "counts": list(plan.counts()),
+        "findings": [f.as_dict() for f in check_plan(plan)],
+    }
+
+
 def _create_remote_link(client: JiraClient, args: CreateRemoteLinkArgs) -> dict[str, Any]:
     client.create_remote_link(args.key, url=args.url, title=args.title)
     return {"ok": True, "key": args.key, "url": args.url}
@@ -274,6 +306,24 @@ TOOLS: dict[str, Tool] = {
             _get_myself,
         ),
         Tool(
+            "profile_project",
+            "Local and read-only (no Jira needed): read how a project already works -- plan "
+            "files, tracker credential key NAMES (never values), issue-key history, content "
+            "shape -- and return the "
+            "profile plus two recommendations (from usage, then refined from content).",
+            ProfileProjectArgs,
+            _profile_project,
+        ),
+        Tool(
+            "import_plan",
+            "Local and read-only (no Jira needed): read a project's epics-as-markdown files "
+            "into the neutral Category / Task / To-Do plan and report pyramid guardrail "
+            "findings. Completed phases are "
+            "skipped unless include_done=true.",
+            ImportPlanArgs,
+            _import_plan,
+        ),
+        Tool(
             "create_remote_link",
             "Add a Jira 'web link' (Links section, distinct from a comment) pointing an "
             "issue at an external URL — e.g. a merged docs/runs/<key>/plan.md on GitHub. "
@@ -285,8 +335,14 @@ TOOLS: dict[str, Tool] = {
 }
 
 
-def call_tool(client: JiraClient, name: str, raw_args: dict[str, Any]) -> Any:
-    """Validate `raw_args` against the named tool's schema and run it."""
+# Tools that only touch local files: `call` runs them without a Jira client (so a project with no
+# tracker can use them).
+LOCAL_TOOLS = frozenset({"profile_project", "import_plan"})
+
+
+def call_tool(client: JiraClient | None, name: str, raw_args: dict[str, Any]) -> Any:
+    """Validate `raw_args` against the named tool's schema and run it. `client` may be None for
+    LOCAL_TOOLS."""
     tool = TOOLS.get(name)
     if tool is None:
         available = ", ".join(sorted(TOOLS)) or "none"
