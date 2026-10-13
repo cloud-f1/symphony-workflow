@@ -1,7 +1,7 @@
 {
   "name": "symphony-workflow-ops",
   "description": "Operational skill + SessionStart hook for symphony-workflow's Plan/Implement loop (starts/health-checks its FastAPI server automatically). Does NOT install the CLI/server itself -- clone https://github.com/cloud-f1/symphony-workflow and run `uv sync --extra dev` separately; see that repo's docs/PORTABILITY.md.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "author": {
     "name": "cloud-f1"
   },

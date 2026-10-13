@@ -23,6 +23,7 @@
 # Exits non-zero (and does NOT tag) if:
 #   - pyproject.toml's version isn't already exactly <version>
 #   - plugin/.claude-plugin/plugin.json's version isn't already exactly <version>
+#   - .claude-plugin/marketplace.json lists no plugin, or any entry's version isn't <version>
 #   - CHANGELOG.md has no "## <version>" heading yet
 #   - `uv run pytest tests/test_version.py` fails
 #   - a git tag v<version> already exists
@@ -63,6 +64,14 @@ import json
 print(json.load(open("plugin/.claude-plugin/plugin.json")).get("version", ""))
 ')"
 [ "$PLUGIN_VERSION" = "$VERSION" ] || fail "plugin/.claude-plugin/plugin.json's version is '${PLUGIN_VERSION}', expected '${VERSION}'."
+
+echo "==> Checking marketplace.json's plugin versions are already ${VERSION}"
+MARKETPLACE_VERSIONS="$(python3 -c '
+import json
+data = json.load(open(".claude-plugin/marketplace.json"))
+print(" ".join(sorted({p.get("version", "") for p in data.get("plugins", [])})))
+')"
+[ "$MARKETPLACE_VERSIONS" = "$VERSION" ] || fail ".claude-plugin/marketplace.json's plugin version(s) are '${MARKETPLACE_VERSIONS}' (empty = no plugin listed), expected '${VERSION}'. Claude Code only refreshes an installed plugin when this changes."
 
 echo "==> Checking CHANGELOG.md has a '## ${VERSION}' heading"
 grep -q "^## ${VERSION}" CHANGELOG.md || fail "CHANGELOG.md has no '## ${VERSION}' heading yet. Write the changelog entry, merge it, then re-run this script."

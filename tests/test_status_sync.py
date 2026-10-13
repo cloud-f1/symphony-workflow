@@ -177,3 +177,13 @@ def test_a_symlinked_state_file_is_refused(tmp_path) -> None:
     (root / STATE_FILE).symlink_to(outside)
     with pytest.raises(UnsafePathError):
         load_state(root)
+
+
+def test_a_task_is_not_pushed_while_one_of_its_to_dos_is_in_conflict() -> None:
+    # d1 and d2 are done locally; d2 is also in progress in Linear (changed on both sides)
+    plan = _plan("done", "done")
+    fake = FakeLinear(_cards(c1_t1="in_progress", c1_t1_d1="done", c1_t1_d2="in_progress"))
+    base = SyncState(status={"c1.t1.d1": "done"})
+    report = sync_status(plan, fake, project_name="P", base=base)
+    assert [c.id for c in report.conflicts] == ["c1.t1.d2"]
+    assert fake.moves == []  # the Task stays where it is until the conflict is settled
