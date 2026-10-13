@@ -1,13 +1,17 @@
 ---
 name: symphony-workflow-ops
 description: >
-  Use when operating symphony-workflow itself — starting the API server, driving a
-  ticket through Plan then Implement, reading poller status, or picking up a
-  ticket by hand. Trigger on: "run symphony-workflow", "plan this ticket", "start
-  the poller", "symphony-workflow server", "ADLC ticket", or any request to drive
-  a Jira ticket through this repo's Plan/Implement loop. For the why/design
-  behind these mechanics, read docs/{intent,spec,plan}.md — this skill is the
-  short operational reference, not the design doc.
+  Use when working with a plan or a ticket through symphony-workflow. (1) A plan kept as
+  Markdown (docs/epics/*.md, an Athena-style workflow): preview it as a board or task list,
+  propose To-Dos for tasks that have none, push it to Linear or Jira or keep it as Markdown, or
+  keep a board's status in step with the plan, both ways. Trigger on: "sync my plan", "put my
+  epics on a board", "plan to Linear", "plan to Jira", "show my plan as tasks", "propose
+  To-Dos", "keep the board in step", "profile this project". (2) Operating the tool itself:
+  start the API server, drive a Jira or Linear ticket through Plan then Implement, read poller
+  status, pick up an ADLC ticket by hand. Always read the project first (`profile`, then a
+  `--dry-run`); never write to a tracker without the user's go-ahead. For the why/design behind
+  these mechanics, read docs/{intent,spec,plan}.md — this skill is the short operational
+  reference, not the design doc.
 ---
 
 # symphony-workflow operations
@@ -152,6 +156,24 @@ Target shape is about 1 : 3 : 9. None of this touches a tracker unless you pass 
   `sync-plan --to jira` first: it only looks at the cards in that key map.
 - Both sinks were run against the real services on a throwaway project (and deleted afterwards), but still start with
   `--dry-run`. Git is only ever run through `safepath.run_git`.
+- With `todo_source` `hybrid`, `sync-plan` waits for a pending `split-todos` proposal instead of writing the five
+  steps (they would read as the author's own); a project with no phase table is grouped in eights (`unphased`,
+  `unphased-2`, ...); `status_map` in `docs/context/plan-sync.json` maps a Linear or Jira status name to a plan status.
+
+## Prove a change for real, not only mocked
+
+A mock cannot show how a real service reshapes what you send. Running the Linear sink, the Jira sink and
+`split-todos` once for real found four bugs mocks never could: Linear puts a blank line before a list, so every
+Task looked changed on a re-run; a Task moved while one of its To-Dos was in conflict; a freely worded tests item got a
+duplicate; a key map naming someone else's ticket was trusted. So for any change to a sink or the agent step:
+
+1. Use a **throwaway** object (a Linear project with a name that does not exist yet, a Jira tree in a project you own).
+   Never run against the owner's existing project: its hand-made issues have no `sd-id:` marker and would be duplicated.
+2. Record what exists **before** (for Jira the highest key number) and delete **only what the run created** afterwards,
+   in a `finally`, then read back that it is gone.
+3. Run the whole loop: create, re-run (nothing created or updated), pull, push, conflict. Report what was created and
+   deleted, one line each.
+4. Credentials come from the project's `.env`; never print them, and say so if one was pasted into a chat.
 
 ## Branch naming — required, not optional
 
@@ -220,17 +242,39 @@ released is invisible to every other session. Order matters:
    `plugin/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, the `symphony-workflow`
    package version line in `uv.lock`, and a `## X.Y.Z` entry in `CHANGELOG.md`. Edit the lock line by hand:
    a newer `uv lock` can rewrite unrelated dependency markers. New feature = minor, fix = patch.
-2. **Validate**: `uv run pytest`, `uv run ruff check .`, `claude plugin validate --strict plugin`.
+2. **Validate**: `uv run pytest`, `uv run ruff check .`, `claude plugin validate --strict plugin` **and** `claude plugin validate
+   --strict .` (the marketplace; it is a different check and failed once for a missing description). CI runs ruff and pytest
+   on every push and pull request (`.github/workflows/ci.yml`).
 3. **Merge first, tag second.** Confirm the merge with `gh pr view <n> --json state,mergeCommit`, update
    local `main` (`git fetch && git merge --ff-only origin/main`), then `scripts/release.sh X.Y.Z`. It checks
    the three versions, the CHANGELOG heading and that the tag is new, tags the current commit and never pushes;
    push with `git push origin vX.Y.Z`. It also fails when `marketplace.json` lists no plugin or a different
    version (ADLC-249).
 4. **Close tickets after the merge, never before**: transition the Stories Done, then `rollup <subtask>`.
-5. **Tell the consumers**: the companion status board runs this CLI through `uvx ... @vX.Y.Z`; bump its pin.
+5. **Check the install for real** after a plugin change, without touching your own Claude config:
+   `CLAUDE_CONFIG_DIR=<scratch> claude plugin marketplace add cloud-f1/symphony-workflow`, then `... plugin install
+   symphony-workflow-ops@symphony-workflow-marketplace --scope local`. GitHub's "Latest release" is not what a tag
+   is: only tags are cut here, so a version badge must use the tag.
+6. **Tell the consumers**: the companion status board runs this CLI through `uvx ... @vX.Y.Z`; bump its pin.
    Installed copies of the plugin refresh through `/plugin` once the version differs.
 
 `gh pr merge` can be refused by the auto-mode classifier ("Merge Without Review") for a PR nobody has
 reviewed, even when the user asked for it. Do the review a reviewer would (merge all open heads on a scratch
 checkout, full tests, a leak scan for this public repo), report it, and let the user run the merge; do not
 look for another way around it.
+
+## Git and PR gotchas
+
+- `gh pr merge` can be refused by the auto-mode classifier ("Merge Without Review") for a PR nobody reviewed, and it
+  worked once the user asked explicitly. Verify, report, and if it is refused hand the user the command; do not look for
+  another way. Confirm any merge with `gh pr view <n> --json state,mergeCommit`.
+- A user-level `git-guard` hook blocks a Bash command line that has both a force-push flag and the word `main`, even
+  inside a heredoc. Run the push as its own command; write notes and memory with the file tool, not a heredoc.
+- A squash-merged stack needs `git rebase --onto origin/main <old tip> <branch>` for each branch above the one that
+  merged, then a lease push of that branch (`--force-with-lease`, never plain force) and a retarget of its PR.
+- Deleting remote branches is also classifier-gated. The repo deletes a head branch on merge now, so only old ones
+  need a hand.
+- The Jira sink keeps an id-to-key map in `docs/context/sync-state.json` and trusts a key only when it is in the target
+  project and the card carries that entry's own `sd-id:` marker. Never loosen that: the file may come from someone
+  else's checkout.
+

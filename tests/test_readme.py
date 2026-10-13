@@ -125,3 +125,77 @@ def test_every_command_shown_exists_in_the_cli() -> None:
 
 def test_the_guidance_does_not_pin_a_release_that_will_go_stale() -> None:
     assert not re.search(r"symphony-workflow@v\d", "\n".join(_guidance(EN) + _guidance(ZH)))
+
+
+# ---- badges and images ----
+
+BADGE = re.compile(r"^\[!\[[^\]]+\]\((https://[^)]+)\)\]\(([^)]+)\)$")
+IMAGE = re.compile(r"^!\[[^\]]*\]\((docs/snapshots/img/[\w.-]+\.svg)\)$")
+
+
+def _badges(path: Path) -> list[str]:
+    return [line for line in _guidance(path) if line.startswith("[![")]
+
+
+def test_both_readmes_carry_the_same_badges_and_each_one_is_well_formed() -> None:
+    en, zh = _badges(EN), _badges(ZH)
+    assert len(en) >= 5
+    # the in-page anchors differ by language; everything else (image, target host) must match
+    strip = lambda b: BADGE.match(b).group(1)  # noqa: E731
+    assert [strip(b) for b in en] == [strip(b) for b in zh]
+    for badge in en:
+        match = BADGE.match(badge)
+        assert match, badge
+        assert match.group(1).startswith(("https://github.com/", "https://img.shields.io/"))
+
+
+def test_the_ci_badge_points_at_a_workflow_that_exists() -> None:
+    ci = [b for b in _badges(EN) if "/actions/workflows/" in b]
+    assert len(ci) == 1
+    workflow = re.search(r"/actions/workflows/([\w.-]+)/badge\.svg", ci[0]).group(1)
+    assert (REPO / ".github/workflows" / workflow).is_file()
+
+
+def test_the_version_badge_reads_the_tag_not_the_release() -> None:
+    # GitHub's "Latest release" is not updated by a bare tag, so it would show an old version
+    version = [b for b in _badges(EN) if "label=version" in b]
+    assert version and "/github/v/tag/" in version[0] and "/github/v/release/" not in version[0]
+
+
+def _images(path: Path) -> list[str]:
+    return [m.group(1) for line in _guidance(path) if (m := IMAGE.match(line))]
+
+
+def test_every_snapshot_has_an_image_shown_in_both_languages_before_its_text() -> None:
+    stems = {p.stem for p in SNAPSHOTS.glob("*.txt")}
+    for path in (EN, ZH):
+        images = _images(path)
+        assert {Path(i).stem for i in images} == stems
+        assert all((REPO / i).is_file() for i in images)
+    assert _images(EN) == _images(ZH)
+    # the picture comes right before the collapsible text of the same snapshot
+    for path in (EN, ZH):
+        text = "\n".join(_guidance(path))
+        for image in _images(path):
+            stem = Path(image).stem
+            assert re.search(
+                rf"!\[[^\]]*\]\({re.escape(image)}\)\n\n<details>\n<summary>[^\n]*</summary>\n\n"
+                rf"<!-- snapshot: docs/snapshots/{re.escape(stem)}\.txt -->",
+                text,
+            ), f"{path.name}: {image} is not followed by its text version"
+
+
+def test_the_images_are_what_the_snapshot_text_renders_to_today(tmp_path: Path) -> None:
+    """A snapshot edited without re-running scripts/render_snapshots.py leaves a stale picture."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "render_snapshots", REPO / "scripts/render_snapshots.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.OUT = tmp_path
+    for source in sorted(SNAPSHOTS.glob("*.txt")):
+        fresh = module.render(source).read_text(encoding="utf-8")
+        committed = (SNAPSHOTS / "img" / f"{source.stem}.svg").read_text(encoding="utf-8")
+        assert fresh == committed, f"{source.name}: run `uv run python scripts/render_snapshots.py`"

@@ -1,0 +1,93 @@
+# a real agent session: Claude with this repo's plugin loaded, in a throwaway plan project.
+# file reads are left out, and the agent's chained commands are shown one by one (same output).
+you> I keep my plan as Markdown under docs/epics. Show me how it would look as a tidy task list for a board, but
+     do not write or change anything yet.
+
+agent> [loads the symphony-workflow-ops skill]
+agent> Now the read-only CLI preview (profile without `--write`, then import-plan).
+
+$ symphony-workflow profile
+Project: .
+Plan files: 4 epic file(s); index=False progress=True strategy-log=False; plan folders=0; athena commands=False
+Tracker: jira credentials=False linear credentials=False SYMPHONY_WORKFLOW_TRACKER=unset; issue keys in history: none
+Content: 2 phase(s) (1 not complete), 4 epic(s), tasks per phase median=1.5, acceptance items median=1.0, epics with a ready-made To-Do breakdown=75%
+Recommendation 1 (from usage): tracker=markdown plan_source=epics-md todo_source=hybrid push=manual record=markdown include_done=false
+  - tracker: no tracker evidence in this project -> use Markdown files
+  - tracker: LINEAR_API_KEY is set in the shell, shared by every project, but not in this project's .env -> not enough to pick Linear; pass --to linear if you want it
+  - plan source: 4 epic file(s) under docs/epics -> read them with `epics-md`
+Recommendation 2 (refined from content): tracker=markdown plan_source=epics-md todo_source=breakdown push=manual record=markdown include_done=false
+  - To-Do source: 75% of epics have a ready-made To-Do breakdown -> use each epic's own breakdown (to-do list, phases or story headings) as To-Dos
+
+$ symphony-workflow import-plan
+plan: 2 categor(ies), 3 task(s), 5 to-do(s)
+  phase-2  Phase 2  [in_progress]
+    E1  Login page  [in_progress]  (3 to-dos)
+    E2  Reports  [todo]  (2 to-dos)
+  unphased  Unphased  [todo]
+    E4  Not in any phase  [todo]  (0 to-dos)
+  WARNING unphased one_task: a Category with one Task is really a Task
+  WARNING E4 no_todos: no To-Dos yet (layer-3 generation fills them in)
+
+$ symphony-workflow import-plan --include-done
+plan: 3 categor(ies), 4 task(s), 6 to-do(s)
+  phase-1  Phase 1  [done]
+    E3  Old work  [done]  (1 to-dos)
+  phase-2  Phase 2  [in_progress]
+    E1  Login page  [in_progress]  (3 to-dos)
+    E2  Reports  [todo]  (2 to-dos)
+  unphased  Unphased  [todo]
+    E4  Not in any phase  [todo]  (0 to-dos)
+  WARNING phase-1 one_task: a Category with one Task is really a Task
+  WARNING E3 one_todo: one To-Do means the Task is really a To-Do
+  WARNING unphased one_task: a Category with one Task is really a Task
+  WARNING E4 no_todos: no To-Dos yet (layer-3 generation fills them in)
+
+agent> Here's how your plan would look as a board. I only read files to get this. Nothing was
+       written or changed: I used `symphony-workflow profile` without `--write` and `import-
+       plan`, and `git status` is the same as before.
+
+       ## Board preview (`docs/epics`)
+
+       **Phase 2: In progress**
+       - **E1: Login page** (in progress)
+         - [ ] Build the form
+         - [ ] Wire the API
+         - [ ] Tests
+         - *Acceptance:* form validates the email · wrong password shows an error
+       - **E2: Reports** (to do)
+         - [ ] Phase 1: Data layer
+         - [ ] Phase 2: UI
+         - *Acceptance:* export works
+
+       **Unphased: To do**
+       - **E4: Not in any phase** (to do)
+         - *(no to-dos yet)*
+         - *Acceptance:* something
+
+       **Hidden by default (Phase 1, complete):** E3: Old work, with one finished to-do, "Ship
+       it". It only appears if you add `--include-done`.
+
+       That makes 2 columns, 3 cards and 5 to-dos. `notes.md` has no epic in it, so it was
+       skipped.
+
+       ## Things to tidy before pushing it anywhere
+       1. **E4 has no to-dos.** You can write some yourself, or run `split-todos` to get
+          suggested ones that you then approve.
+       2. **"Unphased" holds only one card.** The tool warns that a column with one card is
+          really just a card. Moving E4 into Phase 2 or a new phase would fix it.
+       3. **E3 would cause the same kind of warning** if you include done work: one column with
+          one card that has one to-do. It's probably best left hidden.
+       4. **E2's to-dos are its "Phase 1 / Phase 2" headings,** so the board would have a "Phase
+          2" column and also an E2 to-do called "Phase 2: UI". You may want to rename those to
+          "Data layer" and "UI".
+       5. **Board status can disagree with `epic-progress.md`.** That file marks E1's Spec step
+          as done, and one of E1's acceptance items is ticked. All three E1 to-dos would still
+          show as not started.
+
+       ## Where it would go
+       The tool found no Jira or Linear setup in this project, so it suggests keeping the board
+       as Markdown files, using each epic's own lists as its to-dos. When you're ready, it could
+       go to Markdown or to Linear or Jira. I'd do a `--dry-run` first and only write once you
+       say so.
+
+       [last paragraph omitted: it was about claude.ai connectors in the machine that ran this]

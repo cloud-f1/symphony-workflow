@@ -269,9 +269,9 @@ uv run ruff format .             # format
 uv run symphony-workflow list-tools     # sanity-check the tool registry
 ```
 
-## README and snapshots
+## README, snapshots and CI
 
-`README.md` (guidance first, reference below `## Reference`) and `README.zh-TW.md` carry real output as snapshots from `docs/snapshots/*.txt`, marked `<!-- snapshot: docs/snapshots/NN-name.txt -->` before each code block; `tests/test_readme.py` checks both languages have the same headings and snapshots and that every block is a verbatim excerpt. The files were captured by running the commands in a throwaway directory with `--path .` (so no local path appears) against `tests/_athena.make_project`, a real model for the To-Do proposal, and a throwaway Linear project and Jira tree deleted afterwards; if you re-capture, do the same and re-read the output for names before committing (this repo is public).
+`README.md` (guidance first, reference below `## Reference`) and `README.zh-TW.md` carry real output as snapshots from `docs/snapshots/*.txt`, marked `<!-- snapshot: docs/snapshots/NN-name.txt -->` before each code block; `tests/test_readme.py` checks both languages have the same headings and snapshots and that every block is a verbatim excerpt. The files were captured by running the commands in a throwaway directory with `--path .` (so no local path appears) against `tests/_athena.make_project`, a real model for the To-Do proposal, and a throwaway Linear project and Jira tree deleted afterwards; if you re-capture, do the same and re-read the output for names before committing (this repo is public). Each snapshot is shown as a terminal-style SVG in `docs/snapshots/img/`, rendered from the text by `uv run python scripts/render_snapshots.py` (re-run it after editing a snapshot: `test_readme.py` fails on a stale image). `09-agent.txt` is a real agent session (a Claude agent with `plugin/` loaded, tools limited to `symphony-workflow` commands, settings isolated); capture it again if the skill description changes. CI is `.github/workflows/ci.yml` (ruff and pytest, Python 3.11 and 3.13) and backs the README's CI badge; the version badge reads the tag, not the release.
 
 ## Secrets
 

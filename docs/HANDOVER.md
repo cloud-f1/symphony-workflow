@@ -1,4 +1,4 @@
-# Handover (state at v0.9.2 plus plugin-install fixes, 2026-10-14)
+# Handover (state at v0.9.3, 2026-10-14)
 
 Read this first when you pick the project up. The README is the guidance (two languages), `docs/QUICKSTART.md` the walkthrough;
 this file is the state of the work and where the next session starts.
@@ -39,6 +39,7 @@ to it. Three things on top of that:
 
 | Ticket | What |
 |---|---|
+| README and CI | `README.md` / `README.zh-TW.md` lead with the plugin and the skills, show the real cases as images (`scripts/render_snapshots.py`) and carry badges; `.github/workflows/ci.yml` runs ruff and pytest on 3.11 and 3.13. The skill description was widened after a real agent run showed it never triggered on a plan request: re-run `docs/snapshots/09-agent.txt`'s capture (see the README section in `CLAUDE.md`) after any change to it. GitHub's Latest release is still v0.5.3 (only tags are cut); cut GitHub Releases from the CHANGELOG if you want that page current. |
 | Plugin install | Verified for real on 2026-10-14 in an isolated config (`CLAUDE_CONFIG_DIR=<scratch>`, so your own Claude config is untouched): marketplace add, install, both skills, the hook silent in a non-symphony-workflow project. Not exercised: the refresh after a version bump, and an install into another owner checkout (ADLC-327). |
 | Companion board | `symphony-walkman` pins this CLI at `@v0.5.2`; bump it after each release. It reads three things: `search`, `docs/runs/<KEY>/run.json` and branch names starting with a Jira key. |
 | Ideas, not committed | Read credentials from `~/.config/symphony-workflow/.env` when no variables are set (`init-env` writes the project `.env` only; the companion board already reads the user-level path); make `claude-agent-sdk` optional (about 95 MB for read-only commands); `ruff format` would change about 10 files; `sync-status` does not write the progress matrix back (five step columns vs one tracker status, a decision, reopen ADLC-242 to change it); `on-approve` push mode (only `manual` exists); two plans must not sync into one Jira project (ids are per plan). |
