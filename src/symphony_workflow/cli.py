@@ -41,6 +41,7 @@ from symphony_workflow.client import JiraClient, JiraError
 from symphony_workflow.config import ConfigError
 from symphony_workflow.decompose import DecomposeError, assign_ids, execute_decompose
 from symphony_workflow.drift import DiffReport, apply_update, diff_decomposition
+from symphony_workflow.envsetup import EnvExistsError, check_env, init_env, verify_env
 from symphony_workflow.hierarchy import (
     AddSubtasksAborted,
     AddSubtasksResult,
@@ -673,6 +674,75 @@ def _sync_update(
             "create" if action.action == "create" else f"{action.action} {','.join(action.fields)}"
         )
         typer.echo(f"  {label}: {what} {action.level} {action.key or ''} {action.summary}".rstrip())
+
+
+_ENV_PATH_OPTION = typer.Option(Path(".env"), "--path", help="The credentials file to use")
+
+
+@app.command("init-env")
+def init_env_command(path: Path = _ENV_PATH_OPTION) -> None:
+    """Create this project's `.env` from a template and make sure git ignores it (ADLC-189).
+
+    Writes only empty keys: fill in JIRA_BASE_URL, JIRA_EMAIL and JIRA_API_TOKEN yourself, in an
+    editor, never in a chat. Refuses to overwrite an existing file.
+
+    Exit codes: 0 created, 1 the file already exists.
+    """
+    try:
+        result = init_env(path)
+    except EnvExistsError as exc:
+        typer.echo(
+            f"{path} already exists; not overwriting. Run `symphony-workflow check-env`.", err=True
+        )
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Created {result.path} (owner-only permissions).")
+    if result.added_to_gitignore:
+        typer.echo(f"Added {path.name} to .gitignore.")
+    typer.echo(
+        "Next: fill in JIRA_BASE_URL, JIRA_EMAIL and JIRA_API_TOKEN, then run "
+        "`symphony-workflow check-env --verify`."
+    )
+
+
+@app.command("check-env")
+def check_env_command(
+    path: Path = _ENV_PATH_OPTION,
+    verify: bool = typer.Option(
+        False, "--verify", help="Also make one read-only call to Jira with these credentials"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+) -> None:
+    """Report which Jira keys are set in `.env` and whether git ignores it. Never prints a value.
+
+    With --verify, one read-only call tells a bad URL, a bad token and a working link apart.
+
+    Exit codes: 0 all good, 1 keys missing or the file not ignored, 3 --verify failed.
+    """
+    report = check_env(path)
+    verification = verify_env(path) if verify and report.ok else None
+    if as_json:
+        payload = report.as_dict()
+        if verification:
+            payload["verify"] = verification.as_dict()
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        typer.echo(f"{report.path}: {'found' if report.exists else 'NOT FOUND'}")
+        for key in report.present:
+            typer.echo(f"  ok       {key}")
+        for key in report.missing:
+            typer.echo(f"  MISSING  {key}")
+        if report.exists and report.gitignored is False:
+            typer.echo("  NOT-IGNORED: git would track this file; add it to .gitignore")
+        if verification:
+            typer.echo(f"  verify: {verification.outcome}: {verification.detail}")
+        elif verify:
+            typer.echo("  verify: skipped until the problems above are fixed")
+        if not report.exists:
+            typer.echo("Create it with `symphony-workflow init-env`.")
+    if not report.ok:
+        raise typer.Exit(code=1)
+    if verification and not verification.ok:
+        raise typer.Exit(code=3)
 
 
 if __name__ == "__main__":

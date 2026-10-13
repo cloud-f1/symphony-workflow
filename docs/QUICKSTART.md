@@ -9,7 +9,7 @@ for the full command surface, `CLAUDE.md`.
 
 ```bash
 uv sync --extra dev
-cp .env.example .env
+uv run symphony-workflow init-env    # creates .env with empty keys and makes sure git ignores it
 ```
 
 Edit `.env`:
@@ -19,9 +19,11 @@ JIRA_EMAIL=you@example.com
 JIRA_API_TOKEN=<Atlassian account settings -> Security -> API tokens>
 ```
 
-Sanity-check the connection:
+Check the file and the connection (never prints a value; the second form makes one read-only call):
 ```bash
-uv run --env-file .env symphony-workflow call get_myself '{}'
+uv run symphony-workflow check-env
+uv run symphony-workflow check-env --verify
+uv run --env-file .env symphony-workflow call get_myself '{}'    # the same check, as a tool call
 ```
 (`--env-file` is required — `config.py` reads `os.environ` directly, no `python-dotenv`; plain
 `uv run symphony-workflow ...` will NOT pick up `.env`. See `CLAUDE.md`'s "Jira API gotchas".)

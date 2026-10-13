@@ -5,6 +5,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/), and vers
 [semver](https://semver.org/). ADLC ticket numbers are cited for traceability — see the `ADLC`
 Jira board (`cloud-f1.atlassian.net`) for full history.
 
+## 0.7.0 — 2026-10-13
+
+**`symphony-workflow init-env [--path]`** and **`check-env [--path] [--verify] [--json]`** (ADLC-189): per-project Jira
+credential setup. `init-env` creates `.env` from a template with empty keys (owner-only permissions), adds it to
+`.gitignore` when git would otherwise track it, and refuses to overwrite. `check-env` names missing or empty
+keys and whether the file is gitignored, and never prints a value; `--verify` makes one read-only call (`/myself`)
+and tells `unauthorized` (401/403), `jira-error` (bad URL) and `unreachable` apart. Exit 0 good, 1 keys missing or
+file not ignored, 3 `--verify` failed. The plugin's `jira-ticket-ops` skill now tells a session to run these instead
+of reading `.env`, and never to ask for a token in chat. No new tool entry: the connectivity check is the existing
+`get_myself` tool.
+
 ## 0.6.0 — 2026-10-12
 
 **`symphony-workflow diff-decomposition <epic> [--adopt] [--json]`** and **`sync-decomposition <epic> --update

@@ -7,7 +7,26 @@ description: Audit, create, comment on, transition and roll up Jira tickets for 
 
 Use the `symphony-workflow` CLI for every Jira read and write. Fall back to raw Jira REST only for what the CLI has no command for (creating a project, searching with extra fields). Do not use a Jira MCP server for this work.
 
-This skill does not install the CLI. Clone `cloud-f1/symphony-workflow`, run `uv sync --extra dev`, and run commands as `uv run --env-file .env symphony-workflow ...` from that checkout. `.env` holds `JIRA_BASE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN`. Never print or copy them. If the CLI is missing, say so and stop.
+This skill does not install the CLI. Clone `cloud-f1/symphony-workflow`, run `uv sync --extra dev`, and run commands as `uv run --env-file .env symphony-workflow ...` from that checkout. If the CLI is missing, say so and stop.
+
+## Credentials: one `.env` per project
+
+Linking a project to Jira needs its own credentials, kept in that project's root, never in the plugin and never in git. The CLI has no `--env-file` of its own; the flag belongs to `uv run`, which loads the file into the environment.
+
+Before the first Jira call in a project, check it. The command names missing keys and never prints a value:
+
+```bash
+uv run symphony-workflow check-env            # keys set? is .env gitignored?
+uv run symphony-workflow check-env --verify   # plus one read-only call to Jira
+```
+
+Exit 0 is good, 1 means keys are missing or git would track the file, 3 means `--verify` failed (it says `unauthorized`, `jira-error` or `unreachable`, and which key to fix). Both commands read `.env` themselves, so no `--env-file` is needed; every other command still needs `uv run --env-file .env`. If the check is not good, stop and tell the user. Do not write a token yourself and do not ask for one in chat:
+
+1. `uv run symphony-workflow init-env` creates `.env` with empty keys (owner-only permissions), adds it to `.gitignore` and refuses to overwrite an existing file.
+2. The user fills in `JIRA_BASE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN` themselves, in their editor or with the `!` prefix in the prompt.
+3. Run `check-env --verify` again.
+
+Never print, echo, `cat` or commit `.env`. Credentials from a different Jira site or project must not be reused: one project, one file.
 
 ## Pick the project key first
 

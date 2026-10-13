@@ -174,3 +174,27 @@ This repo can act as the orchestrator for a *different* repo/Jira project — se
 (`SYMPHONY_WORKFLOW_TARGET_REPO`, `SYMPHONY_WORKFLOW_JIRA_PROJECT`) and what's still
 hardcoded (the prompt templates — Symphony's per-repo `WORKFLOW.md` model isn't
 implemented yet).
+
+## Releasing — a plugin only updates when `version` changes
+
+An installed plugin keeps its cached copy until its `version` string changes, so a skill edit that is not
+released is invisible to every other session. Order matters:
+
+1. **Bump all four together in the feature PR**: `version` in `pyproject.toml`,
+   `plugin/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, the `symphony-workflow`
+   package version line in `uv.lock`, and a `## X.Y.Z` entry in `CHANGELOG.md`. Edit the lock line by hand:
+   a newer `uv lock` can rewrite unrelated dependency markers. New feature = minor, fix = patch.
+2. **Validate**: `uv run pytest`, `uv run ruff check .`, `claude plugin validate --strict plugin`.
+3. **Merge first, tag second.** Confirm the merge with `gh pr view <n> --json state,mergeCommit`, update
+   local `main` (`git fetch && git merge --ff-only origin/main`), then `scripts/release.sh X.Y.Z`. It checks
+   the versions, the CHANGELOG heading and that the tag is new, tags the current commit and never pushes;
+   push with `git push origin vX.Y.Z`. It does **not** check `marketplace.json`: read that file's version
+   yourself before tagging.
+4. **Close tickets after the merge, never before**: transition the Stories Done, then `rollup <subtask>`.
+5. **Tell the consumers**: the companion status board runs this CLI through `uvx ... @vX.Y.Z`; bump its pin.
+   Installed copies of the plugin refresh through `/plugin` once the version differs.
+
+`gh pr merge` can be refused by the auto-mode classifier ("Merge Without Review") for a PR nobody has
+reviewed, even when the user asked for it. Do the review a reviewer would (merge all open heads on a scratch
+checkout, full tests, a leak scan for this public repo), report it, and let the user run the merge; do not
+look for another way around it.
