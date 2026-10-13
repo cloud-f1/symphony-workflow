@@ -29,8 +29,16 @@ STATE_TYPE: dict[Status, str] = {
     "done": "completed",
     "blocked": "started",
 }
-_REVERSE: dict[str, Status] = {"unstarted": "todo", "backlog": "todo", "started": "in_progress",
-                               "completed": "done", "canceled": "done"}  # fmt: skip
+# `duplicate` and `canceled` are Linear state categories a team really has (seen live); the work is
+# closed, so it counts as done.
+_REVERSE: dict[str, Status] = {
+    "unstarted": "todo",
+    "backlog": "todo",
+    "started": "in_progress",
+    "completed": "done",
+    "canceled": "done",
+    "duplicate": "done",
+}
 
 
 def pick_state_id(status: Status, states: list[dict[str, Any]]) -> str | None:

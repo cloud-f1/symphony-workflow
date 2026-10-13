@@ -199,7 +199,8 @@ def test_no_matching_state_means_none() -> None:
 @pytest.mark.parametrize(
     ("state_type", "status"),
     [("unstarted", "todo"), ("backlog", "todo"), ("started", "in_progress"),
-     ("completed", "done"), (None, "todo"), ("weird", "todo")],
+     ("completed", "done"), ("canceled", "done"), ("duplicate", "done"),
+     (None, "todo"), ("weird", "todo")],
 )  # fmt: skip
 def test_reverse_mapping(state_type, status) -> None:
     assert status_from_state(state_type) == status
