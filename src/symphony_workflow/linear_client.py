@@ -285,3 +285,179 @@ class LinearClient:
         nodes = data.get("issues", {}).get("nodes", [])
         issues = [Issue.from_linear(node) for node in nodes]
         return SearchResult(issues=issues, total=len(issues))
+
+    # ------------------------------------------------------------------
+    # Plan-sync writes (ADLC-203). Not on the TrackerClient Protocol on purpose: the
+    # Plan/Implement loop never creates issues, and JiraClient has its own shape for this.
+    # ------------------------------------------------------------------
+
+    def resolve_team_id(self) -> str:
+        data = self._execute(
+            """
+            query Team($key: String!) {
+                teams(filter: { key: { eq: $key } }, first: 1) { nodes { id key } }
+            }
+            """,
+            variables={"key": self._config.team_key},
+        )
+        nodes = data.get("teams", {}).get("nodes", [])
+        if not nodes:
+            raise LinearError(f"No Linear team with key {self._config.team_key!r}")
+        return nodes[0]["id"]
+
+    def find_project(self, name: str) -> dict[str, Any] | None:
+        """The project called `name` (exact, case-insensitive) or None. Never creates."""
+        data = self._execute(
+            """
+            query Project($name: String!) {
+                projects(filter: { name: { eqIgnoreCase: $name } }, first: 1) {
+                    nodes { id name }
+                }
+            }
+            """,
+            variables={"name": name},
+        )
+        nodes = data.get("projects", {}).get("nodes", [])
+        return nodes[0] if nodes else None
+
+    def create_project(self, name: str, team_id: str) -> dict[str, Any]:
+        data = self._execute(
+            """
+            mutation ProjectCreate($input: ProjectCreateInput!) {
+                projectCreate(input: $input) { success project { id name } }
+            }
+            """,
+            variables={"input": {"name": name, "teamIds": [team_id]}},
+        )
+        result = data.get("projectCreate", {})
+        if not result.get("success") or not result.get("project"):
+            raise LinearError(f"Failed to create project {name!r}")
+        return result["project"]
+
+    def list_project_milestones(self, project_id: str) -> list[dict[str, Any]]:
+        data = self._execute(
+            """
+            query Milestones($id: String!) {
+                project(id: $id) {
+                    projectMilestones(first: 100) { nodes { id name description } }
+                }
+            }
+            """,
+            variables={"id": project_id},
+        )
+        return (data.get("project") or {}).get("projectMilestones", {}).get("nodes", [])
+
+    def list_project_issues(self, project_id: str) -> list[dict[str, Any]]:
+        """Every issue in the project (sub-issues included), with what the sink compares."""
+        nodes: list[dict[str, Any]] = []
+        cursor: str | None = None
+        while True:
+            data = self._execute(
+                """
+                query ProjectIssues($id: String!, $after: String) {
+                    project(id: $id) {
+                        issues(first: 100, after: $after) {
+                            nodes {
+                                id identifier title description
+                                state { id name type }
+                                parent { id }
+                                projectMilestone { id }
+                            }
+                            pageInfo { hasNextPage endCursor }
+                        }
+                    }
+                }
+                """,
+                variables={"id": project_id, "after": cursor},
+            )
+            page = (data.get("project") or {}).get("issues", {})
+            nodes.extend(page.get("nodes", []))
+            info = page.get("pageInfo") or {}
+            if not info.get("hasNextPage"):
+                return nodes
+            cursor = info.get("endCursor")
+
+    def create_project_milestone(
+        self, project_id: str, name: str, description: str
+    ) -> dict[str, Any]:
+        data = self._execute(
+            """
+            mutation MilestoneCreate($input: ProjectMilestoneCreateInput!) {
+                projectMilestoneCreate(input: $input) {
+                    success projectMilestone { id name description }
+                }
+            }
+            """,
+            variables={
+                "input": {"projectId": project_id, "name": name, "description": description}
+            },
+        )
+        result = data.get("projectMilestoneCreate", {})
+        if not result.get("success") or not result.get("projectMilestone"):
+            raise LinearError(f"Failed to create milestone {name!r}")
+        return result["projectMilestone"]
+
+    def update_project_milestone(self, milestone_id: str, name: str, description: str) -> None:
+        data = self._execute(
+            """
+            mutation MilestoneUpdate($id: String!, $input: ProjectMilestoneUpdateInput!) {
+                projectMilestoneUpdate(id: $id, input: $input) { success }
+            }
+            """,
+            variables={"id": milestone_id, "input": {"name": name, "description": description}},
+        )
+        if not data.get("projectMilestoneUpdate", {}).get("success"):
+            raise LinearError(f"Failed to update milestone {milestone_id}")
+
+    def create_plan_issue(
+        self,
+        *,
+        team_id: str,
+        title: str,
+        description: str,
+        project_id: str | None = None,
+        milestone_id: str | None = None,
+        parent_id: str | None = None,
+        state_id: str | None = None,
+    ) -> dict[str, Any]:
+        """One issue or, with `parent_id`, a sub-issue. Returns `{id, identifier}`."""
+        fields = {
+            "projectId": project_id,
+            "projectMilestoneId": milestone_id,
+            "parentId": parent_id,
+            "stateId": state_id,
+        }
+        issue_input: dict[str, Any] = {
+            "teamId": team_id,
+            "title": title,
+            "description": description,
+        }
+        issue_input.update({k: v for k, v in fields.items() if v})
+        data = self._execute(
+            """
+            mutation IssueCreate($input: IssueCreateInput!) {
+                issueCreate(input: $input) { success issue { id identifier } }
+            }
+            """,
+            variables={"input": issue_input},
+        )
+        result = data.get("issueCreate", {})
+        if not result.get("success") or not result.get("issue"):
+            raise LinearError(f"Failed to create issue {title!r}")
+        return result["issue"]
+
+    def update_plan_issue(self, issue_id: str, *, title: str, description: str) -> None:
+        """Title and description only; the state is left to the tracker (two-way sync owns it)."""
+        data = self._execute(
+            """
+            mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {
+                issueUpdate(id: $id, input: $input) { success }
+            }
+            """,
+            variables={"id": issue_id, "input": {"title": title, "description": description}},
+        )
+        if not data.get("issueUpdate", {}).get("success"):
+            raise LinearError(f"Failed to update issue {issue_id}")
+
+    def team_workflow_states(self, team_id: str) -> list[dict[str, Any]]:
+        return self._workflow_states(team_id)

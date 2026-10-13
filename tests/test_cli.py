@@ -1285,13 +1285,23 @@ def test_sync_plan_uses_the_saved_config(monkeypatch, tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output  # tracker=markdown comes from the recommendation
 
 
-def test_sync_plan_jira_and_linear_sinks_are_not_built_yet(monkeypatch, tmp_path: Path) -> None:
+def test_sync_plan_jira_sink_is_not_built_yet(monkeypatch, tmp_path: Path) -> None:
     _no_creds(monkeypatch)
     root = _plan_project(tmp_path)
-    for sink in ("jira", "linear"):
-        args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", sink]
-        result = runner.invoke(app, args)
-        assert result.exit_code == 2 and "not built yet" in result.output
+    args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "jira"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 2 and "not built yet" in result.output
+
+
+def test_sync_plan_to_linear_without_credentials_stops_cleanly(monkeypatch, tmp_path: Path) -> None:
+    _no_creds(monkeypatch)
+    monkeypatch.delenv("SYMPHONY_WORKFLOW_LINEAR_TEAM", raising=False)
+    root = _plan_project(tmp_path)
+    before = {p: p.read_text() for p in root.rglob("*.md")}
+    args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "linear"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 2 and "LINEAR_API_KEY" in result.output
+    assert {p: p.read_text() for p in root.rglob("*.md")} == before  # nothing was written
 
 
 def test_sync_plan_from_a_decomposition(monkeypatch, tmp_path: Path) -> None:
@@ -1392,3 +1402,86 @@ def test_split_todos_approve_without_a_proposal_is_a_clean_error(tmp_path: Path)
     root = _configured(tmp_path, "ai-split")
     result = runner.invoke(app, ["split-todos", "--path", str(root), "--approve"])
     assert result.exit_code == 2 and "split-todos" in result.output
+
+
+# ---- sync-plan --to linear (plan 0008, ADLC-203) ----
+
+
+class _FakeLinearCtx:
+    """Stands in for LinearClient in the CLI: the context manager plus the sink's read calls."""
+
+    created: list[str] = []
+
+    def __init__(self, config) -> None:
+        self.config = config
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        return None
+
+    def resolve_team_id(self):
+        return "team-1"
+
+    def find_project(self, name):
+        return {"id": "p1", "name": name}
+
+    def list_project_milestones(self, project_id):
+        return []
+
+    def list_project_issues(self, project_id):
+        return []
+
+    def team_workflow_states(self, team_id):
+        return []
+
+    def create_project_milestone(self, project_id, name, description):
+        self.created.append(f"milestone:{name}")
+        return {"id": "m1"}
+
+    def create_plan_issue(self, **kwargs):
+        self.created.append(f"issue:{kwargs['title']}")
+        return {"id": f"i{len(self.created)}", "identifier": "GAI-1"}
+
+
+def _linear_env(monkeypatch) -> None:
+    _no_creds(monkeypatch)
+    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_test")
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_LINEAR_TEAM", "GAI")
+    monkeypatch.setattr(cli_module, "LinearClient", _FakeLinearCtx)
+    _FakeLinearCtx.created = []
+
+
+def test_sync_plan_to_linear_dry_run_writes_nothing(monkeypatch, tmp_path: Path) -> None:
+    _linear_env(monkeypatch)
+    root = _plan_project(tmp_path)
+    args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "linear", "--dry-run"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert "dry run" in result.output and "Would create" in result.output
+    assert _FakeLinearCtx.created == [] and "lin_api_test" not in result.output
+
+
+def test_sync_plan_to_linear_creates_through_the_client(monkeypatch, tmp_path: Path) -> None:
+    _linear_env(monkeypatch)
+    root = _plan_project(tmp_path)
+    args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "linear"]
+    result = runner.invoke(app, [*args, "--project", "Demo"])
+    assert result.exit_code == 0, result.output
+    assert "Linear project: Demo" in result.output
+    assert any(c.startswith("milestone:") for c in _FakeLinearCtx.created)
+    assert any(c.startswith("issue:") for c in _FakeLinearCtx.created)
+
+
+def test_sync_plan_to_linear_reports_an_api_error_with_exit_3(monkeypatch, tmp_path: Path) -> None:
+    _linear_env(monkeypatch)
+
+    def boom(self):
+        raise cli_module.LinearError("rate limited")
+
+    monkeypatch.setattr(_FakeLinearCtx, "resolve_team_id", boom)
+    root = _plan_project(tmp_path)
+    args = ["sync-plan", "--path", str(root), "--from", "epics-md", "--to", "linear"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 3 and "rate limited" in result.output
