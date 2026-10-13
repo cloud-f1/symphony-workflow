@@ -7,6 +7,10 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.8.1 — 2026-10-13
+
+Found by running `split-todos` against a real model: an agent that words its tests item freely ("Write and run tests ...") no longer gets a second, duplicate tests To-Do appended (any item starting a word with `test` counts, `latest` does not), and `check_plan` accepts the same wording. Also, with `todo_source` `hybrid`, `sync-plan` no longer writes the five fallback steps for a Task that has a proposal waiting for review: they would have been read as the author's own breakdown and the approved proposal never used. The live agent split (ADLC-226) is now verified end to end.
+
 ## 0.8.0 — 2026-10-13
 
 **Plan sync** (plan `docs/plans/0008-adaptive-plan-sync/`, ADLC-197), summarised: `profile`, `import-plan`, `sync-plan --to markdown|linear`, `split-todos`, `sync-status`, and the git/path hardening behind them. The Linear sink and `sync-status` were also run against a real Linear workspace on a throwaway project (removed afterwards), which found and fixed two bugs the mocks could not show: Linear normalises Markdown (a blank line before a list), which made every Task look changed on a re-run, and a Task was pushed forward while one of its To-Dos was in conflict. A Linear `duplicate` state now counts as done. Also: `scripts/release.sh` and `tests/test_version.py` now check `marketplace.json` (ADLC-249/250); both operations skill copies and the QUICKSTART describe plan sync.
