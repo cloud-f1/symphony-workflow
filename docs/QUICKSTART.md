@@ -91,7 +91,28 @@ uv run --env-file .env symphony-workflow sync-decomposition <EPIC-KEY>  # create
 it never re-runs the decomposition agent, and it creates real, permanent Jira issues, so read the
 Markdown first.
 
-## 6. Run the tests
+## 6. Optional: push a plan into Linear or keep it as Markdown
+
+For a project whose plan lives as epics-as-markdown files (`docs/epics/e<N>-*.md`), nothing below needs Jira
+credentials, and nothing touches a tracker unless you pass `--to linear` (plan 0008):
+
+```bash
+uv run symphony-workflow profile --path .                  # reads how the project works, prints two recommendations
+uv run symphony-workflow profile --path . --write          # saves docs/context/plan-sync.json after you confirm
+uv run symphony-workflow import-plan --path .              # the Category / Task / To-Do plan and its warnings
+uv run symphony-workflow sync-plan --path . --to markdown  # Athena-compatible files, idempotent, never deletes
+uv run symphony-workflow split-todos --path .              # To-Dos for Tasks that have none, into a review file
+# ... edit docs/context/todo-proposal.json, then:
+uv run symphony-workflow split-todos --path . --approve
+uv run symphony-workflow sync-plan --path . --to linear --project "My plan" --dry-run
+uv run symphony-workflow sync-status --path . --to linear --project "My plan" --dry-run
+```
+
+Put `LINEAR_API_KEY` and `SYMPHONY_WORKFLOW_LINEAR_TEAM` in the project's `.env`, never in a chat. Use a fresh
+`--project` name for a first run: issues in an existing project that were made another way have no `sd-id:` marker and
+would be duplicated. The Linear sink is mock-tested only so far, so keep `--dry-run` on until the output looks right.
+
+## 7. Run the tests
 
 ```bash
 uv run pytest              # all HTTP mocked via respx — no live Jira access, no network

@@ -119,6 +119,28 @@ create missing, update changed, never delete, idempotent, stops at the first Jir
 spec entries by a stable `id` in the JSON and a trailing `sd-id: <id>` line in the Jira description; plain
 `sync-decomposition` now refuses an Epic that already has children. Jira-only.
 
+## Plan sync — a plan into Linear or Markdown (plan 0008)
+
+For a project that keeps its plan as epics-as-markdown files (an `/athena:*`-style workflow, or a model-written plan
+saved as `docs/epics/e<N>-*.md`), the plan can be pushed to a tracker or kept as Markdown. Three layers everywhere:
+Category (Linear milestone, Markdown index row), Task (Linear issue, one `.md` file), To-Do (sub-issue, checkbox).
+Target shape is about 1 : 3 : 9. None of this touches a tracker unless you pass `--to linear`.
+
+- `profile [--path] [--json] [--write]` reads how the project works (plan files, credential key *names*, issue keys in
+  git history) and prints two recommendations; `--write` saves `docs/context/plan-sync.json` after asking. Read-only.
+- `import-plan` shows the plan and the pyramid warnings. `sync-plan --to markdown` writes Athena-compatible files
+  (idempotent, only managed `sd:begin` blocks, never deletes); with no config it prints the recommendation and stops.
+- A Task with no breakdown of its own gets To-Dos from `todo_source`: `split-todos` proposes them with one read-only
+  agent turn into `docs/context/todo-proposal.{json,md}`, you edit, `split-todos --approve` unlocks them; otherwise the
+  five steps (Spec, Implement, Tests and QA, Commit, Merge). Nothing reaches a tracker before the approval.
+- `sync-plan --to linear [--project NAME] [--dry-run]` creates the Project, milestones, issues and sub-issues (an
+  `sd-id:` line makes a re-run update in place; **hand-made issues without the marker are ignored, so a re-run
+  against a project built another way duplicates them: use a fresh `--project`**).
+- `sync-status --to linear [--direction both|push|pull] [--dry-run]` moves To-Do status both ways; a change on both
+  sides is a conflict, reported and left alone (exit 1). The progress matrix is not written back.
+- The Linear sink and `sync-status` are mock-tested; run `--dry-run` against a throwaway project first. There is no Jira
+  sink yet: for Jira use `decompose` / `sync-decomposition`. Git is only ever run through `safepath.run_git`.
+
 ## Branch naming — required, not optional
 
 Every workspace's branch is `{ISSUE-KEY}-{slug-of-summary}` (built by
@@ -187,9 +209,9 @@ released is invisible to every other session. Order matters:
 2. **Validate**: `uv run pytest`, `uv run ruff check .`, `claude plugin validate --strict plugin`.
 3. **Merge first, tag second.** Confirm the merge with `gh pr view <n> --json state,mergeCommit`, update
    local `main` (`git fetch && git merge --ff-only origin/main`), then `scripts/release.sh X.Y.Z`. It checks
-   the versions, the CHANGELOG heading and that the tag is new, tags the current commit and never pushes;
-   push with `git push origin vX.Y.Z`. It does **not** check `marketplace.json`: read that file's version
-   yourself before tagging.
+   the three versions, the CHANGELOG heading and that the tag is new, tags the current commit and never pushes;
+   push with `git push origin vX.Y.Z`. It also fails when `marketplace.json` lists no plugin or a different
+   version (ADLC-249).
 4. **Close tickets after the merge, never before**: transition the Stories Done, then `rollup <subtask>`.
 5. **Tell the consumers**: the companion status board runs this CLI through `uvx ... @vX.Y.Z`; bump its pin.
    Installed copies of the plugin refresh through `/plugin` once the version differs.
