@@ -7,6 +7,8 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.11.0 — 2026-10-14
+
 **A beginner-first README** (ADLC-375). A real run from a clean folder found what blocks a newcomer, and each item is fixed and tested.
 
 - `symphony-workflow --version` exists.
