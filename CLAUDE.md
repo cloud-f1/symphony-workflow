@@ -114,6 +114,8 @@ in-process (a fourth way to drive a ticket, alongside the API, the poller, and `
   `sync-plan --to markdown` writes it back as Markdown (idempotent, only managed blocks, never deletes). With no
   config `sync-plan` prints the recommendation and exits 1 without touching anything. `--to linear` and `--to jira` push it to Linear (project, milestones, issues, sub-issues) or Jira (Epic, Story, Subtask), and **`sync-status --to linear|jira`** syncs To-Do status both ways, conflicts reported not resolved (both sinks verified live on a throwaway project, `jira_sink.py` / `linear_sink.py`). **`split-todos [--approve]`** (ADLC-201) proposes To-Dos for Tasks with none behind a review file; `sync-plan` uses only an approved one, else the five steps. `profile_project` / `import_plan` are also tools and `call` runs them without Jira credentials.
 
+- **`start <KEY>`** / **`pr <KEY>`** / **`land <KEY>`** / **`check-commit`** / **`changelog-draft X.Y.Z`** / **`release X.Y.Z`** / **`release-backfill`** (plan 0009, ADLC-336) — the git half of a ticket. Jira links a branch, its commits and its PR to a card from the key in the **branch name**, so `start` makes `{KEY}-{slug}` and a worktree from a fresh `origin/main` (card In Progress); `pr` puts the key in the PR title and body (In Review); `land` reads GitHub (state and merge commit), checks the merge is on `origin/main`, fast-forwards `main`, deletes the remote branch, the worktree and the local branch (never forced; a dirty worktree is kept) and moves the card Done with a roll-up; `release` runs `scripts/release.sh`, pushes the tag and creates the GitHub Release from the CHANGELOG. Commit subjects are `type(scope): subject (KEY)`; the plugin's `commit-key-check.py` hook enforces it only on a branch that starts with a ticket key. Optional Jira settings: `docs/JIRA_GIT_SETUP.md`. Code: `ship.py`, `releasing.py`.
+
 See `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for design detail.
 
 ## Branch naming — required, not optional
@@ -129,11 +131,11 @@ work on a ticket outside the Plan/Implement path should use the same pattern by 
 Confirmed 2026-09-24: the GitHub-for-Jira app is installed and connected (`ADLC-30`, Done) —
 `GET /rest/dev-status/1.0/issue/summary` now shows `repository.byInstanceType` populated
 (previously `{}` for every data type, confirmed missing as of 2026-09-25 before this was fixed).
-**Still unverified**: `branch.byInstanceType` — no correctly-named branch has actually been
-*pushed* to GitHub since the app connected (Plan-phase worktrees never commit, and this repo's
-history is direct-to-main commits, not pushed feature branches), so full end-to-end
-Development-panel linking hasn't been exercised yet. Don't assume it works until a real pushed
-branch confirms it.
+**Verified end to end on 2026-10-14 (ADLC-336)**: a ticket started with `start` and a draft PR opened
+with `pr` showed `pullrequest`, `branch` and `repository` each at 1 on the card's `dev-status` summary,
+about 30 seconds after the push (the app syncs asynchronously: 0 right after the push is normal, wait
+a minute before concluding it did not link). Deleting the remote branch afterwards drops the card's
+branch entry but keeps the PR.
 
 ## The three non-negotiables
 
@@ -212,6 +214,8 @@ src/symphony_workflow/
   jira_sink.py    # neutral plan -> Jira Epic/Story/Subtask, sd-id + id->key map, JiraStatusBackend for sync-status
   linear_sink.py  # neutral plan -> Linear project/milestones/issues/sub-issues, sd-id idempotent, never deletes
   todo_source.py  # layer-3 To-Dos: approved agent proposal (split-todos), five workflow steps, 2-to-6 guardrail
+  ship.py         # start / pr / land: branch {KEY}-{slug} + worktree from origin/main, verified-merge cleanup, commit subject check
+  releasing.py    # changelog-draft, release (gate + tag + push + GitHub Release), release-backfill
   safepath.py     # run_git (repo-config command execution off), is_safe (no symlinks out of the project), scoped_path
   poller.py       # background asyncio task — auto-discovers + auto-Plans, never auto-Implements.
                   # Optional triage cadence (ADLC-29, off by default): a slower, batched agent

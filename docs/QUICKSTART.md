@@ -113,7 +113,20 @@ Put `LINEAR_API_KEY` and `SYMPHONY_WORKFLOW_LINEAR_TEAM` in the project's `.env`
 `--project` name for a first run: issues in an existing project that were made another way have no `sd-id:` marker and
 would be duplicated. Both sinks were run against the real services on a throwaway project (and cleaned up afterwards), but keep `--dry-run` on until the output looks right. For Jira the keys of the cards it made are kept in `docs/context/sync-state.json`; commit that file, it is how a re-run finds them.
 
-## 7. Run the tests
+## 7. Take a ticket from branch to release
+
+```bash
+uv run symphony-workflow start ADLC-12     # branch ADLC-12-<slug> + worktree from origin/main, card In Progress
+# ...work and commit, each subject ending in (ADLC-12)...
+uv run symphony-workflow pr ADLC-12        # push, open the PR with the key in title and body, card In Review
+uv run symphony-workflow land ADLC-12      # after the merge: verify on GitHub, clean up, card Done
+uv run symphony-workflow release 0.4.0     # after the version-bump PR is merged: gate, tag, GitHub Release
+```
+
+The key in the branch name is what makes Jira link the branch, commits and PR; see
+[JIRA_GIT_SETUP.md](JIRA_GIT_SETUP.md) for the optional Jira settings.
+
+## 8. Run the tests
 
 ```bash
 uv run pytest              # all HTTP mocked via respx — no live Jira access, no network

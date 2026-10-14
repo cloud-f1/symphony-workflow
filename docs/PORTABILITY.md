@@ -140,11 +140,10 @@ repo's differences from this one's conventions make it worth the cost.
   GitHub-for-Jira app installed and connected. On `cloud-f1.atlassian.net` this
   is now true as of 2026-09-24 (`ADLC-30`, Done) — `repository.byInstanceType`
   is populated where it used to be `{}` for every data type. **Branch-level
-  linking specifically is still unverified**: nothing has pushed a
-  correctly-named branch to GitHub since the app connected, so
-  `branch.byInstanceType` hasn't been exercised end-to-end. On a different
-  Jira site, check its app connection the same way before assuming a
-  correctly-named branch alone is enough.
+  linking is verified** (2026-10-14): a pushed `{KEY}-{slug}` branch and its PR
+  showed on the card within about a minute (the app syncs asynchronously). On a
+  different Jira site, check its app connection the same way
+  (`docs/JIRA_GIT_SETUP.md`) before assuming a correctly-named branch alone is enough.
 
 ## Claude Code plugin (skill + hook only)
 

@@ -1048,7 +1048,7 @@ wheels = [
 
 [[package]]
 name = "symphony-workflow"
-version = "0.9.3"
+version = "0.10.0"
 source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },

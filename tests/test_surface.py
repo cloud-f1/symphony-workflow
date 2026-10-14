@@ -94,7 +94,7 @@ def test_plugin_metadata_names_what_it_ships() -> None:
     meta = json.loads((REPO / "plugin/.claude-plugin/plugin.json").read_text())
     assert "plan sync" in meta["description"].lower() and "linear" in meta["keywords"]
     skills = {p.name for p in (REPO / "plugin/skills").iterdir() if p.is_dir()}
-    assert skills == {"symphony-workflow-ops", "jira-ticket-ops"}
+    assert skills == {"symphony-workflow-ops", "jira-ticket-ops", "shipping"}
 
 
 def test_marketplace_describes_itself_and_matches_the_plugin() -> None:
@@ -113,3 +113,51 @@ def test_the_readmes_say_how_to_install_the_plugin() -> None:
     for name in ("README.md", "README.zh-TW.md"):
         text = (REPO / name).read_text(encoding="utf-8")
         assert "/plugin marketplace add cloud-f1/symphony-workflow" in text and line in text
+
+
+SHIPPING = REPO / ".claude/skills/shipping/SKILL.md"
+SHIPPING_PACKAGED = REPO / "plugin/skills/shipping/SKILL.md"
+GIT_COMMANDS = (
+    "start",
+    "pr",
+    "land",
+    "check-commit",
+    "changelog-draft",
+    "release",
+    "release-backfill",
+)
+
+
+def test_the_shipping_skill_copies_are_identical_and_cover_every_git_command() -> None:
+    text = SHIPPING_PACKAGED.read_text(encoding="utf-8")
+    assert text == SHIPPING.read_text(encoding="utf-8")
+    for command in GIT_COMMANDS:
+        assert f"`{command}" in text, f"the shipping skill does not mention {command}"
+    assert "JIRA_GIT_SETUP.md" in text
+
+
+def test_the_operations_skill_points_at_shipping_and_the_release_command() -> None:
+    text = PACKAGED.read_text(encoding="utf-8")
+    assert "symphony-workflow release X.Y.Z" in text and "`shipping` skill" in text
+
+
+def test_every_git_command_has_the_git_loop_help_panel() -> None:
+    from typer.testing import CliRunner
+
+    from symphony_workflow.cli import app
+
+    out = CliRunner().invoke(app, ["--help"]).output
+    panel = out[out.index("Git loop") :]
+    for command in GIT_COMMANDS:
+        assert command in panel, f"{command} is missing from the Git loop help panel"
+
+
+def test_the_commit_hook_is_registered_and_the_setup_guide_exists() -> None:
+    import json
+
+    hooks = json.loads((REPO / "plugin/hooks/hooks.json").read_text())["hooks"]
+    commands = [h["command"] for g in hooks["PreToolUse"] for h in g["hooks"]]
+    assert any("commit-key-check.py" in c for c in commands)
+    assert (REPO / "plugin/hooks/commit-key-check.py").exists()
+    guide = (REPO / "docs/JIRA_GIT_SETUP.md").read_text(encoding="utf-8")
+    assert "branch name" in guide and "dev-status" in guide

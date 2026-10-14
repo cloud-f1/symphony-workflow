@@ -74,9 +74,19 @@ from symphony_workflow.project_profile import (
     recommend,
     save_config,
 )
+from symphony_workflow.releasing import backfill as backfill_releases
+from symphony_workflow.releasing import draft_changelog, missing_releases, publish
 from symphony_workflow.rollup import RollupAborted, RollupNotFound, RollupResult, rollup
 from symphony_workflow.runs import Run, RunStore, RunTransitionError
 from symphony_workflow.safepath import UnsafePathError
+from symphony_workflow.ship import (
+    ShipError,
+    check_commit_subject,
+    land,
+    main_checkout,
+    open_pr,
+    start,
+)
 from symphony_workflow.status_sync import (
     LinearStatusBackend,
     sync_status_with,
@@ -1196,6 +1206,180 @@ def check_env_command(
         raise typer.Exit(code=1)
     if verification and not verification.ok:
         raise typer.Exit(code=3)
+
+
+_GIT_PANEL = "Git loop"
+
+
+def _ship_fail(exc: Exception) -> typer.Exit:
+    typer.echo(str(exc), err=True)
+    return typer.Exit(code=1)
+
+
+def _rollup_for(client: TrackerClient) -> object | None:
+    """Roll-up needs Jira's parent field; with Linear the card just moves."""
+    if isinstance(client, JiraClient):
+        return lambda key: rollup(client, key)
+    return None
+
+
+@app.command("start", rich_help_panel=_GIT_PANEL)
+def start_command(
+    key: str = typer.Argument(..., help="Ticket key, e.g. ADLC-12"),
+    base: str = typer.Option("origin/main", "--base", help="Branch the work starts from"),
+    no_transition: bool = typer.Option(False, "--no-transition", help="Leave the card's status"),
+    no_fetch: bool = typer.Option(False, "--no-fetch", help="Do not `git fetch` first"),
+) -> None:
+    """Start a ticket: branch `{KEY}-{slug}` and a worktree from a fresh origin/main, card to In
+    Progress. The key in the branch name is what makes Jira link the branch, commits and PR.
+
+    Exit codes: 0 ok, 1 refused (ticket Done or missing, git failed).
+    """
+    repo = main_checkout(Path.cwd())
+    with _client() as client:
+        try:
+            result = start(
+                key, repo=repo, tracker=client, base=base,
+                transition=not no_transition, fetch=not no_fetch,
+            )
+        except ShipError as exc:
+            raise _ship_fail(exc) from exc
+    typer.echo(f"{result.key}: branch {result.branch}")
+    typer.echo(f"worktree: {result.path}")
+    moved = ", card In Progress" if result.transitioned else ""
+    typer.echo(f"from {base} @ {result.base_sha[:7]}{moved}")
+    for note in result.notes:
+        typer.echo(f"note: {note}")
+
+
+@app.command("pr", rich_help_panel=_GIT_PANEL)
+def pr_command(
+    key: str = typer.Argument(..., help="Ticket key; the current branch must start with it"),
+    title: str | None = typer.Option(None, "--title", help="Default: the last commit subject"),
+    body: str | None = typer.Option(None, "--body"),
+    draft: bool = typer.Option(False, "--draft"),
+    no_transition: bool = typer.Option(False, "--no-transition"),
+) -> None:
+    """Push the branch and open a PR whose title and body carry the ticket key; card to In Review.
+
+    Exit codes: 0 ok, 1 refused (branch does not start with the key, title breaks the convention).
+    """
+    with _client() as client:
+        issue_url = f"{client.base_url}/browse/{key}" if isinstance(client, JiraClient) else None
+        try:
+            result = open_pr(
+                key, cwd=Path.cwd(), tracker=client, title=title, body=body,
+                issue_url=issue_url, draft=draft, transition=not no_transition,
+            )
+        except ShipError as exc:
+            raise _ship_fail(exc) from exc
+    typer.echo(result.url or f"opened a PR for {result.branch}")
+    typer.echo(f"title: {result.title}" + (", card In Review" if result.transitioned else ""))
+    for note in result.notes:
+        typer.echo(f"note: {note}")
+
+
+@app.command("land", rich_help_panel=_GIT_PANEL)
+def land_command(
+    key: str = typer.Argument(..., help="Ticket key of the merged work"),
+    branch: str | None = typer.Option(None, "--branch", help="Branch name if it cannot be found"),
+    pr_number: int | None = typer.Option(None, "--pr", help="PR number if the branch has several"),
+    keep_remote: bool = typer.Option(False, "--keep-remote", help="Keep the remote branch"),
+    no_transition: bool = typer.Option(False, "--no-transition"),
+) -> None:
+    """Close the loop after a merge: verify on GitHub that the PR merged, fast-forward main, delete
+    the remote branch, remove the worktree and local branch, card to Done and rolled up. Changes
+    nothing if the PR is not merged; a worktree with uncommitted changes is left alone.
+
+    Exit codes: 0 ok, 1 refused or nothing changed (PR open, not on origin/main yet).
+    """
+    repo = main_checkout(Path.cwd())
+    with _client() as client:
+        try:
+            result = land(
+                key, repo=repo, tracker=client, branch=branch, pr_number=pr_number,
+                keep_remote=keep_remote, transition=not no_transition,
+                rollup_fn=_rollup_for(client),
+            )
+        except ShipError as exc:
+            raise _ship_fail(exc) from exc
+    for step in result.steps:
+        typer.echo(f"- {step}")
+    for kept in result.kept:
+        typer.echo(f"kept: {kept}")
+    if result.kept:
+        raise typer.Exit(code=1)
+
+
+@app.command("check-commit", rich_help_panel=_GIT_PANEL)
+def check_commit_command(
+    subject_or_file: str = typer.Argument(
+        ..., help="A commit subject, or the path of a commit message file (git's commit-msg hook)"
+    ),
+) -> None:
+    """Check a commit subject is `type(scope): subject (KEY)`. Exit 0 ok, 1 not ok."""
+    candidate = Path(subject_or_file)
+    if candidate.is_file():
+        lines = candidate.read_text(encoding="utf-8").splitlines()
+        subject = next((ln for ln in lines if ln.strip() and not ln.startswith("#")), "")
+    else:
+        subject = subject_or_file
+    problems = check_commit_subject(subject)
+    if problems:
+        typer.echo(f"commit subject {subject!r} should:", err=True)
+        for problem in problems:
+            typer.echo(f"  - {problem}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo("ok")
+
+
+@app.command("changelog-draft", rich_help_panel=_GIT_PANEL)
+def changelog_draft_command(
+    version: str = typer.Argument(..., help="Version without the leading v, e.g. 0.9.4"),
+    since: str | None = typer.Option(None, "--since", help="Tag to start from (default: last tag)"),
+) -> None:
+    """Print a CHANGELOG section for `version` from the commit subjects since the last tag,
+    grouped by type. A draft to edit, never written for you. Exit codes: 0 ok, 1 bad version."""
+    try:
+        typer.echo(draft_changelog(version, repo=main_checkout(Path.cwd()), since=since), nl=False)
+    except ShipError as exc:
+        raise _ship_fail(exc) from exc
+
+
+@app.command("release", rich_help_panel=_GIT_PANEL)
+def release_command(
+    version: str = typer.Argument(..., help="Version without the leading v, e.g. 0.9.4"),
+    no_push: bool = typer.Option(False, "--no-push", help="Tag locally, push nothing"),
+) -> None:
+    """After the version-bump PR is merged: run scripts/release.sh (gate + tag), push the tag, and
+    create the GitHub Release with the CHANGELOG section as its note. Safe to re-run.
+
+    Exit codes: 0 ok, 1 the gate failed or a step could not run (nothing is half-done silently).
+    """
+    try:
+        result = publish(version, repo=main_checkout(Path.cwd()), push=not no_push)
+    except ShipError as exc:
+        raise _ship_fail(exc) from exc
+    for step in result.steps:
+        typer.echo(f"- {step}")
+
+
+@app.command("release-backfill", rich_help_panel=_GIT_PANEL)
+def release_backfill_command(
+    dry_run: bool = typer.Option(False, "--dry-run", help="List the tags, create nothing"),
+) -> None:
+    """Create a GitHub Release for every tag that has none, notes from CHANGELOG.md. Public:
+    run with --dry-run first. Exit codes: 0 ok, 1 gh failed."""
+    repo = main_checkout(Path.cwd())
+    try:
+        if dry_run:
+            tags = missing_releases(repo)
+        else:
+            tags = backfill_releases(repo=repo)
+    except ShipError as exc:
+        raise _ship_fail(exc) from exc
+    verb = "would create" if dry_run else "created"
+    typer.echo(f"{verb} {len(tags)} release(s)" + (": " + ", ".join(tags) if tags else ""))
 
 
 if __name__ == "__main__":

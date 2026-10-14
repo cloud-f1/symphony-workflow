@@ -233,6 +233,14 @@ This repo can act as the orchestrator for a *different* repo/Jira project — se
 hardcoded (the prompt templates — Symphony's per-repo `WORKFLOW.md` model isn't
 implemented yet).
 
+## Shipping a ticket — branch, PR, merge, release
+
+`start <KEY>` makes branch `{KEY}-{slug}` and a worktree from a fresh `origin/main` (Jira links a branch, its
+commits and its PR to a card from the key in the branch name), `pr <KEY>` opens the PR with the key in its title
+and body, `land <KEY>` verifies the merge on GitHub and cleans up (remote branch, worktree, local branch, card
+Done and rolled up), `check-commit` checks a subject is `type(scope): subject (KEY)`. The `shipping` skill has the
+rules; `docs/JIRA_GIT_SETUP.md` has the optional Jira settings.
+
 ## Releasing — a plugin only updates when `version` changes
 
 An installed plugin keeps its cached copy until its `version` string changes, so a skill edit that is not
@@ -246,15 +254,18 @@ released is invisible to every other session. Order matters:
    --strict .` (the marketplace; it is a different check and failed once for a missing description). CI runs ruff and pytest
    on every push and pull request (`.github/workflows/ci.yml`).
 3. **Merge first, tag second.** Confirm the merge with `gh pr view <n> --json state,mergeCommit`, update
-   local `main` (`git fetch && git merge --ff-only origin/main`), then `scripts/release.sh X.Y.Z`. It checks
-   the three versions, the CHANGELOG heading and that the tag is new, tags the current commit and never pushes;
-   push with `git push origin vX.Y.Z`. It also fails when `marketplace.json` lists no plugin or a different
-   version (ADLC-249).
+   local `main` (`git fetch && git merge --ff-only origin/main`), then `symphony-workflow release X.Y.Z`. It runs
+   `scripts/release.sh` (the gate: the three versions agree, `marketplace.json` lists the plugin at that version,
+   the CHANGELOG heading exists, the tag is new, the version test passes, then it tags), pushes the tag, and
+   creates the GitHub Release with the CHANGELOG section as its note. Re-running skips what is done.
+   `changelog-draft X.Y.Z` writes the section from the commits since the last tag. `release.sh` alone still tags
+   and never pushes (ADLC-249, ADLC-340).
 4. **Close tickets after the merge, never before**: transition the Stories Done, then `rollup <subtask>`.
 5. **Check the install for real** after a plugin change, without touching your own Claude config:
    `CLAUDE_CONFIG_DIR=<scratch> claude plugin marketplace add cloud-f1/symphony-workflow`, then `... plugin install
-   symphony-workflow-ops@symphony-workflow-marketplace --scope local`. GitHub's "Latest release" is not what a tag
-   is: only tags are cut here, so a version badge must use the tag.
+   symphony-workflow-ops@symphony-workflow-marketplace --scope local`. A tag is not a GitHub Release:
+   `release` makes both, and `release-backfill --dry-run` lists tags that have none (creating them is public,
+   ask first). The README's version badge reads the tag.
 6. **Tell the consumers**: the companion status board runs this CLI through `uvx ... @vX.Y.Z`; bump its pin.
    Installed copies of the plugin refresh through `/plugin` once the version differs.
 

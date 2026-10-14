@@ -7,6 +7,27 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.10.0 — 2026-10-14
+
+**The git half of a ticket: branch, PR, merge cleanup and release** (ADLC-336). A ticket key in the branch name is what makes Jira link a branch, its commits and its pull request to a card; these commands make that name and keep the key on every step.
+
+### Features
+
+- **`start <KEY>`**: branch `{KEY}-{slug}` and a worktree from a fresh `origin/main` (not a stale local branch), card to In Progress; refuses a Done or missing ticket.
+- **`pr <KEY>`**: pushes and opens the PR with the key in its title and body, card to In Review; refuses a branch that would not link.
+- **`land <KEY>`**: reads GitHub for the PR's state and merge commit, checks it is on `origin/main`, fast-forwards `main`, deletes the remote branch, the worktree and the local branch, card to Done and rolled up. Never forces: a dirty worktree is kept, an open PR changes nothing.
+- **`check-commit`** and a plugin hook (`commit-key-check.py`): subjects are `type(scope): subject (KEY)`; the hook only acts on a branch that starts with a ticket key.
+- **`changelog-draft`**, **`release`** and **`release-backfill`**: a CHANGELOG section from the commits, the release gate plus tag plus pushed tag plus a GitHub Release whose note is the CHANGELOG section, and a Release for every tag that has none.
+- **A `shipping` skill** in the plugin and `docs/JIRA_GIT_SETUP.md` (what links with no setup, the optional Jira settings, how to check the Development panel).
+
+### Fixes
+
+- `extract_notes` no longer reads `## 0.2.0` as the heading for `0.2`.
+
+### Docs
+
+- README (both languages), QUICKSTART, `CLAUDE.md` and the operations skill describe the loop; the Releasing steps now use `release`.
+
 ## 0.9.3 — 2026-10-14
 
 **The operations skill now triggers on plan and board requests, and the README leads with the agent** (ADLC-329): a real agent run with the plugin loaded (a Claude agent given "show my docs/epics plan as a board, change nothing") did not use the skill at all and improvised its own preview, because the skill description only named Jira tickets and the Plan/Implement loop. The description now names Markdown plans, board sync, To-Do proposals and `profile`, and says to read first (`profile`, `--dry-run`) and never write to a tracker without a go-ahead; a repeat run loaded the skill and used `profile` and `import-plan`. The skills also gained what this release cycle taught: how to prove a sink for real (throwaway object, delete only what the run created), the hybrid and grouping behaviour, validating the marketplace as well as the plugin, an isolated install check with `CLAUDE_CONFIG_DIR`, and the git and PR gotchas. `README.md` and `README.zh-TW.md` now lead with using the plugin and the skills (what the agent gets, things to say, a real captured session), show every real case as a terminal-style image (`scripts/render_snapshots.py`, text kept in a collapsible block, `docs/snapshots/09-agent.txt` is the agent session), and carry badges. A real CI workflow (`.github/workflows/ci.yml`: ruff and pytest on Python 3.11 and 3.13) backs the CI badge; the version badge reads the tag because GitHub's Latest release was still v0.5.3. `tests/test_readme.py` checks the badges, that every image matches its text today, and that both languages stay the same shape.
