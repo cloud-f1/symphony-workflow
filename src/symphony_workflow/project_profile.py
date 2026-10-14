@@ -330,3 +330,32 @@ def refine_from_content(profile: Profile, base: PlanSyncConfig) -> Recommendatio
 def recommend(profile: Profile) -> tuple[Recommendation, Recommendation]:
     first = recommend_from_usage(profile)
     return first, refine_from_content(profile, first.config)
+
+
+def next_steps(profile: Profile, *, path: str = ".", config_exists: bool = False) -> list[str]:
+    """Plain-language next steps after `profile`, so a newcomer is never left with only terms.
+
+    `path` is repeated in the commands only when it is not the current folder.
+    """
+    flag = "" if path in ("", ".") else f" --path {path}"
+    if profile.plan.epics == 0:
+        return [
+            "No plan files found here. A plan is one Markdown file per epic, for example",
+            "docs/epics/e1-login.md whose first line is `# E1: Login page`, with a",
+            "`## Acceptance Criteria` list of `- [ ]` items.",
+            "A full example is in the README under 'Your first plan file'.",
+            "Add one, then run this again.",
+        ]
+    if config_exists:
+        return [
+            "A plan-sync config exists. Preview the write, nothing is changed:",
+            f"  symphony-workflow sync-plan{flag} --dry-run",
+        ]
+    return [
+        "1. See what was read from your plan files:",
+        f"     symphony-workflow import-plan{flag}",
+        "2. Preview writing it back, nothing is changed:",
+        f"     symphony-workflow sync-plan{flag} --from epics-md --to markdown --dry-run",
+        "3. Save the recommendation so sync-plan needs no flags (asks first):",
+        f"     symphony-workflow profile{flag} --write",
+    ]

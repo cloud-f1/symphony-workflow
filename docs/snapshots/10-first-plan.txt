@@ -1,0 +1,58 @@
+$ cat docs/epics/e1-login.md
+# E1: Login page
+
+## Acceptance Criteria
+
+- [ ] A user can sign in with an email and a password
+- [ ] A wrong password shows an error and keeps the email
+
+$ symphony-workflow profile --path .
+Project: .
+Plan files: 2 epic file(s); index=False progress=False strategy-log=False; plan folders=0; athena commands=False
+Tracker: jira credentials=False linear credentials=False SYMPHONY_WORKFLOW_TRACKER=unset; issue keys in history: none
+Content: 0 phase(s) (0 not complete), 2 epic(s), tasks per phase median=None, acceptance items median=2.0, epics with a ready-made To-Do breakdown=0%
+Recommendation 1 (from usage): tracker=markdown plan_source=epics-md todo_source=hybrid push=manual record=markdown include_done=false
+  - tracker: no tracker evidence in this project -> use Markdown files
+  - plan source: 2 epic file(s) under docs/epics -> read them with `epics-md`
+Recommendation 2 (refined from content): tracker=markdown plan_source=epics-md todo_source=hybrid push=manual record=markdown include_done=false
+  - To-Do source: only 0% of epics have a ready-made To-Do breakdown -> hybrid: AI-split behind the review gate, five workflow steps as the fallback
+
+Next:
+  1. See what was read from your plan files:
+       symphony-workflow import-plan
+  2. Preview writing it back, nothing is changed:
+       symphony-workflow sync-plan --from epics-md --to markdown --dry-run
+  3. Save the recommendation so sync-plan needs no flags (asks first):
+       symphony-workflow profile --write
+
+$ symphony-workflow sync-plan --path . --from epics-md --to markdown --dry-run
+  To-Dos for E1: from steps
+  To-Dos for E2: from steps
+  Would update docs/epics/e1-login.md
+  Would update docs/epics/e2-reports.md
+  Would create docs/epics/EPIC_INDEX.md
+
+$ symphony-workflow sync-plan --path . --from epics-md --to markdown
+  To-Dos for E1: from steps
+  To-Dos for E2: from steps
+  Updated      docs/epics/e1-login.md
+  Updated      docs/epics/e2-reports.md
+  Created      docs/epics/EPIC_INDEX.md
+
+$ cat docs/epics/e1-login.md
+# E1: Login page
+
+## Acceptance Criteria
+
+- [ ] A user can sign in with an email and a password
+- [ ] A wrong password shows an error and keeps the email
+
+<!-- sd:begin todo -->
+## To-Do
+
+- [ ] Spec <!-- sd-id: E1.d1 -->
+- [ ] Implement <!-- sd-id: E1.d2 -->
+- [ ] Tests and QA <!-- sd-id: E1.d3 -->
+- [ ] Commit <!-- sd-id: E1.d4 -->
+- [ ] Merge <!-- sd-id: E1.d5 -->
+<!-- sd:end todo -->

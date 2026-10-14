@@ -9,11 +9,30 @@
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](#和你的-agent-一起使用)
 [![Plan sync](https://img.shields.io/badge/plan%20sync-Markdown%20%7C%20Linear%20%7C%20Jira-informational)](#agent-實際執行了什麼)
 
-**給你的 AI agent 一份計畫和一個看板。** symphony-workflow 是一個 Claude Code plugin（兩個 skill）加上一個讓 agent 操作的 CLI：
-它讀你用 Markdown 寫的計畫、把它顯示成看板、推到 **Linear** 或 **Jira**，並讓兩邊的狀態雙向保持一致。每個 Jira 操作同時也是一個
-有 schema 描述的工具呼叫，所以任何 agent 都能使用。
+**把計畫寫成 Markdown，想要看板的時候再放到 Linear 或 Jira。** symphony-workflow 是一個命令列工具，加上一個 Claude Code plugin
+（三個 skill、兩個 hook）。你把工作寫成一般的 Markdown 檔；你或你的 AI agent 執行它來預覽計畫、推到 **Linear** 或 **Jira**、讓兩邊的狀態
+保持一致，並帶著每張票從分支走到合併的 pull request 和發版。
 
 它不會刪除任何東西，在你同意之前不會寫入任何追蹤系統，而且每個寫入都有 `--dry-run`（試跑）。
+
+## 一分鐘看懂
+
+| 名詞 | 在這裡的意思 |
+|---|---|
+| **計畫（Plan）** | 每件工作一個 Markdown 檔，放在 `docs/epics/`。工具只讀它們，文字仍是你的。 |
+| **類別、任務、待辦（Category、Task、To-Do）** | 計畫的三層：一組工作（一個階段）、一件工作（一個 epic 檔）、裡面的一個步驟（一個 checkbox）。在 Jira 上對應 Epic、Story、Subtask；在 Linear 上對應 milestone、issue、sub-issue。 |
+| **追蹤系統（Tracker）** | 看板：Jira 或 Linear。可有可無；沒有的話，計畫就繼續留在 Markdown 檔裡。 |
+| **Plan sync** | 把計畫寫到追蹤系統（或寫回 Markdown），並讓兩邊的狀態一致。重複執行不會產生重複的項目。 |
+| **Agent** | 像 Claude Code 這樣的 AI 助理。它透過 plugin 的 skill 使用這個工具，所以你可以用平常的話說出需求。 |
+
+## 開始之前
+
+| 你需要 | 用在 | 怎麼取得 |
+|---|---|---|
+| [`uv`](https://docs.astral.sh/uv/) | 安裝與執行 CLI（它會帶來 Python 3.11 以上） | uv 的安裝頁面 |
+| Claude Code | plugin 和 skill（沒有它 CLI 也能用） | claude.com/claude-code |
+| Jira API token 或 Linear API key | **只有**要推到看板時才需要；預覽和 Markdown 不需要帳號 | Atlassian 帳號設定、Security、API tokens；Linear 設定裡的個人 API key |
+| `git` 與 `gh` | git 流程（`start`、`pr`、`land`、`release`） | 先執行一次 `gh auth login` |
 
 ## 適合誰
 
@@ -22,9 +41,91 @@
 - **你用 agent 處理 Jira 或 Linear 的票**（Claude Code、Codex、排程工作），希望它透過具名工具來讀取、規劃與移動票，而不是直接打 HTTP。
 - **你在整理一個 Jira 專案**：Story 底下沒有 Subtask，或父項永遠關不掉。
 
+## 你的第一份計畫檔
+
+五分鐘、不需要帳號、什麼都不會離開你的電腦。以下是從乾淨資料夾得到的真實輸出。
+
+1. **每件工作寫一個檔。** 檔名以 `e` 加數字開頭（`e1-login.md`），第一行是 `# E1: 標題`，完成時必須成立的條件寫在 `## Acceptance Criteria` 底下，用 `- [ ]` 條列。
+2. **執行 `profile`。** 它只讀不寫。它會說明找到了什麼、推薦一個設定，最後用 `Next:` 列出接下來要執行的指令。
+3. **先預覽，再寫入。** `sync-plan --dry-run` 顯示會改什麼；不加 `--dry-run` 就會替每個檔加上一份待辦清單。清單夾在兩行 `sd:` 標記註解之間，那是工具唯一會改寫的部分：
+   你自己寫的文字不會被動，再執行一次也不會有任何改變。
+
+![第一份計畫：兩個 epic 檔、profile、試跑、真正執行與結果](docs/snapshots/img/10-first-plan.svg)
+
+<details>
+<summary>Text</summary>
+
+<!-- snapshot: docs/snapshots/10-first-plan.txt -->
+```text
+$ cat docs/epics/e1-login.md
+# E1: Login page
+
+## Acceptance Criteria
+
+- [ ] A user can sign in with an email and a password
+- [ ] A wrong password shows an error and keeps the email
+
+$ symphony-workflow profile --path .
+Project: .
+Plan files: 2 epic file(s); index=False progress=False strategy-log=False; plan folders=0; athena commands=False
+Tracker: jira credentials=False linear credentials=False SYMPHONY_WORKFLOW_TRACKER=unset; issue keys in history: none
+Content: 0 phase(s) (0 not complete), 2 epic(s), tasks per phase median=None, acceptance items median=2.0, epics with a ready-made To-Do breakdown=0%
+Recommendation 1 (from usage): tracker=markdown plan_source=epics-md todo_source=hybrid push=manual record=markdown include_done=false
+  - tracker: no tracker evidence in this project -> use Markdown files
+  - plan source: 2 epic file(s) under docs/epics -> read them with `epics-md`
+Recommendation 2 (refined from content): tracker=markdown plan_source=epics-md todo_source=hybrid push=manual record=markdown include_done=false
+  - To-Do source: only 0% of epics have a ready-made To-Do breakdown -> hybrid: AI-split behind the review gate, five workflow steps as the fallback
+
+Next:
+  1. See what was read from your plan files:
+       symphony-workflow import-plan
+  2. Preview writing it back, nothing is changed:
+       symphony-workflow sync-plan --from epics-md --to markdown --dry-run
+  3. Save the recommendation so sync-plan needs no flags (asks first):
+       symphony-workflow profile --write
+
+$ symphony-workflow sync-plan --path . --from epics-md --to markdown --dry-run
+  To-Dos for E1: from steps
+  To-Dos for E2: from steps
+  Would update docs/epics/e1-login.md
+  Would update docs/epics/e2-reports.md
+  Would create docs/epics/EPIC_INDEX.md
+
+$ symphony-workflow sync-plan --path . --from epics-md --to markdown
+  To-Dos for E1: from steps
+  To-Dos for E2: from steps
+  Updated      docs/epics/e1-login.md
+  Updated      docs/epics/e2-reports.md
+  Created      docs/epics/EPIC_INDEX.md
+
+$ cat docs/epics/e1-login.md
+# E1: Login page
+
+## Acceptance Criteria
+
+- [ ] A user can sign in with an email and a password
+- [ ] A wrong password shows an error and keeps the email
+
+<!-- sd:begin todo -->
+## To-Do
+
+- [ ] Spec <!-- sd-id: E1.d1 -->
+- [ ] Implement <!-- sd-id: E1.d2 -->
+- [ ] Tests and QA <!-- sd-id: E1.d3 -->
+- [ ] Commit <!-- sd-id: E1.d4 -->
+- [ ] Merge <!-- sd-id: E1.d5 -->
+<!-- sd:end todo -->
+```
+
+</details>
+
+這五個待辦是每件工作都會經過的步驟（規格、實作、測試、commit、合併）。做完一步就在檔案裡勾起來。想把計畫放到看板時，請看
+[把計畫推到 Linear](#5-把計畫推到-linear) 或[推到 Jira](#7-把計畫推到-jira)；如果某個任務需要自己的步驟、而不是這五個，請看
+[讓 agent 提議待辦，由你核准](#4-讓-agent-提議待辦由你核准)。
+
 ## 和你的 agent 一起使用
 
-**1. 在 Claude Code 安裝 plugin**（兩個 skill 加一個 SessionStart hook）：
+**1. 在 Claude Code 安裝 plugin**（三個 skill 加兩個 hook）：
 
 ```text
 /plugin marketplace add cloud-f1/symphony-workflow
@@ -44,7 +145,9 @@ uv tool install git+https://github.com/cloud-f1/symphony-workflow
 | | 是什麼 | 涵蓋 |
 |---|---|---|
 | Skill `symphony-workflow-ops` | 如何操作這個工具 | plan sync（Markdown、Linear、Jira）、Plan/Implement 流程、發版、git 與 PR 的坑 |
+| Skill `shipping` | 一張票的程式碼如何出貨 | 從票建分支、commit 與 PR 的慣例、合併後清理、附 changelog 和 GitHub Release 的發版 |
 | Skill `jira-ticket-ops` | 如何安全地動 Jira | 每個專案的憑證、階層稽核、Sub-task、rollup、拋棄式測試樹 |
+| Commit hook | 讓 commit 帶著票號 | 在以票號命名的分支上，標題沒有票號的 `git commit -m` 會被擋下；其他分支保持安靜 |
 | SessionStart hook | 健康檢查 | 開著 symphony-workflow checkout 時檢查本機 API server，其他地方保持安靜 |
 | 工具呼叫 | `list-tools` 與 `call` | 每個 Jira 操作都是一個 JSON schema 工具，給不是 Claude Code 的 agent 用 |
 
@@ -59,6 +162,10 @@ uv tool install git+https://github.com/cloud-f1/symphony-workflow
 | 「讓看板跟我的清單保持同步」 | 從看板拉取變更，推送勾選的待辦 | checkbox、卡片；衝突只回報、不動 |
 | 「稽核我的 Jira 專案的 Story 和 Sub-task」 | 稽核、提議 Sub-task、往上收尾 | 你同意後才改票 |
 | 「處理票 KEY-12：先規劃，我來審」 | 對那張票跑 Plan 階段，然後等待 | 你核准前不會有程式碼 |
+| 「開始處理 KEY-12」 | 建立名為 `KEY-12-...` 的分支，以及從最新 `main` 分出的 worktree；卡片移到 In Progress | 本機分支、卡片 |
+| 「幫 KEY-12 開 PR」 | 推送分支、開 PR 並在標題放票號；卡片移到 In Review | PR、卡片 |
+| 「KEY-12 合併了，幫我收尾」 | 先到 GitHub 確認已合併，再移除分支和 worktree；卡片變成 Done | 本機與遠端分支、卡片 |
+| 「發版 0.4.0」 | 發版檢查、打 tag，並建立以 changelog 為內容的 GitHub Release | 一個 tag、一個 Release |
 
 ### 一次真實的對話
 
@@ -483,6 +590,18 @@ symphony-workflow list-tools                                  # 每個工具的 
 symphony-workflow call get_issue '{"key": "PROJ-1"}'          # 碰到 Jira 之前先用 schema 驗證
 ```
 
+## 出了問題怎麼辦
+
+| 你看到 | 原因 | 怎麼做 |
+|---|---|---|
+| `command not found: symphony-workflow` | CLI 不在你的 PATH 裡 | 用 `uv tool install` 安裝並開一個新的終端機，或不安裝直接執行：`uvx --from git+https://github.com/cloud-f1/symphony-workflow symphony-workflow --version` |
+| `/plugin install` 找不到 plugin | 還沒加入 marketplace | 先執行 `/plugin marketplace add` 那一行，再安裝 |
+| agent 不理會計畫或票的請求 | 沒有裝 CLI，或 plugin 被停用 | 確認 `symphony-workflow --version` 可以執行，並確認 `/plugin` 裡 `symphony-workflow-ops` 是啟用的 |
+| `sync-plan` 說什麼都沒動（結束碼 1） | 還沒有儲存的設定 | 執行 `profile --write`，或傳入 `--from epics-md --to markdown` |
+| `unauthorized`（結束碼 3） | 某個 key 不對 | Jira：執行 `check-env --verify`，它會說要檢查 `.env` 的哪幾行（email 和 token，或網址），而且不會印出任何值。Linear：重新建立個人 API key 放進專案的 `.env`。key 只放在 `.env`，不要貼到對話裡 |
+| `a Category with one Task is really a Task` | 警告：一個群組只有一件工作 | 無害；多加幾件工作，或忽略它 |
+| `land` 說 PR 還沒合併 | PR 還開著或已被關閉 | 先合併；`land` 什麼都沒改 |
+
 ## 我該選哪種設定？
 
 | 你有 | 說 / 執行 | 需要 |
@@ -496,6 +615,32 @@ symphony-workflow call get_issue '{"key": "PROJ-1"}'          # 碰到 Jira 之�
 | 一個已經亂掉的 Jira 階層 | 「稽核我的專案」（`audit`、`add-subtasks`、`rollup`） | 三個 Jira 欄位 |
 
 憑證放在專案自己的、被 gitignore 的 `.env`（`symphony-workflow init-env`），不要貼在對話裡。只用 Markdown 不需要任何憑證。
+
+## 所有指令
+
+`symphony-workflow --help` 用同樣的方式分組；`symphony-workflow <command> --help` 有詳細說明和結束碼。
+
+| 分組 | 指令 | 做什麼 |
+|---|---|---|
+| Plan sync | `profile` | 讀專案怎麼運作並推薦設定（唯讀） |
+| | `import-plan` | 把 `docs/epics` 裡的計畫顯示成類別、任務、待辦 |
+| | `sync-plan` | 把計畫寫到 Markdown、Linear 或 Jira；從不刪除 |
+| | `sync-status` | 讓待辦的狀態在計畫和看板兩邊雙向一致 |
+| | `split-todos` | 替沒有待辦的任務提議待辦，放在審閱檔後面 |
+| 設定 | `init-env` | 建立專案的 `.env`，並確保 git 會忽略它 |
+| | `check-env` | 說明缺哪些 key，從不印出值；`--verify` 會實際試用 |
+| Git 流程 | `start` | 從最新的 `origin/main` 建立票的分支和 worktree |
+| | `pr` | 推送並開 PR，標題和內文都帶票號 |
+| | `land` | 合併之後：驗證、清理、關閉卡片 |
+| | `check-commit` | 檢查 commit 標題是 `type(scope): subject (KEY)` |
+| | `changelog-draft` | 依上個 tag 之後的 commit 草擬 CHANGELOG 段落 |
+| | `release` | 發版檢查、打 tag、推 tag 與建立 GitHub Release |
+| | `release-backfill` | 替每個沒有 Release 的 tag 建立 GitHub Release |
+| 票 | `get`、`search`、`comment`、`transition` | 讀取、搜尋、留言與移動一張票 |
+| | `audit`、`add-subtasks`、`rollup` | 檢查 Epic、Story、Subtask 結構、補齊，並在子項完成時關閉父項 |
+| Plan 與 Implement | `plan`、`implement` | 一張票的 Plan 階段，核准後才進 Implement |
+| | `decompose`、`sync-decomposition`、`diff-decomposition` | 把 Jira Epic 拆成 Story、建立它們、回報與規格的差異 |
+| Agent 工具呼叫 | `list-tools`、`call` | 每個 Jira 操作都是一個有 JSON schema 的具名工具 |
 
 ## Reference
 
