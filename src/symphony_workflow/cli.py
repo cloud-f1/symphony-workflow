@@ -33,6 +33,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 
 import typer
@@ -70,6 +72,7 @@ from symphony_workflow.project_profile import (
     Profile,
     Recommendation,
     load_config,
+    next_steps,
     profile_project,
     recommend,
     save_config,
@@ -121,6 +124,24 @@ app = typer.Typer(
     ),
     no_args_is_help=True,
 )
+
+
+def _show_version(value: bool) -> None:
+    if value:
+        try:
+            typer.echo(f"symphony-workflow {package_version('symphony-workflow')}")
+        except PackageNotFoundError:
+            typer.echo("symphony-workflow (version unknown: not installed as a package)")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        False, "--version", callback=_show_version, is_eager=True, help="Show the version and exit"
+    ),
+) -> None:
+    """Python CLI for Jira Cloud and Linear."""
 
 
 def _client() -> TrackerClient:
@@ -802,6 +823,10 @@ def profile_command(
         _print_profile(profile)
         _print_recommendation("Recommendation 1 (from usage)", first)
         _print_recommendation("Recommendation 2 (refined from content)", refined)
+        typer.echo("\nNext:")
+        has_config = (path / CONFIG_PATH).exists()
+        for line in next_steps(profile, path=str(path), config_exists=has_config):
+            typer.echo(f"  {line}")
     if not write:
         return
     chosen = first if use == 1 else refined

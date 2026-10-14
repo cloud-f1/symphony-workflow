@@ -9,11 +9,31 @@
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](#use-it-with-your-agent)
 [![Plan sync](https://img.shields.io/badge/plan%20sync-Markdown%20%7C%20Linear%20%7C%20Jira-informational)](#what-the-agent-runs)
 
-**Give your AI agent a plan and a board.** symphony-workflow is a Claude Code plugin (two skills) plus a CLI the
-agent drives: it reads a plan you keep as Markdown, shows it as a board, pushes it to **Linear** or **Jira**, and keeps
-the status in step both ways. Every Jira operation is also a schema-described tool call, so any agent can use it.
+**Keep your plan in Markdown, and put it on a Linear or Jira board when you want one.** symphony-workflow is a
+command-line tool plus a Claude Code plugin (three skills, two hooks). You write the work down as plain Markdown files;
+you or your AI agent run it to preview the plan, push it to **Linear** or **Jira**, keep the status the same on both
+sides, and take each ticket from a branch to a merged pull request and a release.
 
 It never deletes anything, never writes to a tracker until you say so, and every write has a `--dry-run`.
+
+## In one minute
+
+| Word | What it means here |
+|---|---|
+| **Plan** | One Markdown file per piece of work, in `docs/epics/`. The tool reads them; the text stays yours. |
+| **Category, Task, To-Do** | The three layers of a plan: a group of work (a phase), one piece of work (an epic file), and a step inside it (a checkbox). On Jira they become Epic, Story and Subtask; on Linear a milestone, an issue and a sub-issue. |
+| **Tracker** | The board: Jira or Linear. Optional. With none, the plan simply stays as Markdown files. |
+| **Plan sync** | Writing the plan to a tracker (or back to Markdown) and keeping the status the same on both sides. Running it again never makes duplicates. |
+| **Agent** | An AI assistant such as Claude Code. It uses this tool through the plugin's skills, so you can ask for what you want in plain words. |
+
+## Before you start
+
+| You need | For | How to get it |
+|---|---|---|
+| [`uv`](https://docs.astral.sh/uv/) | installing and running the CLI (it brings Python 3.11 or newer) | the install page of uv |
+| Claude Code | the plugin and its skills (the CLI works without it) | claude.com/claude-code |
+| A Jira API token or a Linear API key | **only** to push to a board; previews and Markdown need no account | Atlassian account settings, Security, API tokens; a personal API key in your Linear settings |
+| `git` and `gh` | the git loop (`start`, `pr`, `land`, `release`) | `gh auth login` once |
 
 ## Who it is for
 
@@ -23,9 +43,95 @@ It never deletes anything, never writes to a tracker until you say so, and every
   tickets through named tools instead of raw HTTP.
 - **You are fixing a Jira project** whose Stories have no Subtasks, or whose parents never close.
 
+## Your first plan file
+
+Five minutes, no account, nothing leaves your machine. This is real output from a clean folder.
+
+1. **Write one file per piece of work.** The file name starts with `e` and a number (`e1-login.md`), the first line is
+   `# E1: Title`, and what must be true when it is done goes under `## Acceptance Criteria` as `- [ ]` items.
+2. **Run `profile`.** It only reads. It says what it found, recommends a setup, and ends with a `Next:` list of the
+   commands to run.
+3. **Preview, then write.** `sync-plan --dry-run` shows what would change; without `--dry-run` it adds a To-Do list to
+   each file. The list sits between two `sd:` marker comments, which is the only part the tool ever rewrites: your own
+   text is left alone, and running it again changes nothing.
+
+![A first plan: two epic files, profile, a dry run, the real run and the result](docs/snapshots/img/10-first-plan.svg)
+
+<details>
+<summary>Text</summary>
+
+<!-- snapshot: docs/snapshots/10-first-plan.txt -->
+```text
+$ cat docs/epics/e1-login.md
+# E1: Login page
+
+## Acceptance Criteria
+
+- [ ] A user can sign in with an email and a password
+- [ ] A wrong password shows an error and keeps the email
+
+$ symphony-workflow profile --path .
+Project: .
+Plan files: 2 epic file(s); index=False progress=False strategy-log=False; plan folders=0; athena commands=False
+Tracker: jira credentials=False linear credentials=False SYMPHONY_WORKFLOW_TRACKER=unset; issue keys in history: none
+Content: 0 phase(s) (0 not complete), 2 epic(s), tasks per phase median=None, acceptance items median=2.0, epics with a ready-made To-Do breakdown=0%
+Recommendation 1 (from usage): tracker=markdown plan_source=epics-md todo_source=hybrid push=manual record=markdown include_done=false
+  - tracker: no tracker evidence in this project -> use Markdown files
+  - plan source: 2 epic file(s) under docs/epics -> read them with `epics-md`
+Recommendation 2 (refined from content): tracker=markdown plan_source=epics-md todo_source=hybrid push=manual record=markdown include_done=false
+  - To-Do source: only 0% of epics have a ready-made To-Do breakdown -> hybrid: AI-split behind the review gate, five workflow steps as the fallback
+
+Next:
+  1. See what was read from your plan files:
+       symphony-workflow import-plan
+  2. Preview writing it back, nothing is changed:
+       symphony-workflow sync-plan --from epics-md --to markdown --dry-run
+  3. Save the recommendation so sync-plan needs no flags (asks first):
+       symphony-workflow profile --write
+
+$ symphony-workflow sync-plan --path . --from epics-md --to markdown --dry-run
+  To-Dos for E1: from steps
+  To-Dos for E2: from steps
+  Would update docs/epics/e1-login.md
+  Would update docs/epics/e2-reports.md
+  Would create docs/epics/EPIC_INDEX.md
+
+$ symphony-workflow sync-plan --path . --from epics-md --to markdown
+  To-Dos for E1: from steps
+  To-Dos for E2: from steps
+  Updated      docs/epics/e1-login.md
+  Updated      docs/epics/e2-reports.md
+  Created      docs/epics/EPIC_INDEX.md
+
+$ cat docs/epics/e1-login.md
+# E1: Login page
+
+## Acceptance Criteria
+
+- [ ] A user can sign in with an email and a password
+- [ ] A wrong password shows an error and keeps the email
+
+<!-- sd:begin todo -->
+## To-Do
+
+- [ ] Spec <!-- sd-id: E1.d1 -->
+- [ ] Implement <!-- sd-id: E1.d2 -->
+- [ ] Tests and QA <!-- sd-id: E1.d3 -->
+- [ ] Commit <!-- sd-id: E1.d4 -->
+- [ ] Merge <!-- sd-id: E1.d5 -->
+<!-- sd:end todo -->
+```
+
+</details>
+
+The five To-Dos are the steps every piece of work goes through (spec, implement, test, commit, merge). Tick a box in the
+file when a step is done. When you want the plan on a board, jump to [Push the plan to Linear](#5-push-the-plan-to-linear)
+or [to Jira](#7-push-the-plan-to-jira); when a task needs its own steps instead of these five, see
+[Let the agent propose the To-Dos](#4-let-the-agent-propose-the-to-dos-you-approve-them).
+
 ## Use it with your agent
 
-**1. Install the plugin** in Claude Code (two skills and a SessionStart hook):
+**1. Install the plugin** in Claude Code (three skills and two hooks):
 
 ```text
 /plugin marketplace add cloud-f1/symphony-workflow
@@ -45,7 +151,9 @@ uv tool install git+https://github.com/cloud-f1/symphony-workflow
 | | What it is | Covers |
 |---|---|---|
 | Skill `symphony-workflow-ops` | how to run the tool | plan sync (Markdown, Linear, Jira), the Plan/Implement loop, releasing, the git and PR gotchas |
+| Skill `shipping` | how a ticket's code ships | branch from a ticket, commit and PR conventions, merge cleanup, releases with a changelog and a GitHub Release |
 | Skill `jira-ticket-ops` | how to touch Jira safely | per-project credentials, hierarchy audit, Sub-tasks, rollup, a throwaway test tree |
+| Commit hook | keeps the ticket key on commits | on a branch named for a ticket, a `git commit -m` whose subject lacks the key is blocked; silent on every other branch |
 | SessionStart hook | a health check | checks the local API server when a symphony-workflow checkout is open, silent everywhere else |
 | Tool calls | `list-tools` and `call` | every Jira operation as a JSON-schema tool, for an agent that is not Claude Code |
 
@@ -60,6 +168,10 @@ uv tool install git+https://github.com/cloud-f1/symphony-workflow
 | "Keep the board in step with my checklist" | pulls changes from the board, pushes ticked To-Dos | checkboxes, cards; a conflict is reported and left alone |
 | "Audit my Jira project's Stories and Sub-tasks" | audits, proposes Sub-tasks, rolls finished ones up | tickets, after your go-ahead |
 | "Work ticket KEY-12: plan it, I will review" | the Plan phase for that ticket, then waits | no code until you approve |
+| "Start working on KEY-12" | a branch named `KEY-12-...` and a worktree from a fresh `main`; the card moves to In Progress | a local branch, the card |
+| "Open a PR for KEY-12" | pushes the branch, opens the PR with the key in its title; the card moves to In Review | the PR, the card |
+| "KEY-12 is merged, clean up" | checks on GitHub that it merged, then removes the branch and worktree; the card goes Done | local and remote branches, the card |
+| "Release 0.4.0" | the release checks, the tag, and a GitHub Release with the changelog as its note | a tag, a Release |
 
 ### A real session
 
@@ -491,6 +603,18 @@ symphony-workflow list-tools                                  # every tool as a 
 symphony-workflow call get_issue '{"key": "PROJ-1"}'          # validated against the schema before it touches Jira
 ```
 
+## If something goes wrong
+
+| You see | Why | What to do |
+|---|---|---|
+| `command not found: symphony-workflow` | the CLI is not on your PATH | install it with `uv tool install` and open a new terminal, or run it without installing: `uvx --from git+https://github.com/cloud-f1/symphony-workflow symphony-workflow --version` |
+| `/plugin install` cannot find the plugin | the marketplace was never added | run the `/plugin marketplace add` line first, then the install |
+| The agent ignores a plan or ticket request | the CLI is missing, or the plugin is off | check `symphony-workflow --version` works, and that `symphony-workflow-ops` shows as enabled in `/plugin` |
+| `sync-plan` says nothing was touched (exit 1) | there is no saved setup yet | run `profile --write`, or pass `--from epics-md --to markdown` |
+| `unauthorized` (exit 3) | a key is wrong | Jira: run `check-env --verify`; it says which lines of `.env` to check (the email and token, or the URL) and never prints a value. Linear: create a new personal API key and put it in the project's `.env`. Keys live in `.env`, never in the chat |
+| `a Category with one Task is really a Task` | a warning that a group has only one piece of work | harmless; add more pieces or ignore it |
+| `land` says the PR is not merged | the PR is still open or was closed | merge it first; `land` changed nothing |
+
 ## Which setup do I need?
 
 | You have | Say / run | It needs |
@@ -505,6 +629,32 @@ symphony-workflow call get_issue '{"key": "PROJ-1"}'          # validated agains
 
 Credentials go in the project's own gitignored `.env` (`symphony-workflow init-env`), never in a chat. Markdown-only use
 needs none.
+
+## All commands
+
+`symphony-workflow --help` groups them the same way; `symphony-workflow <command> --help` has the detail and the exit codes.
+
+| Group | Command | What it does |
+|---|---|---|
+| Plan sync | `profile` | reads how a project works and recommends a setup (read-only) |
+| | `import-plan` | shows the plan found in `docs/epics` as Category, Task, To-Do |
+| | `sync-plan` | writes the plan to Markdown, Linear or Jira; never deletes |
+| | `sync-status` | keeps To-Do status the same in the plan and on the board, both ways |
+| | `split-todos` | proposes To-Dos for tasks that have none, behind a review file |
+| Setup | `init-env` | creates the project's `.env` and makes sure git ignores it |
+| | `check-env` | says which keys are missing, never prints a value; `--verify` tries them |
+| Git loop | `start` | a ticket branch and worktree from a fresh `origin/main` |
+| | `pr` | pushes and opens a PR with the ticket key in title and body |
+| | `land` | after the merge: verifies it, cleans up, closes the card |
+| | `check-commit` | checks a commit subject is `type(scope): subject (KEY)` |
+| | `changelog-draft` | drafts a CHANGELOG section from the commits since the last tag |
+| | `release` | release checks, tag, pushed tag and a GitHub Release |
+| | `release-backfill` | creates a GitHub Release for every tag that has none |
+| Tickets | `get`, `search`, `comment`, `transition` | read, search, comment on and move a ticket |
+| | `audit`, `add-subtasks`, `rollup` | check the Epic, Story, Subtask structure, fill it in, close parents when children finish |
+| Plan and implement | `plan`, `implement` | the Plan phase of a ticket, then Implement after you approve |
+| | `decompose`, `sync-decomposition`, `diff-decomposition` | break a Jira Epic into Stories, create them, report drift from the spec |
+| Agent tool calls | `list-tools`, `call` | every Jira operation as a named tool with a JSON schema |
 
 ## Reference
 

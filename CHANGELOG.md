@@ -7,6 +7,13 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+**A beginner-first README** (ADLC-375). A real run from a clean folder found what blocks a newcomer, and each item is fixed and tested.
+
+- `symphony-workflow --version` exists.
+- `profile` ends with a plain-language `Next:` list (what a plan file looks like when there are none, otherwise the three commands to run), so the output is no longer only terms like `plan_source=epics-md`.
+- Both READMEs gain: an **In one minute** glossary, **Before you start** (what to install and what is optional), **Your first plan file** (a real captured run, `docs/snapshots/10-first-plan.txt`), the git loop in **Things to say**, **If something goes wrong**, and an **All commands** table. The stale "two skills" counts are corrected.
+- Tests: every command must be in both READMEs' tables, the README's example plan file must be one the tool reads, `--version` and the `Next:` block.
+
 ## 0.10.0 — 2026-10-14
 
 **The git half of a ticket: branch, PR, merge cleanup and release** (ADLC-336). A ticket key in the branch name is what makes Jira link a branch, its commits and its pull request to a card; these commands make that name and keep the key on every step.
