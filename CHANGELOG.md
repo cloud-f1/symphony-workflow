@@ -7,6 +7,8 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.12.1 — 2026-10-16
+
 **Git loop follow-ups** (ADLC-393).
 
 - `land` and `pr` leave a card that is already in the target status alone (the Jira "pull request merged" automation may have closed it) and say so; `land` still rolls the parents up, and a failed roll-up is reported instead of failing the git side.
