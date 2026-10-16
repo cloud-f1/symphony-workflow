@@ -124,7 +124,10 @@ uv run symphony-workflow release 0.4.0     # after the version-bump PR is merged
 ```
 
 The key in the branch name is what makes Jira link the branch, commits and PR; see
-[JIRA_GIT_SETUP.md](JIRA_GIT_SETUP.md) for the optional Jira settings.
+[JIRA_GIT_SETUP.md](JIRA_GIT_SETUP.md) for the optional Jira settings. If a Jira automation already closed
+the card when the PR merged, `land` says it is already Done and still rolls the parents up. An agent that is
+not Claude Code can call `check_commit_subject` and `changelog_draft` as tools; the commands that change
+git are CLI-only on purpose.
 
 ## 8. Run the tests
 

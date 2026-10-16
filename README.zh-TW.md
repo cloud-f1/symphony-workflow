@@ -568,7 +568,7 @@ Jira 會把分支、commit 和 pull request 掛到卡片上，是因為分支名
 | 收尾 | `land ADLC-12` | 到 GitHub 確認 PR 已合併，更新 `main`，刪除遠端分支、worktree 和本機分支；卡片變成 Done 並往上收 |
 | 發版 | `release 0.4.0` | 跑發版檢查、打 tag、推 tag，並用 CHANGELOG 建立 GitHub Release；`changelog-draft` 依 commit 產生該版的段落 |
 
-不會強制任何事：有未提交變更的 worktree 不會被動，還沒合併的 PR 什麼都不會改。可選的 Jira 設定（smart commits、Create branch 按鈕、PR 合併時移動卡片）寫在 [docs/JIRA_GIT_SETUP.md](docs/JIRA_GIT_SETUP.md)。
+不會強制任何事：有未提交變更的 worktree 不會被動，還沒合併的 PR 什麼都不會改。如果 Jira 自動化在 PR 合併時已經把卡片關閉，`land` 會說這張卡片已經是 Done，並且仍然往上收尾它的父項。可選的 Jira 設定（smart commits、Create branch 按鈕、PR 合併時移動卡片）寫在 [docs/JIRA_GIT_SETUP.md](docs/JIRA_GIT_SETUP.md)。
 
 ## agent 遵守的規則
 
@@ -590,6 +590,17 @@ symphony-workflow list-tools                                  # 每個工具的 
 symphony-workflow call get_issue '{"key": "PROJ-1"}'          # 碰到 Jira 之前先用 schema 驗證
 ```
 
+有四個工具不需要 Jira 帳號：它們只讀本機檔案，`call` 執行它們時不需要憑證。
+
+| 工具 | 回傳什麼 |
+|---|---|
+| `profile_project` | 專案怎麼運作，以及兩個推薦的設定 |
+| `import_plan` | 在 `docs/epics` 找到的計畫，附警告 |
+| `check_commit_subject` | commit 標題是否符合 `type(scope): subject (KEY)`，以及該怎麼改 |
+| `changelog_draft` | 依上個 tag 之後的 commit 草擬 CHANGELOG 段落；路徑必須在工作目錄之內 |
+
+會改動 git、GitHub 或追蹤系統的指令（`start`、`pr`、`land`、`release`、`release-backfill`）**刻意不是**工具。`call` 沒有確認也沒有試跑，任何 agent 都可以無人看管地呼叫它；當成 CLI 指令，它們會經過 Claude Code 對每個指令的權限提示，所以每一個都由人核准。
+
 ## 出了問題怎麼辦
 
 | 你看到 | 原因 | 怎麼做 |
@@ -601,6 +612,7 @@ symphony-workflow call get_issue '{"key": "PROJ-1"}'          # 碰到 Jira 之�
 | `unauthorized`（結束碼 3） | 某個 key 不對 | Jira：執行 `check-env --verify`，它會說要檢查 `.env` 的哪幾行（email 和 token，或網址），而且不會印出任何值。Linear：重新建立個人 API key 放進專案的 `.env`。key 只放在 `.env`，不要貼到對話裡 |
 | `a Category with one Task is really a Task` | 警告：一個群組只有一件工作 | 無害；多加幾件工作，或忽略它 |
 | `land` 說 PR 還沒合併 | PR 還開著或已被關閉 | 先合併；`land` 什麼都沒改 |
+| `land` 說這張卡片已經是 Done | Jira 自動化在 PR 合併時關掉了它 | 不用處理；它的父項仍然已經往上收尾 |
 
 ## 我該選哪種設定？
 
@@ -640,7 +652,7 @@ symphony-workflow call get_issue '{"key": "PROJ-1"}'          # 碰到 Jira 之�
 | | `audit`、`add-subtasks`、`rollup` | 檢查 Epic、Story、Subtask 結構、補齊，並在子項完成時關閉父項 |
 | Plan 與 Implement | `plan`、`implement` | 一張票的 Plan 階段，核准後才進 Implement |
 | | `decompose`、`sync-decomposition`、`diff-decomposition` | 把 Jira Epic 拆成 Story、建立它們、回報與規格的差異 |
-| Agent 工具呼叫 | `list-tools`、`call` | 每個 Jira 操作都是一個有 JSON schema 的具名工具 |
+| Agent 工具呼叫 | `list-tools`、`call` | 每個 Jira 操作都是一個有 JSON schema 的具名工具，另外還有四個唯讀的本機工具 |
 
 ## Reference
 

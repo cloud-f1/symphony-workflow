@@ -337,3 +337,64 @@ def test_land_reports_a_failed_card_move_without_undoing_the_git_work(repos) -> 
     path, branch, gh = _merged(repos, tracker)
     result = land("ADLC-9", repo=repos.work, tracker=tracker, run=gh)
     assert not path.exists() and any("could not move" in k for k in result.kept)
+
+
+# --- a card the Jira automation already moved (ADLC-393) --------------------------------------
+
+
+def test_land_does_not_move_or_complain_about_a_card_already_done(repos) -> None:  # noqa: F811
+    tracker = FakeTracker()
+    path, branch, gh = _merged(repos, tracker)
+    tracker.issue.status = "Done"  # the automation closed it when the PR merged
+    rolled: list[str] = []
+    result = land("ADLC-9", repo=repos.work, tracker=tracker, run=gh, rollup_fn=rolled.append)
+    assert result.kept == [] and not result.transitioned
+    assert ("ADLC-9", "Done") not in tracker.moves
+    assert any("already Done" in s for s in result.steps)
+    assert rolled == ["ADLC-9"]  # the parents are still rolled up
+
+
+def test_land_skips_the_roll_up_when_the_card_move_failed(repos) -> None:  # noqa: F811
+    class Failing(FakeTracker):
+        def transition_issue(self, key: str, name: str) -> None:
+            if name == "Done":
+                raise RuntimeError("no Done transition")
+
+    tracker = Failing()
+    path, branch, gh = _merged(repos, tracker)
+    rolled: list[str] = []
+    result = land("ADLC-9", repo=repos.work, tracker=tracker, run=gh, rollup_fn=rolled.append)
+    assert rolled == [] and any("could not move" in k for k in result.kept)
+
+
+def test_land_reports_a_failed_roll_up_without_failing_the_git_side(repos) -> None:  # noqa: F811
+    tracker = FakeTracker()
+    path, branch, gh = _merged(repos, tracker)
+
+    def boom(key: str) -> None:
+        raise RuntimeError("parent not found")
+
+    result = land("ADLC-9", repo=repos.work, tracker=tracker, run=gh, rollup_fn=boom)
+    assert not path.exists() and any("roll-up" in k for k in result.kept)
+
+
+def test_pr_leaves_a_card_that_is_already_in_review(repos) -> None:  # noqa: F811
+    tracker = FakeTracker()
+    path = _worktree_with_commit(repos, tracker)
+    tracker.issue.status = "In Review"
+    tracker.moves.clear()
+    result = open_pr("ADLC-9", cwd=path, tracker=tracker, run=FakeGh())
+    assert tracker.moves == [] and not result.transitioned
+    assert any("already In Review" in n for n in result.notes)
+
+
+def test_hardened_run_runs_git_and_refuses_anything_else(tmp_path) -> None:
+    from symphony_workflow.ship import hardened_run
+
+    git(tmp_path, "init", "-q")
+    assert (
+        hardened_run(["git", "rev-parse", "--is-inside-work-tree"], tmp_path).stdout.strip()
+        == "true"
+    )
+    with pytest.raises(ShipError, match="only git"):
+        hardened_run(["gh", "pr", "list"], tmp_path)

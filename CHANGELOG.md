@@ -7,6 +7,13 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+**Git loop follow-ups** (ADLC-393).
+
+- `land` and `pr` leave a card that is already in the target status alone (the Jira "pull request merged" automation may have closed it) and say so; `land` still rolls the parents up, and a failed roll-up is reported instead of failing the git side.
+- Two read-only `call` tools: `check_commit_subject` and `changelog_draft` (local, no Jira credentials, path scoped, git through the hardened runner). `start`, `pr`, `land`, `release` and `release-backfill` stay CLI-only on purpose.
+- **Fix**: `changelog_draft` and `changelog-draft --since` took the ref as typed, so `--output=<file>` made `git log` write that file (and the command said there were no changes). `since` must now be a plain tag, branch or commit name that exists.
+- Both READMEs, the shipping skill, the QUICKSTART and `docs/JIRA_GIT_SETUP.md` explain the four read-only tools, why the git-changing commands are not tools, and what `land` does for a card already Done; tests keep the tool table in step with `LOCAL_TOOLS`.
+
 ## 0.12.0 — 2026-10-16
 
 - **`search_issues` returns board fields** (ADLC-388): `issue_type`, `parent`, `parent_summary`, `status_category` and `subtasks_done` / `subtasks_total` on each issue, from one search (the request now asks Jira for `issuetype`, `parent` and `subtasks`). Additive: the old keys come first and keep their values, and `search` still prints three TAB columns. First reader: Symphony Walkman's board.

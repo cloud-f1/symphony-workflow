@@ -97,3 +97,18 @@ def test_the_readmes_tell_a_newcomer_what_to_install_and_how_to_check_it() -> No
     for readme, phrase in (("README.md", "Before you start"), ("README.zh-TW.md", "開始之前")):
         text = (REPO / readme).read_text(encoding="utf-8")
         assert phrase in text and "symphony-workflow --version" in text and "`uv`" in text
+
+
+def test_every_local_tool_is_in_the_tool_table_of_both_readmes() -> None:
+    from symphony_workflow.tools import LOCAL_TOOLS
+
+    for readme in ("README.md", "README.zh-TW.md"):
+        text = (REPO / readme).read_text(encoding="utf-8")
+        missing = sorted(t for t in LOCAL_TOOLS if f"| `{t}` |" not in text)
+        assert missing == [], f"{readme} does not list the tools: {missing}"
+
+
+def test_the_readmes_say_the_commands_that_change_git_are_not_tools() -> None:
+    for readme in ("README.md", "README.zh-TW.md"):
+        text = (REPO / readme).read_text(encoding="utf-8")
+        assert "`release-backfill`) are deliberately **not** tools" in text or "刻意不是" in text

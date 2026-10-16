@@ -101,11 +101,15 @@ def test_tools_refuse_a_path_outside_the_working_directory(
     project.mkdir()
     outside.mkdir()
     monkeypatch.chdir(project)
-    for tool in ("profile_project", "import_plan"):
+    for tool, extra in (
+        ("profile_project", {}),
+        ("import_plan", {}),
+        ("changelog_draft", {"version": "1.0.0"}),
+    ):
         with pytest.raises(ValueError, match="inside the working directory"):
-            call_tool(None, tool, {"path": str(outside)})
+            call_tool(None, tool, {"path": str(outside), **extra})
         with pytest.raises(ValueError, match="inside the working directory"):
-            call_tool(None, tool, {"path": ".."})
+            call_tool(None, tool, {"path": "..", **extra})
 
 
 def test_tools_refuse_a_symlink_that_leads_outside(
@@ -189,3 +193,34 @@ def test_read_state_ignores_a_symlinked_file(tmp_path: Path) -> None:
     plan = _plan()
     assert read_state(plan, project) == []
     assert plan.categories[0].tasks[0].todos[0].status == "todo"
+
+
+def test_changelog_draft_does_not_run_gpg_program_from_the_repo_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The tool reads `git log` in a directory the agent names: log.showSignature plus gpg.program
+    # must not run a program from that repository's own config (ADLC-393).
+    marker = tmp_path / "PWNED-changelog"
+    repo = _evil_repo(tmp_path, tmp_path / "unused")
+    script = tmp_path / "evil-gpg.sh"
+    script.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
+    script.chmod(0o755)
+    tree = subprocess.run(
+        ["git", "-C", str(repo), "write-tree"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    raw = (
+        f"tree {tree}\nauthor t <t@e.c> 1 +0000\ncommitter t <t@e.c> 1 +0000\n"
+        "gpgsig -----BEGIN PGP SIGNATURE-----\n \n x\n -----END PGP SIGNATURE-----\n\n"
+        "feat: signed (PROJ-2)\n"
+    )
+    commit = subprocess.run(
+        ["git", "-C", str(repo), "hash-object", "-t", "commit", "-w", "--stdin"],
+        input=raw, check=True, capture_output=True, text=True,
+    ).stdout.strip()  # fmt: skip
+    subprocess.run(["git", "-C", str(repo), "reset", "-q", "--soft", commit], check=True)
+    for key, value in (("log.showSignature", "true"), ("gpg.program", str(script))):
+        subprocess.run(["git", "-C", str(repo), "config", key, value], check=True)
+    monkeypatch.chdir(tmp_path)  # the tool only reads inside the working directory
+    result = call_tool(None, "changelog_draft", {"version": "1.0.0", "path": "evil"})
+    assert not marker.exists(), "git ran gpg.program from an untrusted .git/config"
+    assert "signed (PROJ-2)" in result["markdown"]  # the signed commit is still read

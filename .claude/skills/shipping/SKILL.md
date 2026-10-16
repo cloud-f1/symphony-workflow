@@ -47,6 +47,11 @@ Create branch button, moving a card when a PR merges) are in `docs/JIRA_GIT_SETU
   `changelog-draft X.Y.Z` writes the section from the commits; edit it, do not paste it blind.
 - **`release` is safe to re-run** (tag, push and Release each skip when done). `release-backfill
   --dry-run` lists tags that have no GitHub Release; creating them is public, so ask first.
+- **`start`, `pr`, `land`, `release` and `release-backfill` are CLI commands, not `call` tools.** They change git, GitHub
+  and the tracker, and `call` has no confirmation or dry run. Only the read-only `check_commit_subject` and
+  `changelog_draft` are tools.
+- **A card already in the target status is left alone.** A Jira automation may have closed it when the PR merged; `land`
+  then says "already Done" and still rolls the parents up.
 - **`--no-transition`** on `start`, `pr` and `land` leaves the card alone when its status should not move.
 - In a Jira project, the card moves only through the project's own transitions; if one is missing the
   command reports it and finishes the git side.
