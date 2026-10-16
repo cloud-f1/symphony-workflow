@@ -580,7 +580,7 @@ Jira links a branch, its commits and its pull request to a card because the tick
 | Finish | `land ADLC-12` | Verifies on GitHub that the PR merged, updates `main`, deletes the remote branch, the worktree and the local branch; the card goes Done and rolls up |
 | Release | `release 0.4.0` | Runs the release gate, tags, pushes the tag and creates the GitHub Release from the CHANGELOG; `changelog-draft` writes the section from the commits |
 
-Nothing is forced: a worktree with uncommitted changes is left alone, and an unmerged PR changes nothing. The optional Jira settings (smart commits, the Create branch button, moving a card when a PR merges) are in [docs/JIRA_GIT_SETUP.md](docs/JIRA_GIT_SETUP.md).
+Nothing is forced: a worktree with uncommitted changes is left alone, and an unmerged PR changes nothing. If a Jira automation already closed the card when the PR merged, `land` says the card is already Done and still rolls its parents up. The optional Jira settings (smart commits, the Create branch button, moving a card when a PR merges) are in [docs/JIRA_GIT_SETUP.md](docs/JIRA_GIT_SETUP.md).
 
 ## Rules the agent follows
 
@@ -603,6 +603,17 @@ symphony-workflow list-tools                                  # every tool as a 
 symphony-workflow call get_issue '{"key": "PROJ-1"}'          # validated against the schema before it touches Jira
 ```
 
+Four tools need no Jira account: they only read local files, and `call` runs them without credentials.
+
+| Tool | What it returns |
+|---|---|
+| `profile_project` | how a project works, and two recommended setups |
+| `import_plan` | the plan found in `docs/epics`, with warnings |
+| `check_commit_subject` | whether a commit subject follows `type(scope): subject (KEY)`, and what to fix |
+| `changelog_draft` | a CHANGELOG section drafted from the commits since the last tag; the path must be inside the working directory |
+
+The commands that change git, GitHub or the tracker (`start`, `pr`, `land`, `release`, `release-backfill`) are deliberately **not** tools. `call` has no confirmation or dry run and any agent can drive it unattended; as CLI commands they go through Claude Code's per-command permission prompt, so a person approves each one.
+
 ## If something goes wrong
 
 | You see | Why | What to do |
@@ -614,6 +625,7 @@ symphony-workflow call get_issue '{"key": "PROJ-1"}'          # validated agains
 | `unauthorized` (exit 3) | a key is wrong | Jira: run `check-env --verify`; it says which lines of `.env` to check (the email and token, or the URL) and never prints a value. Linear: create a new personal API key and put it in the project's `.env`. Keys live in `.env`, never in the chat |
 | `a Category with one Task is really a Task` | a warning that a group has only one piece of work | harmless; add more pieces or ignore it |
 | `land` says the PR is not merged | the PR is still open or was closed | merge it first; `land` changed nothing |
+| `land` says the card is already Done | a Jira automation closed it when the PR merged | nothing to do; the roll-up of its parents still ran |
 
 ## Which setup do I need?
 
@@ -654,7 +666,7 @@ needs none.
 | | `audit`, `add-subtasks`, `rollup` | check the Epic, Story, Subtask structure, fill it in, close parents when children finish |
 | Plan and implement | `plan`, `implement` | the Plan phase of a ticket, then Implement after you approve |
 | | `decompose`, `sync-decomposition`, `diff-decomposition` | break a Jira Epic into Stories, create them, report drift from the spec |
-| Agent tool calls | `list-tools`, `call` | every Jira operation as a named tool with a JSON schema |
+| Agent tool calls | `list-tools`, `call` | every Jira operation as a named tool with a JSON schema, plus four read-only local tools |
 
 ## Reference
 

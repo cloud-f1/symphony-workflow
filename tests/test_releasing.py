@@ -156,3 +156,29 @@ def test_backfill_dry_run_creates_nothing(repos) -> None:  # noqa: F811
     _tagged(repos, "v0.1.0")
     gh = ReleaseGh()
     assert backfill(repo=repos.work, dry_run=True, run=gh) == ["v0.1.0"] and gh.created == []
+
+
+@pytest.mark.parametrize("since", ["--output=PWNED", "-n1", "a..b", "HEAD@{1}", "v0.1.0 x"])
+def test_draft_rejects_a_since_that_git_would_read_as_an_option_or_a_range(
+    repos,  # noqa: F811
+    since: str,
+) -> None:
+    # `git log --output=<file>` writes there, so a `since` from an agent must be a plain ref name.
+    _tagged(repos, "v0.1.0")
+    with pytest.raises(ShipError, match="not a tag, branch or commit"):
+        draft_changelog("0.2.0", repo=repos.work, since=since)
+    assert not list(repos.work.glob("PWNED*"))
+
+
+def test_draft_rejects_a_since_that_is_not_a_commit(repos) -> None:  # noqa: F811
+    with pytest.raises(ShipError, match="not a commit in this repository"):
+        draft_changelog("0.2.0", repo=repos.work, since="no-such-tag")
+
+
+def test_draft_accepts_a_tag_a_branch_and_a_short_sha(repos) -> None:  # noqa: F811
+    _tagged(repos, "v0.1.0")
+    git(repos.work, "branch", "release-base")  # a branch that sits on the tagged commit
+    commit(repos.work, "n", "feat: new (ADLC-2)")
+    short = git(repos.work, "rev-parse", "--short", "v0.1.0")
+    for since in ("v0.1.0", "release-base", short):
+        assert "new (ADLC-2)" in draft_changelog("0.2.0", repo=repos.work, since=since)

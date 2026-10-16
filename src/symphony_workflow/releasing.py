@@ -16,6 +16,9 @@ from pathlib import Path
 from symphony_workflow.ship import Runner, ShipError, _git, run_cmd
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+# A tag, branch or short sha. Never starts with `-` (git would read it as an option, for example
+# `--output=<file>` makes `git log` write there) and has no `..` or `@{` revision syntax.
+REF_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]*$")
 SQUASH_SUFFIX = re.compile(r" \(#\d+\)$")
 GROUPS = (
     ("feat", "Features"),
@@ -37,6 +40,14 @@ def _check_version(version: str) -> None:
         raise ShipError(f"{version!r} is not a version like 0.9.4 (no leading v)")
 
 
+def _check_ref(repo: Path, ref: str, run: Runner) -> None:
+    if not REF_RE.match(ref) or ".." in ref:
+        raise ShipError(f"{ref!r} is not a tag, branch or commit name")
+    done = run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], repo)
+    if done.returncode != 0:
+        raise ShipError(f"{ref!r} is not a commit in this repository")
+
+
 def last_tag(repo: Path, run: Runner = run_cmd) -> str:
     return _git(run, repo, "describe", "--tags", "--abbrev=0", "--match", "v*", ok=True)
 
@@ -51,7 +62,10 @@ def draft_changelog(
 ) -> str:
     """A `## version` section from the commit subjects since the last tag, grouped by type."""
     _check_version(version)
-    since = since if since is not None else last_tag(repo, run)
+    if since is not None:
+        _check_ref(repo, since, run)
+    else:
+        since = last_tag(repo, run)
     span = f"{since}..HEAD" if since else "HEAD"
     out = _git(run, repo, "log", "--format=%s", "--no-merges", span)
     subjects = [s for s in out.splitlines() if s.strip()]
