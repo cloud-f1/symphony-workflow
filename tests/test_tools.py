@@ -27,6 +27,8 @@ def test_tools_registry_has_expected_names() -> None:
         "diff_decomposition",
         "profile_project",
         "import_plan",
+        "check_commit_subject",
+        "changelog_draft",
     }
 
 
@@ -249,4 +251,9 @@ def test_local_tools_run_without_a_jira_client(tmp_path, monkeypatch) -> None:
 def test_local_tools_are_marked_so_the_cli_skips_the_credential_check() -> None:
     from symphony_workflow.tools import LOCAL_TOOLS
 
-    assert LOCAL_TOOLS == {"profile_project", "import_plan"}
+    assert LOCAL_TOOLS == {
+        "profile_project",
+        "import_plan",
+        "check_commit_subject",
+        "changelog_draft",
+    }

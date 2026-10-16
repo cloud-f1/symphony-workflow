@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from symphony_workflow.safepath import run_git
 from symphony_workflow.workspace import branch_name
 
 Runner = Callable[[Sequence[str], Path], "subprocess.CompletedProcess[str]"]
@@ -52,6 +53,29 @@ def run_cmd(cmd: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ShipError(f"could not run {cmd[0]}: {exc}") from exc
+
+
+def hardened_run(cmd: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Runner for a directory the caller does not control (an agent tool's path): git goes through
+    `safepath.run_git`, so a repository's own config cannot make git run a program."""
+    if cmd[0] != "git":
+        raise ShipError(f"{cmd[0]} is not allowed here, only git")
+    done = run_git(cwd, *cmd[1:])
+    if done is None:
+        raise ShipError("could not run git")
+    return done
+
+
+def _move_card(tracker: Tracker, key: str, target: str) -> tuple[bool, str | None, bool]:
+    """(moved, note, is_problem). A card already in `target` is left alone (a Jira automation may
+    have moved it on merge) and a failure is a note, never an exception: the git side is done."""
+    try:
+        if str(tracker.get_issue(key).status).strip().lower() == target.lower():
+            return False, f"{key} is already {target}", False
+        tracker.transition_issue(key, target)
+        return True, None, False
+    except Exception as exc:  # noqa: BLE001 - any tracker failure is reported, not raised
+        return False, f"could not move {key} to {target}: {exc}", True
 
 
 def _git(run: Runner, repo: Path, *args: str, ok: bool = False) -> str:
@@ -223,11 +247,9 @@ def open_pr(
     notes: list[str] = []
     transitioned = False
     if transition:
-        try:
-            tracker.transition_issue(key, IN_REVIEW)
-            transitioned = True
-        except Exception as exc:  # noqa: BLE001 - the PR is open; report, do not fail
-            notes.append(f"could not move {key} to {IN_REVIEW}: {exc}")
+        transitioned, note, _ = _move_card(tracker, key, IN_REVIEW)
+        if note:
+            notes.append(note)
     return PrResult(key, branch, url, title, transitioned, notes)
 
 
@@ -352,12 +374,15 @@ def land(
     elif not removed_worktree:
         result.kept.append(f"local branch {branch} kept with its worktree")
     if transition:
-        try:
-            tracker.transition_issue(key, DONE)
-            if rollup_fn is not None:
-                rollup_fn(key)
-            result.transitioned = True
+        moved, note, problem = _move_card(tracker, key, DONE)
+        result.transitioned = moved
+        if moved:
             result.steps.append(f"moved {key} to {DONE}")
-        except Exception as exc:  # noqa: BLE001 - git side is done; report the card separately
-            result.kept.append(f"could not move {key} to {DONE}: {exc}")
+        elif note:
+            (result.kept if problem else result.steps).append(note)
+        if not problem and rollup_fn is not None:
+            try:
+                rollup_fn(key)
+            except Exception as exc:  # noqa: BLE001 - the card is Done; the parents can be rolled up later
+                result.kept.append(f"roll-up from {key} failed: {exc}")
     return result

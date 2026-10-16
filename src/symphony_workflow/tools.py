@@ -20,8 +20,10 @@ from symphony_workflow.epics_md import load_epics_md
 from symphony_workflow.hierarchy import AddSubtasksAborted, PlanError, add_subtasks, audit
 from symphony_workflow.plan import check_plan
 from symphony_workflow.project_profile import profile_project, recommend
+from symphony_workflow.releasing import draft_changelog
 from symphony_workflow.rollup import RollupAborted, RollupNotFound, rollup
 from symphony_workflow.safepath import scoped_path
+from symphony_workflow.ship import ShipError, check_commit_subject, hardened_run
 from symphony_workflow.sync_decomposition import (
     SyncDecompositionError,
     load_decomposition,
@@ -91,6 +93,16 @@ class ProfileProjectArgs(BaseModel):
 class ImportPlanArgs(BaseModel):
     path: str = "."
     include_done: bool = False
+
+
+class CheckCommitSubjectArgs(BaseModel):
+    subject: str
+
+
+class ChangelogDraftArgs(BaseModel):
+    version: str
+    since: str | None = None
+    path: str = "."
 
 
 class AddSubtasksArgs(BaseModel):
@@ -234,6 +246,21 @@ def _import_plan(_client: None, args: ImportPlanArgs) -> dict[str, Any]:
     }
 
 
+def _check_commit_subject(_client: None, args: CheckCommitSubjectArgs) -> dict[str, Any]:
+    problems = check_commit_subject(args.subject)
+    return {"ok": not problems, "problems": problems}
+
+
+def _changelog_draft(_client: None, args: ChangelogDraftArgs) -> dict[str, Any]:
+    try:
+        markdown = draft_changelog(
+            args.version, repo=scoped_path(args.path), since=args.since, run=hardened_run
+        )
+    except ShipError as exc:
+        raise ValueError(str(exc)) from exc
+    return {"version": args.version, "markdown": markdown}
+
+
 def _create_remote_link(client: JiraClient, args: CreateRemoteLinkArgs) -> dict[str, Any]:
     client.create_remote_link(args.key, url=args.url, title=args.title)
     return {"ok": True, "key": args.key, "url": args.url}
@@ -337,6 +364,23 @@ TOOLS: dict[str, Tool] = {
             _import_plan,
         ),
         Tool(
+            "check_commit_subject",
+            "Local and read-only (no Jira needed): check a commit subject is "
+            "`type(scope): subject (KEY)`; returns ok and the problems to fix. The commands that "
+            "change git (start, pr, land, release) are deliberately CLI-only, not tools.",
+            CheckCommitSubjectArgs,
+            _check_commit_subject,
+        ),
+        Tool(
+            "changelog_draft",
+            "Local and read-only (no Jira needed): draft a CHANGELOG section for `version` from "
+            "the commit subjects since the last tag (or `since`), grouped by type, for the "
+            "repository at `path` (inside the working directory). Returns markdown to edit; "
+            "writes nothing.",
+            ChangelogDraftArgs,
+            _changelog_draft,
+        ),
+        Tool(
             "create_remote_link",
             "Add a Jira 'web link' (Links section, distinct from a comment) pointing an "
             "issue at an external URL — e.g. a merged docs/runs/<key>/plan.md on GitHub. "
@@ -350,7 +394,9 @@ TOOLS: dict[str, Tool] = {
 
 # Tools that only touch local files: `call` runs them without a Jira client (so a project with no
 # tracker can use them).
-LOCAL_TOOLS = frozenset({"profile_project", "import_plan"})
+LOCAL_TOOLS = frozenset(
+    {"profile_project", "import_plan", "check_commit_subject", "changelog_draft"}
+)
 
 
 def call_tool(client: JiraClient | None, name: str, raw_args: dict[str, Any]) -> Any:

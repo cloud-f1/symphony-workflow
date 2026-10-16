@@ -26,6 +26,15 @@ nothing; its merged path ran against the really merged PR #38 (verified, main fa
 remote branch already gone). gh's JSON field names were read from a real merged PR. The ticket,
 branches and worktree were removed afterwards; the closed throwaway PR remains on GitHub.
 
+## Follow-ups (ADLC-393)
+
+`start`, `pr`, `land`, `release` and `release-backfill` stay CLI-only: `call` has no confirmation or dry
+run and can be driven unattended by any agent. The two read-only pieces are tools, `check_commit_subject`
+and `changelog_draft`, the second through `ship.hardened_run` (git via `safepath.run_git`) because its
+path is an agent's argument; without it a repository's `gpg.program` ran, shown by a test. A card
+already in the target status is skipped, because the Jira "pull request merged" automation can close it
+first; `land` still rolls up, and a failed roll-up is reported without failing the git side.
+
 ## Decisions taken
 
 Deleting the remote branch after merge drops the card's branch entry but keeps the PR; the PR is the

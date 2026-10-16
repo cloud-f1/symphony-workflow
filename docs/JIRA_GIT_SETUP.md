@@ -20,7 +20,7 @@ this, and GitHub's "automatically delete head branches" does too); the PR and it
 |---|---|---|
 | Smart commits | Jira settings, Apps, the GitHub app's configuration, enable smart commits | `ADLC-12 #comment text` or `#in-progress` in a commit moves or comments on the card. The committer's email must match exactly one Jira user |
 | Create branch button | Open a card, Development panel, Create branch | Branch name with the key already in it; a person can use it instead of `start` |
-| Move the card when a PR merges | Company-managed projects: a "Pull request merged" workflow trigger. **Team-managed projects (like ADLC) cannot use workflow triggers**: use Project settings, Automation, with a pull-request trigger | The card goes to Done without a human; `land` does this too, so you may not need it |
+| Move the card when a PR merges | Company-managed projects: a "Pull request merged" workflow trigger. **Team-managed projects (like ADLC) cannot use workflow triggers**: use Project settings, Automation, with a pull-request trigger | The card goes to Done without a human; `land` then reports the card as already Done and still rolls the parents up, so the two do not clash |
 
 ## Checking it works
 
