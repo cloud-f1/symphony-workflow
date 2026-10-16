@@ -713,6 +713,10 @@ v2's classic `/rest/api/2/search` is now HTTP 410 (retired), so `search_issues` 
 tests still only exercise mocked HTTP (`respx`); re-verify against a different Jira instance
 before trusting either endpoint there.
 
+Each issue `search_issues` returns also carries `issue_type`, `parent` and `parent_summary` (a Story's Epic),
+`status_category` (Jira's `statusCategory.key`: `new`, `indeterminate` or `done`) and `subtasks_done` / `subtasks_total`,
+so a board can show Epics and subtask progress from one search. The plain `search` command still prints three TAB columns.
+
 ### Keeping Jira in step with a spec: `diff-decomposition` and `sync-decomposition --update`
 
 `sync-decomposition` creates cards once. When the spec (`docs/runs/<epic>/decomposition.json`) changes later:

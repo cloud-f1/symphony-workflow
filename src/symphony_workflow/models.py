@@ -22,12 +22,30 @@ class Issue(BaseModel):
     status: str
     assignee: str | None = None
     description: str | None = None
+    # Board fields (ADLC-388), filled when the request asked for them (search does): the issue
+    # type's name, the parent's key and summary (a Story's Epic), Jira's statusCategory.key
+    # ("new" / "indeterminate" / "done"), and how many of the issue's subtasks are done.
+    # Absent: None / 0.
+    issue_type: str | None = None
+    parent: str | None = None
+    parent_summary: str | None = None
+    status_category: str | None = None
+    subtasks_done: int = 0
+    subtasks_total: int = 0
 
     @classmethod
     def from_api(cls, payload: dict[str, Any]) -> Issue:
         fields = payload.get("fields", {}) or {}
         assignee = fields.get("assignee")
         status = fields.get("status") or {}
+        issuetype = fields.get("issuetype") or {}
+        parent = fields.get("parent") or {}
+        subtasks = fields.get("subtasks") or []
+
+        def done(sub: dict[str, Any]) -> bool:
+            category = ((sub.get("fields") or {}).get("status") or {}).get("statusCategory") or {}
+            return category.get("key") == "done"
+
         return cls(
             key=payload["key"],
             id=payload["id"],
@@ -36,6 +54,12 @@ class Issue(BaseModel):
             assignee=assignee.get("displayName") if assignee else None,
             # v2 API returns description as plain text (not ADF) — see client.py.
             description=fields.get("description") or None,
+            issue_type=issuetype.get("name") or None,
+            parent=parent.get("key") or None,
+            parent_summary=(parent.get("fields") or {}).get("summary") or None,
+            status_category=(status.get("statusCategory") or {}).get("key") or None,
+            subtasks_done=sum(1 for sub in subtasks if done(sub)),
+            subtasks_total=len(subtasks),
         )
 
     @classmethod

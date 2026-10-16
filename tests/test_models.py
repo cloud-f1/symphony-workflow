@@ -195,3 +195,22 @@ def test_transition_fields() -> None:
 def test_triage_decision_accepts_only_literal_actions() -> None:
     decision = TriageDecision(issue_key="ADLC-1", action="flag", reason="needs a human look")
     assert decision.action == "flag"
+
+
+def test_issue_without_board_fields_leaves_them_empty() -> None:
+    issue = Issue.from_api(
+        {"key": "CF1-1", "id": "1", "fields": {"summary": "A", "status": {"name": "To Do"}}}
+    )
+    assert issue.issue_type is None
+    assert issue.parent is None
+    assert issue.parent_summary is None
+    assert issue.status_category is None
+    assert (issue.subtasks_done, issue.subtasks_total) == (0, 0)
+
+
+def test_issue_json_keeps_the_old_keys_first() -> None:
+    issue = Issue.from_api(
+        {"key": "CF1-1", "id": "1", "fields": {"summary": "A", "status": {"name": "To Do"}}}
+    )
+    keys = list(issue.model_dump())
+    assert keys[:6] == ["key", "id", "summary", "status", "assignee", "description"]

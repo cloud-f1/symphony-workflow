@@ -198,7 +198,9 @@ class JiraClient:
             json={
                 "jql": jql,
                 "maxResults": max_results,
-                "fields": ["summary", "status", "assignee"],
+                # issuetype / parent / subtasks feed the board fields (ADLC-388): one search gives a
+                # Story's Epic and its subtask count, so a board needs no query per Story.
+                "fields": ["summary", "status", "assignee", "issuetype", "parent", "subtasks"],
             },
         )
         self._raise_for_status(response)
