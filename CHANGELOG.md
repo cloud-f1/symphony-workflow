@@ -7,6 +7,8 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.12.0 — 2026-10-16
+
 - **`search_issues` returns board fields** (ADLC-388): `issue_type`, `parent`, `parent_summary`, `status_category` and `subtasks_done` / `subtasks_total` on each issue, from one search (the request now asks Jira for `issuetype`, `parent` and `subtasks`). Additive: the old keys come first and keep their values, and `search` still prints three TAB columns. First reader: Symphony Walkman's board.
 
 ## 0.11.0 — 2026-10-14
