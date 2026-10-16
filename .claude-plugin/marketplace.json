@@ -9,7 +9,7 @@
       "name": "symphony-workflow-ops",
       "source": "./plugin",
       "description": "Skills for symphony-workflow: operating its Plan/Implement loop and its plan sync (Markdown, Linear, Jira), and working Jira tickets safely (per-project credentials, hierarchy audit), and shipping a ticket (branch, commit check, PR, merge cleanup, release with changelog and GitHub Release). Plus a SessionStart hook that health-checks its FastAPI server and a hook that keeps the ticket key on commits. Does NOT install the CLI/server itself -- clone https://github.com/cloud-f1/symphony-workflow and run `uv sync --extra dev` separately; see that repo's docs/PORTABILITY.md.",
-      "version": "0.12.0"
+      "version": "0.12.1"
     }
   ]
 }
