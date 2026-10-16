@@ -163,6 +163,64 @@ def test_search_issues_sends_jql_and_max_results(config: JiraConfig) -> None:
 
 
 @respx.mock
+def test_search_issues_asks_for_the_board_fields(config: JiraConfig) -> None:
+    route = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"total": 0, "issues": []})
+    )
+    with JiraClient(config) as client:
+        client.search_issues("project = CF1")
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["fields"] == ["summary", "status", "assignee", "issuetype", "parent", "subtasks"]
+
+
+@respx.mock
+def test_search_issues_returns_type_parent_category_and_subtask_counts(config: JiraConfig) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "issues": [
+                    {
+                        "key": "CF1-10",
+                        "id": "10",
+                        "fields": {
+                            "summary": "A story",
+                            "status": {
+                                "name": "In Review",
+                                "statusCategory": {"key": "indeterminate"},
+                            },
+                            "issuetype": {"name": "Story"},
+                            "parent": {"key": "CF1-1", "fields": {"summary": "The epic"}},
+                            "subtasks": [
+                                {
+                                    "key": "CF1-11",
+                                    "fields": {"status": {"statusCategory": {"key": "done"}}},
+                                },
+                                {
+                                    "key": "CF1-12",
+                                    "fields": {"status": {"statusCategory": {"key": "new"}}},
+                                },
+                                {
+                                    "key": "CF1-13",
+                                    "fields": {"status": {"statusCategory": {"key": "done"}}},
+                                },
+                            ],
+                        },
+                    }
+                ]
+            },
+        )
+    )
+    with JiraClient(config) as client:
+        issue = client.search_issues("project = CF1").issues[0]
+    assert issue.issue_type == "Story"
+    assert issue.parent == "CF1-1"
+    assert issue.parent_summary == "The epic"
+    assert issue.status_category == "indeterminate"
+    assert (issue.subtasks_done, issue.subtasks_total) == (2, 3)
+
+
+@respx.mock
 def test_create_issue_sends_plain_text_description(config: JiraConfig) -> None:
     route = respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
         return_value=httpx.Response(201, json={"key": "CF1-3", "id": "3"})
