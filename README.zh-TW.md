@@ -650,6 +650,7 @@ symphony-workflow call get_issue '{"key": "PROJ-1"}'          # 碰到 Jira 之�
 | | `release-backfill` | 替每個沒有 Release 的 tag 建立 GitHub Release |
 | 票 | `get`、`search`、`comment`、`transition` | 讀取、搜尋、留言與移動一張票 |
 | | `audit`、`add-subtasks`、`rollup` | 檢查 Epic、Story、Subtask 結構、補齊，並在子項完成時關閉父項 |
+| | `create-project` | 替新 repo 建立 Jira 專案（預設 team-managed）；可重複執行，有 `--dry-run` |
 | Plan 與 Implement | `plan`、`implement` | 一張票的 Plan 階段，核准後才進 Implement |
 | | `decompose`、`sync-decomposition`、`diff-decomposition` | 把 Jira Epic 拆成 Story、建立它們、回報與規格的差異 |
 | Agent 工具呼叫 | `list-tools`、`call` | 每個 Jira 操作都是一個有 JSON schema 的具名工具，另外還有四個唯讀的本機工具 |

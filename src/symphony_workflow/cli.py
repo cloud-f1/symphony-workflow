@@ -54,6 +54,7 @@ from symphony_workflow.hierarchy import (
     add_subtasks,
     audit,
 )
+from symphony_workflow.jira_project import ProjectRefused, create_project, validate_key
 from symphony_workflow.jira_sink import JiraStatusBackend, sync_plan_to_jira
 from symphony_workflow.linear_client import LinearClient, LinearError
 from symphony_workflow.linear_sink import sync_plan_to_linear
@@ -413,6 +414,74 @@ def transition_issue(key: str, transition_name: str) -> None:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
     typer.echo(f"{key} -> {transition_name}")
+
+
+@app.command("create-project", rich_help_panel="Tickets")
+def create_project_command(
+    key: str = typer.Argument(..., help="New project key, e.g. WEB (A-Z then A-Z/0-9, 2-10 long)"),
+    name: str = typer.Option(..., "--name", help="Project name shown in Jira"),
+    style: str = typer.Option(
+        "team", "--style", help="team (team-managed, default) or company (company-managed)"
+    ),
+    template: str | None = typer.Option(
+        None, "--template", help="projectTemplateKey; default is the scrum template for --style"
+    ),
+    description: str | None = typer.Option(None, "--description", help="Project description"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print the request body that would be sent; create nothing"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+) -> None:
+    """Create a Jira project for a repo (one project per repo, docs/PORTABILITY.md). The lead is
+    the token's own user. Idempotent: if KEY exists and you lead it, it is printed as "already
+    exists". After creating, reads the issue types back and warns when there is no `Subtask` type
+    (company-managed projects call it `Sub-task`). Needs Jira ADMINISTER permission. Jira-only.
+
+    Exit codes: 0 created, already exists or dry run; 1 refused (key taken by someone else) or
+    invalid input; 3 Jira API error.
+    """
+    try:
+        validate_key(key)
+        if style not in ("team", "company"):
+            raise ValueError(f"--style must be team or company, not {style!r}")
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    with _jira_client() as client:
+        try:
+            result = create_project(
+                client,
+                key,
+                name,
+                style="company" if style == "company" else "team",
+                template=template,
+                description=description,
+                dry_run=dry_run,
+            )
+        except ProjectRefused as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        except JiraError as exc:
+            hint = (
+                " (creating a project needs Jira ADMINISTER permission)"
+                if exc.status_code in (401, 403)
+                else ""
+            )
+            typer.echo(f"{exc}{hint}", err=True)
+            raise typer.Exit(code=3) from exc
+    if as_json:
+        typer.echo(json.dumps(result.as_dict(), indent=2))
+    elif result.action == "dry_run":
+        typer.echo(f"{key} is free. Dry run, nothing created. Would POST /rest/api/3/project:")
+        typer.echo(json.dumps(result.payload, indent=2))
+    else:
+        head = "already exists" if result.action == "exists" else "created"
+        typer.echo(f"{result.key} {head}: {result.name} (style {result.style}, id {result.id})")
+        typer.echo(f"  {result.url}")
+        typer.echo(f"  issue types: {', '.join(result.issue_types) or 'none'}")
+    if not as_json:
+        for warning in result.warnings:
+            typer.echo(f"WARNING {warning}", err=True)
 
 
 def _run_sidecar_path(issue_key: str) -> Path:

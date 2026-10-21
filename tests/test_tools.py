@@ -29,6 +29,7 @@ def test_tools_registry_has_expected_names() -> None:
         "import_plan",
         "check_commit_subject",
         "changelog_draft",
+        "create_project",
     }
 
 

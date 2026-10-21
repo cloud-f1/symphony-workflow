@@ -41,7 +41,12 @@ PROGRESS_FILE = Path("docs/context/epic-progress.md")
 _TITLE_RE = re.compile(r"^#\s+(E\d+)\s*[-—–:]\s*(.+?)\s*$")
 _FILE_ID_RE = re.compile(r"^e(\d+)-", re.IGNORECASE)
 _CHECK_RE = re.compile(r"^\s*-\s*\[([ xX])\]\s*(.+?)\s*$")
-_PHASE_ROW_RE = re.compile(r"^\|\s*(Phase\s*\d+|Infra[^|]*?)\s*\|([^|]*)\|([^|]*)\|")
+# First cell: a bare `Phase N`, or `Phase N — Title` / `Phase N - Title` / `Phase N: Title` (the
+# Category id stays `phase-N`, the title keeps the words), or an `Infra...` row.
+_PHASE_ROW_RE = re.compile(
+    r"^\|\s*(Phase\s*\d+(?:\s*[-—–:]\s*[^|]*?)?|Infra[^|]*?)\s*\|([^|]*)\|([^|]*)\|"
+)
+_PHASE_NUMBER_RE = re.compile(r"^Phase\s*(\d+)")
 _MATRIX_ROW_RE = re.compile(r"^\|\s*(E\d+)\s*\|(.*)\|\s*$")
 _ACCEPTANCE_HEADING_RE = re.compile(r"(?:\d+\.\s*)?.*Acceptance", re.I)
 _STORIES_HEADING_RE = re.compile(r"(?:\d+\.\s*)?(?:User\s+)?Stories\b", re.I)
@@ -226,7 +231,14 @@ def load_epics_md(root: Path, *, include_done: bool = False) -> Plan:
             if eid in epics
         ]
         placed.update(row.epic_ids)
-        number = re.sub(r"\D", "", row.name) or re.sub(r"\W+", "-", row.name.lower())
+        # The id comes from the phase number only, so a title added later (or digits in it)
+        # never changes it: existing sync-state keys stay put.
+        phase_number = _PHASE_NUMBER_RE.match(row.name)
+        number = (
+            phase_number.group(1)
+            if phase_number
+            else re.sub(r"\D", "", row.name) or re.sub(r"\W+", "-", row.name.lower())
+        )
         categories.append(
             Category(
                 id=f"phase-{number}",

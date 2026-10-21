@@ -110,6 +110,12 @@ with open Subtasks; `--assignee-me` also requires everything assigned to the tok
 `symphony-workflow add-subtasks <plan.json> --dry-run`, then without `--dry-run` (idempotent). Rules and naming:
 `docs/JIRA_HIERARCHY.md`. Jira-only.
 
+A new repo gets its own Jira project (`docs/PORTABILITY.md`): `symphony-workflow create-project <KEY> --name "..."
+--dry-run`, then without `--dry-run` (also the `create_project` tool; needs Jira ADMINISTER). Team-managed by default
+(`--style company` for classic); the token's user is the lead; a key you already lead prints "already exists" (exit 0),
+one someone else leads is refused (exit 1). It reads the project back and warns when there is no `Subtask` issue type
+(company-managed calls it `Sub-task`; pass that as `subtask_type` to the Jira sink). Never raw REST for this any more.
+
 If a bulk `sync-decomposition` pass is retroactively documenting already-*shipped* work (not real
 forward-looking planning), pass `--status <name>` (`ADLC-121`) — otherwise the newly-created
 Stories sit in Jira's default "To Do" and the poller races your own status fix-up with a real

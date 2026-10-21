@@ -664,6 +664,7 @@ needs none.
 | | `release-backfill` | creates a GitHub Release for every tag that has none |
 | Tickets | `get`, `search`, `comment`, `transition` | read, search, comment on and move a ticket |
 | | `audit`, `add-subtasks`, `rollup` | check the Epic, Story, Subtask structure, fill it in, close parents when children finish |
+| | `create-project` | creates the Jira project for a new repo (team-managed by default); idempotent, `--dry-run` |
 | Plan and implement | `plan`, `implement` | the Plan phase of a ticket, then Implement after you approve |
 | | `decompose`, `sync-decomposition`, `diff-decomposition` | break a Jira Epic into Stories, create them, report drift from the spec |
 | Agent tool calls | `list-tools`, `call` | every Jira operation as a named tool with a JSON schema, plus four read-only local tools |
@@ -755,6 +756,22 @@ symphony-workflow add-subtasks plan.json --dry-run    # {"ADLC-12": ["Add X", "T
 ```
 
 Also the `audit_hierarchy` and `add_subtasks` tools. Read-only `audit`; `add-subtasks` writes and has `--dry-run`.
+
+### A Jira project for a new repo: `create-project`
+
+One Jira project per repo (`docs/PORTABILITY.md`). The token's own user becomes the lead; it needs Jira's
+global ADMINISTER permission.
+
+```bash
+symphony-workflow create-project WEB --name "Web App" --dry-run   # key free? prints the exact request body
+symphony-workflow create-project WEB --name "Web App"             # team-managed scrum project (--style company for a classic one)
+```
+
+The key must be an uppercase letter then 1 to 9 uppercase letters or digits. Re-running on a key you already
+lead prints "already exists" and exits 0; a key someone else leads is refused (exit 1). After creating, it reads
+the project back and warns when the style is not the one asked for, or when there is no issue type named
+`Subtask` (company-managed projects call it `Sub-task`, and `sync-plan --to jira` creates `Subtask`). Also the
+`create_project` tool. A deleted project keeps its key and name in Jira's trash for about 60 days.
 
 ### Rolling a finished Subtask up the tree
 
@@ -878,6 +895,7 @@ src/symphony_workflow/
   tools.py         # Tool registry + call_tool() dispatcher — the agent-facing surface, Jira-only
   rollup.py        # Subtask -> Story -> Epic roll-up (Jira-only), behind `rollup` / the rollup_issue tool
   hierarchy.py     # audit a project's Epic -> Story -> Subtask shape + add Subtasks to Stories (Jira-only), behind `audit` / `add-subtasks`
+  jira_project.py  # create a Jira project (Jira-only), behind `create-project` / the create_project tool
   cli.py           # Typer app: friendly subcommands + list-tools/call
 tests/             # pytest + respx, one test file per module above
 ```
