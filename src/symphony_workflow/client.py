@@ -23,6 +23,7 @@ from symphony_workflow.models import (
     HierarchyIssue,
     Issue,
     IssueCreateResult,
+    Project,
     SearchResult,
     Transition,
 )
@@ -305,6 +306,72 @@ class JiraClient:
             json={"object": {"url": url, "title": title}},
         )
         self._raise_for_status(response)
+
+    def get_project(self, key: str) -> Project:
+        """`GET /rest/api/3/project/{key}?expand=issueTypes,lead`. Raises JiraError(404) when the
+        key is free (or the token cannot see the project)."""
+        response = self._client.get(
+            f"/rest/api/3/project/{key}", params={"expand": "issueTypes,lead"}
+        )
+        self._raise_for_status(response)
+        return Project.from_api(response.json())
+
+    @staticmethod
+    def project_payload(
+        key: str,
+        name: str,
+        *,
+        lead_account_id: str,
+        project_template_key: str,
+        project_type_key: str = "software",
+        description: str | None = None,
+        assignee_type: str = "UNASSIGNED",
+    ) -> dict[str, Any]:
+        """The JSON body `create_project` sends; public so a dry run can show it unchanged."""
+        payload: dict[str, Any] = {
+            "key": key,
+            "name": name,
+            "projectTypeKey": project_type_key,
+            "projectTemplateKey": project_template_key,
+            "leadAccountId": lead_account_id,
+            "assigneeType": assignee_type,
+        }
+        if description:
+            payload["description"] = description
+        return payload
+
+    def create_project(
+        self,
+        key: str,
+        name: str,
+        *,
+        lead_account_id: str,
+        project_template_key: str,
+        project_type_key: str = "software",
+        description: str | None = None,
+        assignee_type: str = "UNASSIGNED",
+    ) -> dict[str, str]:
+        """`POST /rest/api/3/project`. Needs global ADMINISTER permission. The template decides
+        team-managed vs company-managed; read the project back (`get_project`) to confirm, since
+        the template key's name is not a reliable signal. Returns `{"id", "key", "url"}`.
+        A deleted project keeps its key and name reserved in Jira's trash for about 60 days."""
+        body = self.project_payload(
+            key,
+            name,
+            lead_account_id=lead_account_id,
+            project_template_key=project_template_key,
+            project_type_key=project_type_key,
+            description=description,
+            assignee_type=assignee_type,
+        )
+        response = self._client.post("/rest/api/3/project", json=body)
+        self._raise_for_status(response)
+        payload = response.json()
+        return {
+            "id": str(payload["id"]),
+            "key": payload["key"],
+            "url": f"{self._config.base_url}/browse/{payload['key']}",
+        }
 
     def list_transitions(self, key: str) -> list[Transition]:
         response = self._client.get(f"/rest/api/2/issue/{key}/transitions")

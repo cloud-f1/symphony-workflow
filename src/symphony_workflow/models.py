@@ -197,3 +197,49 @@ class CurrentUser(BaseModel):
             email_address=payload.get("email") or None,
             active=True,
         )
+
+
+class ProjectIssueType(BaseModel):
+    name: str
+    subtask: bool = False
+
+
+class Project(BaseModel):
+    """A Jira project, from `GET /rest/api/3/project/{key}?expand=issueTypes` (Jira-only).
+
+    `style` is `next-gen` for a team-managed project and `classic` for a company-managed one;
+    `simplified` says the same thing as a boolean. Check these, not the template key you asked
+    for: a template whose name says "simplified" can still create a classic project.
+    """
+
+    id: str
+    key: str
+    name: str
+    style: str | None = None
+    simplified: bool | None = None
+    project_type_key: str | None = None
+    lead_account_id: str | None = None
+    lead_display_name: str | None = None
+    issue_types: list[ProjectIssueType] = []
+
+    @classmethod
+    def from_api(cls, payload: dict[str, Any]) -> Project:
+        lead = payload.get("lead") or {}
+        return cls(
+            id=str(payload["id"]),
+            key=payload["key"],
+            name=payload.get("name", ""),
+            style=payload.get("style"),
+            simplified=payload.get("simplified"),
+            project_type_key=payload.get("projectTypeKey"),
+            lead_account_id=lead.get("accountId"),
+            lead_display_name=lead.get("displayName"),
+            issue_types=[
+                ProjectIssueType(name=t.get("name", ""), subtask=bool(t.get("subtask")))
+                for t in payload.get("issueTypes") or []
+            ],
+        )
+
+    @property
+    def subtask_type_names(self) -> list[str]:
+        return [t.name for t in self.issue_types if t.subtask]

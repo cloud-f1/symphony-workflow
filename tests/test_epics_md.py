@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from symphony_workflow.epics_md import (
     load_epics_md,
     parse_epic_file,
@@ -144,6 +146,38 @@ def test_a_project_without_a_progress_table_gets_one_unphased_category(tmp_path:
     plan = load_epics_md(root)
     assert [c.id for c in plan.categories] == ["unphased"]
     assert len(plan.categories[0].tasks) == 4
+
+
+@pytest.mark.parametrize(
+    ("cell", "title"),
+    [
+        ("Phase 1", "Phase 1"),
+        ("Phase 1 — Foundation", "Phase 1 — Foundation"),
+        ("Phase 1 - Foundation", "Phase 1 - Foundation"),
+        ("Phase 1: Foundation", "Phase 1: Foundation"),
+        ("Phase 1 – Foundation 2.0", "Phase 1 – Foundation 2.0"),
+    ],
+)
+def test_titled_phase_rows_keep_the_phase_id_and_get_the_full_title(
+    tmp_path: Path, cell: str, title: str
+) -> None:
+    root = make_project(tmp_path)
+    progress = root / "docs/context/epic-progress.md"
+    text = progress.read_text(encoding="utf-8")
+    progress.write_text(text.replace("| Phase 1 | E3 |", f"| {cell} | E3 |"), encoding="utf-8")
+    assert [r.name for r in parse_progress(progress)] == [title, "Phase 2"]
+    plan = load_epics_md(root, include_done=True)
+    first = plan.categories[0]
+    # The id is what sync-state keys on: it must not move when a title is added.
+    assert (first.id, first.title) == ("phase-1", title)
+    assert [t.id for t in first.tasks] == ["E3"]
+    assert [c.id for c in plan.categories] == ["phase-1", "phase-2", "unphased"]
+
+
+def test_a_two_digit_titled_phase_keeps_its_number(tmp_path: Path) -> None:
+    table = "| Phase | Epics | Status |\n|---|---|---|\n| Phase 12 — Billing v3 | E1 | 🔄 |\n"
+    rows = parse_progress(_file(tmp_path, "p.md", table))
+    assert [(r.name, r.epic_ids) for r in rows] == [("Phase 12 — Billing v3", ["E1"])]
 
 
 def test_a_project_with_no_epics_gives_an_empty_plan(tmp_path: Path) -> None:

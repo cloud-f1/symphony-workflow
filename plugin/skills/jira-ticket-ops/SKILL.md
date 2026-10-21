@@ -5,7 +5,7 @@ description: Audit, create, comment on, transition and roll up Jira tickets for 
 
 # Jira ticket ops (CLI + skill)
 
-Use the `symphony-workflow` CLI for every Jira read and write. Fall back to raw Jira REST only for what the CLI has no command for (creating a project, searching with extra fields). Do not use a Jira MCP server for this work.
+Use the `symphony-workflow` CLI for every Jira read and write. Fall back to raw Jira REST only for what the CLI has no command for (searching with extra fields, project settings); creating a project is `create-project`. Do not use a Jira MCP server for this work.
 
 This skill does not install the CLI. Clone `cloud-f1/symphony-workflow`, run `uv sync --extra dev`, and run commands as `uv run --env-file .env symphony-workflow ...` from that checkout. If the CLI is missing, say so and stop.
 
@@ -36,6 +36,7 @@ Every ticket belongs to the project of the repo you are working on. Take the key
 
 | Need | Command |
 |---|---|
+| Create the Jira project for a new repo | `create-project KEY --name "Name" --dry-run`, then without it (team-managed by default; idempotent: "already exists" if you lead it; warns if there is no `Subtask` type) |
 | Read one ticket | `get KEY-12` |
 | List or audit by JQL | `search 'project = KEY ORDER BY key ASC'` |
 | Check the hierarchy | `audit KEY --open` (read-only; add `--assignee-me` to require an owner) |

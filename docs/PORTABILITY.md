@@ -32,7 +32,16 @@ own setup changes unless you explicitly override them.
    `uv add git+https://github.com/cloud-f1/symphony-workflow` as a dev dependency.
 2. Create a Jira project for that repo's agent-driven work (same reasoning as
    `ADLC`: keep it separate from a general content/marketing backlog — see
-   `docs/plans/0001-symphony-poc/intent.md`'s Tracking section for why). Set:
+   `docs/plans/0001-symphony-poc/intent.md`'s Tracking section for why). It is a command now
+   (needs Jira ADMINISTER permission; the token's own user becomes the lead):
+   ```
+   symphony-workflow create-project WEB --name "Web App" --dry-run   # key free? shows the request body
+   symphony-workflow create-project WEB --name "Web App"             # team-managed, like ADLC
+   ```
+   Keep the default `--style team`: a team-managed project's sub-task type is `Subtask`, which
+   `sync-plan --to jira` creates; a company-managed one (`--style company`) calls it `Sub-task`, and
+   the command warns you when that is the case. Re-running it on a key you already lead prints
+   "already exists". Then set:
    ```
    SYMPHONY_WORKFLOW_JIRA_PROJECT=<that project's key>
    ```

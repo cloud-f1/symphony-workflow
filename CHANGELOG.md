@@ -7,6 +7,14 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.13.0 — 2026-10-21
+
+**Create a Jira project from the CLI** (ADLC-404).
+
+- `create-project KEY --name ... [--style team|company] [--template ...] [--description ...] [--dry-run] [--json]`, the `create_project` tool and `JiraClient.get_project` / `create_project` (`/rest/api/3/project`). Onboarding a repo (one Jira project per repo, `docs/PORTABILITY.md`) no longer needs raw REST. The key must match `^[A-Z][A-Z0-9]{1,9}$`; the lead defaults to the token's own user; team-managed scrum is the default template. Idempotent: a key you already lead prints "already exists" and exits 0, one led by someone else is refused (exit 1). `--dry-run` prints the exact request body. After creating, it reads the project back and warns when the style is not the one asked for or there is no `Subtask` issue type (company-managed projects call it `Sub-task`), naming the `subtask_type` to use. A 401/403 says the token needs ADMINISTER.
+- **Fix**: a Phase Status row written as `Phase N — Title`, `Phase N - Title` or `Phase N: Title` was not read at all, so phases only worked as a bare `Phase N` and the Jira Epics were titled just "Phase 1". Those rows now keep the Category id `phase-N` (sync-state keys do not change) and carry the full title. The id now comes from the phase number only, so digits in a title cannot change it.
+- README (both), `docs/PORTABILITY.md` step 2, the operations and jira-ticket-ops skills describe the command.
+
 ## 0.12.1 — 2026-10-16
 
 **Git loop follow-ups** (ADLC-393).

@@ -10,14 +10,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from symphony_workflow.client import JiraClient, JiraError
 from symphony_workflow.drift import diff_decomposition
 from symphony_workflow.epics_md import load_epics_md
 from symphony_workflow.hierarchy import AddSubtasksAborted, PlanError, add_subtasks, audit
+from symphony_workflow.jira_project import PROJECT_KEY_RE, ProjectRefused, create_project
 from symphony_workflow.plan import check_plan
 from symphony_workflow.project_profile import profile_project, recommend
 from symphony_workflow.releasing import draft_changelog
@@ -113,6 +114,20 @@ class AddSubtasksArgs(BaseModel):
 
 class GetMyselfArgs(BaseModel):
     """No arguments — returns the user the configured API token authenticates as."""
+
+
+class CreateProjectArgs(BaseModel):
+    key: str = Field(pattern=PROJECT_KEY_RE.pattern, description="Project key, e.g. WEB")
+    name: str = Field(min_length=1, max_length=80)
+    style: Literal["team", "company"] = "team"
+    template: str | None = Field(
+        None, description="projectTemplateKey; default is the scrum template for `style`"
+    )
+    description: str | None = None
+    lead_account_id: str | None = Field(
+        None, description="Project lead; default is the token's own account"
+    )
+    dry_run: bool = False
 
 
 class CreateRemoteLinkArgs(BaseModel):
@@ -261,6 +276,22 @@ def _changelog_draft(_client: None, args: ChangelogDraftArgs) -> dict[str, Any]:
     return {"version": args.version, "markdown": markdown}
 
 
+def _create_project(client: JiraClient, args: CreateProjectArgs) -> dict[str, Any]:
+    try:
+        return create_project(
+            client,
+            args.key,
+            args.name,
+            style=args.style,
+            template=args.template,
+            description=args.description,
+            lead_account_id=args.lead_account_id,
+            dry_run=args.dry_run,
+        ).as_dict()
+    except ProjectRefused as exc:
+        raise JiraError(409, str(exc)) from exc
+
+
 def _create_remote_link(client: JiraClient, args: CreateRemoteLinkArgs) -> dict[str, Any]:
     client.create_remote_link(args.key, url=args.url, title=args.title)
     return {"ok": True, "key": args.key, "url": args.url}
@@ -379,6 +410,16 @@ TOOLS: dict[str, Tool] = {
             "writes nothing.",
             ChangelogDraftArgs,
             _changelog_draft,
+        ),
+        Tool(
+            "create_project",
+            "Create a Jira project (one per repo). Idempotent: a project with this key that the "
+            "token's user leads is returned as action='exists'; one led by someone else is "
+            "refused. style 'team' (team-managed, default) or 'company'. Reads the project back "
+            "and warns when it has no 'Subtask' issue type. dry_run=true returns the request "
+            "body and creates nothing. Needs Jira ADMINISTER permission.",
+            CreateProjectArgs,
+            _create_project,
         ),
         Tool(
             "create_remote_link",

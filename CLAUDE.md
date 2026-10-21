@@ -172,7 +172,7 @@ branch entry but keeps the PR.
   JQL queries *outside* the Python client (e.g. a shell hook) has to get this right independently;
   re-discovered the hard way writing `.claude/hooks/session-start-check-api.sh`.
 - **Project creation (`POST /rest/api/3/project`) works fine via API — it does NOT require the
-  Jira UI** — confirmed live creating `EXMP` (`ADLC-40`), an account with global `ADMINISTER`
+  Jira UI** (now `symphony-workflow create-project`, ADLC-404) — confirmed live creating `EXMP` (`ADLC-40`), an account with global `ADMINISTER`
   permission (check with `GET /rest/api/3/mypermissions?permissions=ADMINISTER`) can do this.
   Two traps: (1) `projectTemplateKey` naming is misleading —
   `com.pyxis.greenhopper.jira:gh-simplified-kanban-classic` creates a **classic**
@@ -202,6 +202,7 @@ src/symphony_workflow/
   runs.py         # Run/RunState/RunStore — the Plan/Implement human-gate state machine
   orchestrator.py # execute_plan/execute_implement — shared by api.py AND poller.py
   rollup.py       # Subtask -> Story -> Epic roll-up: all children Done -> parent Done (forward-only)
+  jira_project.py # create-project / create_project tool: key check, payload, read-back warnings
   decompose.py    # Epic -> Stories/Tasks, read-only, reuses run_plan()'s output_format wiring
   sync_decomposition.py # decomposition.json -> real Jira Story/Subtask issues
   drift.py        # diff-decomposition + sync --update: ids, sd-id markers, content drift vs Jira
