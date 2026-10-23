@@ -46,6 +46,8 @@ from symphony_workflow.decompose import DecomposeError, assign_ids, execute_deco
 from symphony_workflow.drift import DiffReport, apply_update, diff_decomposition
 from symphony_workflow.envsetup import EnvExistsError, check_env, init_env, verify_env
 from symphony_workflow.epics_md import load_epics_md
+from symphony_workflow.file_cards import ManifestError, file_cards, load_manifest
+from symphony_workflow.file_cards import write_keys as write_keys_to_manifest
 from symphony_workflow.hierarchy import (
     AddSubtasksAborted,
     AddSubtasksResult,
@@ -487,6 +489,49 @@ def update_command(
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
     typer.echo(f"{key} updated")
+
+
+@app.command("file-cards", rich_help_panel="Tickets")
+def file_cards_command(
+    manifest_path: Path,
+    apply: bool = typer.Option(
+        False, "--apply", help="Write to Jira. Without it nothing is created, changed or moved."
+    ),
+    write_keys: bool = typer.Option(
+        False, "--write-keys", help="With --apply: store created keys in the manifest."
+    ),
+) -> None:
+    """File a batch of cards from a manifest, safely repeatable (plan 0010). Each item is tied
+    to its card by a `fu-<id>` label, so a rerun creates nothing new; every card is read back;
+    status only moves forward and a Done card is never reopened. Jira-only. Dry run unless
+    --apply.
+
+    Exit codes: 0 ok, 1 a Jira call failed or a card did not read back, 2 manifest or usage error.
+    """
+    if write_keys and not apply:
+        typer.echo("--write-keys only applies together with --apply.", err=True)
+        raise typer.Exit(code=2)
+    try:
+        manifest = load_manifest(manifest_path)
+    except ManifestError as exc:
+        typer.echo(f"{manifest_path} is not a usable manifest:", err=True)
+        for problem in exc.problems:
+            typer.echo(f"  - {problem}", err=True)
+        raise typer.Exit(code=2) from exc
+    with _jira_client() as client:
+        report = file_cards(manifest, client, apply=apply)
+    typer.echo("" if apply else "Dry run: nothing is written. Add --apply to file these.")
+    for result in report.items:
+        head = f"{result.id}: {result.action}" + (f" {result.key}" if result.key else "")
+        typer.echo(head + (f" ({'; '.join(result.notes)})" if result.notes else ""))
+        if result.error:
+            typer.echo(f"  ERROR {result.error}", err=True)
+    if write_keys:
+        typer.echo(
+            f"{write_keys_to_manifest(manifest_path, report)} key(s) written to {manifest_path}"
+        )
+    if report.failed:
+        raise typer.Exit(code=1)
 
 
 @app.command("create-project", rich_help_panel="Tickets")

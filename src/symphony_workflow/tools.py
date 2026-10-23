@@ -67,6 +67,13 @@ class UpdateIssueArgs(BaseModel):
     labels_add: list[str] | None = None
 
 
+class FileCardsArgs(BaseModel):
+    # The manifest itself (see file_cards.py / docs/plans/0010-idempotent-create/spec.md), not a
+    # path: the tool reads no file. Default is a dry run; `apply` writes to Jira.
+    manifest: dict[str, Any]
+    apply: bool = False
+
+
 class AddCommentArgs(BaseModel):
     key: str
     body: str
@@ -197,6 +204,17 @@ def _update_issue(client: JiraClient, args: UpdateIssueArgs) -> dict[str, Any]:
         **extra,
     )
     return {"ok": True, "key": args.key}
+
+
+def _file_cards(client: JiraClient, args: FileCardsArgs) -> dict[str, Any]:
+    from symphony_workflow.file_cards import ManifestError, file_cards, parse_manifest
+
+    try:
+        manifest = parse_manifest(args.manifest)
+    except ManifestError as exc:
+        raise JiraError(400, "Invalid manifest: " + "; ".join(exc.problems)) from exc
+    report = file_cards(manifest, client, apply=args.apply)
+    return {**report.model_dump(), "ok": not report.failed}
 
 
 def _add_comment(client: JiraClient, args: AddCommentArgs) -> dict[str, Any]:
@@ -338,6 +356,16 @@ TOOLS: dict[str, Tool] = {
             "or add labels with `labels_add` (existing labels are kept).",
             UpdateIssueArgs,
             _update_issue,
+        ),
+        Tool(
+            "file_cards",
+            "File a batch of cards from a manifest, safely repeatable: each item is tied to its "
+            "card by a `fu-<id>` label so a rerun creates nothing new, every card is read back, "
+            "status only moves forward and a Done card is never reopened. Dry run unless "
+            "`apply` is true. Manifest: {project, default_parent?, items: [{id, summary, "
+            "description, type?, parent?, status?, key?}]}.",
+            FileCardsArgs,
+            _file_cards,
         ),
         Tool(
             "add_comment",

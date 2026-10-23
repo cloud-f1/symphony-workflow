@@ -77,6 +77,25 @@ def check_label(label: str) -> str:
     return label
 
 
+def raise_on_read_back_mismatch(
+    issue: Issue,
+    *,
+    summary: str | None = None,
+    parent: str | None = None,
+    label: str | None = None,
+) -> None:
+    """Raise `ReadBackError` listing every way `issue` differs from what was asked for."""
+    problems: list[str] = []
+    if summary is not None and issue.summary != summary:
+        problems.append(f"summary is {issue.summary!r}, expected {summary!r}")
+    if parent is not None and issue.parent != parent:
+        problems.append(f"parent is {issue.parent!r}, expected {parent!r}")
+    if label is not None and label not in issue.labels:
+        problems.append(f"label {label!r} is missing (has {issue.labels})")
+    if problems:
+        raise ReadBackError(f"{issue.key} did not read back as asked: " + "; ".join(problems))
+
+
 class JiraClient:
     """Thin, testable wrapper around the Jira Cloud REST API v2."""
 
@@ -265,16 +284,7 @@ class JiraClient:
         unchanged.
         """
         if identity_label is not None:
-            check_label(identity_label)
-            hits = self.search_issues(
-                f'project = {project_key} AND labels = "{identity_label}"', max_results=2
-            ).issues
-            if len(hits) > 1:
-                keys = ", ".join(issue.key for issue in hits)
-                raise ReadBackError(
-                    f"Label {identity_label!r} is on more than one card ({keys}): "
-                    "refusing to create another"
-                )
+            hits = self.find_by_label(project_key, identity_label)
             if hits:
                 found = hits[0]
                 return IssueCreateResult(
@@ -316,6 +326,23 @@ class JiraClient:
             self.verify_card(result.key, summary=summary, parent=parent, label=identity_label)
         return result
 
+    def find_by_label(self, project_key: str, label: str) -> list[Issue]:
+        """The cards in `project_key` carrying `label`. One is the card; more than one raises
+        `ReadBackError`, because two cards sharing one identity means the rule was already
+        broken and no third should be made (plan 0010). Reads the JQL index, which lags a write
+        by a few seconds: a caller that just created a card must keep its key, not search again.
+        """
+        check_label(label)
+        hits = self.search_issues(
+            f'project = {project_key} AND labels = "{label}"', max_results=3
+        ).issues
+        if len(hits) > 1:
+            keys = ", ".join(issue.key for issue in hits)
+            raise ReadBackError(
+                f"Label {label!r} is on more than one card ({keys}): refusing to create another"
+            )
+        return hits
+
     def verify_card(
         self,
         key: str,
@@ -328,15 +355,7 @@ class JiraClient:
         difference from what was asked for: summary, parent key, label. Returns the issue read.
         """
         issue = self.get_issue(key)
-        problems: list[str] = []
-        if summary is not None and issue.summary != summary:
-            problems.append(f"summary is {issue.summary!r}, expected {summary!r}")
-        if parent is not None and issue.parent != parent:
-            problems.append(f"parent is {issue.parent!r}, expected {parent!r}")
-        if label is not None and label not in issue.labels:
-            problems.append(f"label {label!r} is missing (has {issue.labels})")
-        if problems:
-            raise ReadBackError(f"{key} did not read back as asked: " + "; ".join(problems))
+        raise_on_read_back_mismatch(issue, summary=summary, parent=parent, label=label)
         return issue
 
     def update_issue(

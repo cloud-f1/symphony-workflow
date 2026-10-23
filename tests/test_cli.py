@@ -1710,3 +1710,58 @@ def test_update_with_nothing_to_change_exits_2(monkeypatch) -> None:
     result = runner.invoke(app, ["update", "ADLC-3"])
     assert result.exit_code == 2
     assert "Nothing to change" in result.output
+
+
+def _manifest(tmp_path: Path, items: list[dict]) -> Path:
+    path = tmp_path / "cards.json"
+    path.write_text(json.dumps({"project": "ADLC", "items": items}))
+    return path
+
+
+@respx.mock
+def test_file_cards_dry_run_by_default_writes_nothing(monkeypatch, tmp_path: Path) -> None:
+    _set_jira_env(monkeypatch)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"total": 0, "issues": []})
+    )
+    create = respx.post(f"{BASE_URL}/rest/api/2/issue")
+    path = _manifest(tmp_path, [{"id": "one", "summary": "S", "description": "d"}])
+    result = runner.invoke(app, ["file-cards", str(path)])
+    assert result.exit_code == 0, result.output
+    assert "Dry run" in result.output and "one: create" in result.output
+    assert not create.called
+
+
+def test_file_cards_bad_manifest_exits_2_with_no_jira_call(monkeypatch, tmp_path: Path) -> None:
+    _set_jira_env(monkeypatch)
+    with respx.mock:  # any HTTP call would raise: nothing is mocked
+        path = _manifest(tmp_path, [{"id": "Bad Id"}])
+        result = runner.invoke(app, ["file-cards", str(path), "--apply"])
+    assert result.exit_code == 2
+    assert "id must match" in result.output
+
+
+def test_file_cards_unreadable_manifest_exits_2(monkeypatch, tmp_path: Path) -> None:
+    _set_jira_env(monkeypatch)
+    result = runner.invoke(app, ["file-cards", str(tmp_path / "missing.json")])
+    assert result.exit_code == 2 and "cannot read" in result.output
+
+
+def test_file_cards_write_keys_without_apply_exits_2(tmp_path: Path) -> None:
+    path = _manifest(tmp_path, [{"id": "one", "summary": "S", "description": "d"}])
+    result = runner.invoke(app, ["file-cards", str(path), "--write-keys"])
+    assert result.exit_code == 2 and "--apply" in result.output
+
+
+@respx.mock
+def test_file_cards_apply_failure_exits_1(monkeypatch, tmp_path: Path) -> None:
+    _set_jira_env(monkeypatch)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"total": 0, "issues": []})
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(400, json={"errorMessages": ["nope"]})
+    )
+    path = _manifest(tmp_path, [{"id": "one", "summary": "S", "description": "d"}])
+    result = runner.invoke(app, ["file-cards", str(path), "--apply"])
+    assert result.exit_code == 1 and "nope" in result.output
