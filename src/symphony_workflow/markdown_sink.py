@@ -89,6 +89,30 @@ def _box(status: Status) -> str:
     return "x" if status == "done" else " "
 
 
+def _adopt_checkbox_list(existing: str, task: Task) -> str | None:
+    """Tag a hand-written checkbox list with each To-Do's `sd-id` marker, in place.
+
+    Returns the new text, or None when the file has a managed block already, has no To-Dos, or
+    does not list every To-Do (then the managed block is the right way to add them)."""
+    if _begin("todo") in existing or not task.todos:
+        return None
+    lines = existing.split("\n")
+    for todo in task.todos:
+        hit = next(
+            (
+                i
+                for i, ln in enumerate(lines)
+                if re.match(r"\s*- \[[ xX]\] ", ln) and todo.title in ln
+            ),
+            None,
+        )
+        if hit is None:
+            return None
+        if not COMMENT_MARKER_RE.search(lines[hit]):
+            lines[hit] = f"{lines[hit].rstrip()} {comment_marker(todo.id or '')}"
+    return "\n".join(lines)
+
+
 def render_todo_block(task: Task) -> str:
     lines = ["## To-Do", ""]
     if task.todos:
@@ -146,14 +170,23 @@ def write_markdown(plan: Plan, root: Path, *, dry_run: bool = False) -> list[Fil
             path = task_path(task, root)
             check_inside(root, path)
             if path.exists():
-                content = merge_block(
-                    path.read_text(encoding="utf-8"), "todo", render_todo_block(task)
-                )
+                existing = path.read_text(encoding="utf-8")
+                adopted = _adopt_checkbox_list(existing, task)
+                if adopted is not None:
+                    # A hand-written checkbox list already covers every To-Do: tag it in place
+                    # instead of appending a second, managed copy (GitHub #66).
+                    content = adopted
+                else:
+                    content = merge_block(existing, "todo", render_todo_block(task))
             else:
                 content = render_task_file(task)
             changes.append(_write(path, content, dry_run, root))
     index = root / INDEX_FILE
     check_inside(root, index)
+    if not index.exists() and not any(c.action == "create" for c in changes):
+        # Every task file was already there: this is not a fresh plan, so do not drop an index
+        # the project never had into its tree (GitHub #67).
+        return changes
     block = render_index_block(plan, root)
     existing = index.read_text(encoding="utf-8") if index.exists() else "# Epic Index\n"
     changes.append(_write(index, merge_block(existing, "index", block), dry_run, root))

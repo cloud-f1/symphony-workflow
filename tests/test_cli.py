@@ -1270,8 +1270,10 @@ def test_sync_plan_writes_markdown_then_a_rerun_is_unchanged(monkeypatch, tmp_pa
     assert "sd:begin todo" not in (root / "docs/epics/e1-login.md").read_text()
 
     first = runner.invoke(app, args)
-    assert first.exit_code == 0 and "Updated" in first.output and "Created" in first.output
+    # The epic files already exist, so they are updated in place and no index is invented.
+    assert first.exit_code == 0 and "Updated" in first.output and "Created" not in first.output
     assert "sd-id: E1.d1" in (root / "docs/epics/e1-login.md").read_text()
+    assert not (root / "docs/epics/EPIC_INDEX.md").exists()
 
     again = runner.invoke(app, args)
     assert again.exit_code == 0 and "Updated" not in again.output and "Created" not in again.output
