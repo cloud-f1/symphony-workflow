@@ -32,6 +32,8 @@ class Issue(BaseModel):
     status_category: str | None = None
     subtasks_done: int = 0
     subtasks_total: int = 0
+    # Jira labels (plan 0010): the identity label of an idempotent create is read back from here.
+    labels: list[str] = []
 
     @classmethod
     def from_api(cls, payload: dict[str, Any]) -> Issue:
@@ -60,6 +62,7 @@ class Issue(BaseModel):
             status_category=(status.get("statusCategory") or {}).get("key") or None,
             subtasks_done=sum(1 for sub in subtasks if done(sub)),
             subtasks_total=len(subtasks),
+            labels=[str(label) for label in fields.get("labels") or []],
         )
 
     @classmethod
@@ -146,6 +149,9 @@ class IssueCreateResult(BaseModel):
     key: str
     id: str
     url: str
+    # True when an idempotent create (`identity_label`) found the card already there and
+    # created nothing (plan 0010).
+    existing: bool = False
 
 
 class Transition(BaseModel):

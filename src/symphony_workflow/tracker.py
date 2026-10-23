@@ -126,9 +126,7 @@ def get_tracker_client() -> TrackerClient:
 
         return LinearClient(LinearConfig.from_env())
 
-    raise ConfigError(
-        f"Unknown {TRACKER_ENV}={backend!r} -- expected 'jira' or 'linear'"
-    )
+    raise ConfigError(f"Unknown {TRACKER_ENV}={backend!r} -- expected 'jira' or 'linear'")
 
 
 def require_jira(client: TrackerClient, *, context: str) -> JiraClient:
@@ -158,6 +156,4 @@ def require_jira(client: TrackerClient, *, context: str) -> JiraClient:
 
     if isinstance(client, JiraClient):
         return client
-    raise ConfigError(
-        f"{context} is Jira-only; the configured {TRACKER_ENV} backend is not Jira."
-    )
+    raise ConfigError(f"{context} is Jira-only; the configured {TRACKER_ENV} backend is not Jira.")

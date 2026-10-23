@@ -114,6 +114,13 @@ in-process (a fourth way to drive a ticket, alongside the API, the poller, and `
   `sync-plan --to markdown` writes it back as Markdown (idempotent, only managed blocks, never deletes). With no
   config `sync-plan` prints the recommendation and exits 1 without touching anything. `--to linear` and `--to jira` push it to Linear (project, milestones, issues, sub-issues) or Jira (Epic, Story, Subtask), and **`sync-status --to linear|jira`** syncs To-Do status both ways, conflicts reported not resolved (both sinks verified live on a throwaway project, `jira_sink.py` / `linear_sink.py`). **`split-todos [--approve]`** (ADLC-201) proposes To-Dos for Tasks with none behind a review file; `sync-plan` uses only an approved one, else the five steps. `profile_project` / `import_plan` are also tools and `call` runs them without Jira credentials.
 
+- **`create`** / **`update`** / **`file-cards <manifest.json> [--apply] [--write-keys]`** (plan 0010, ADLC-410) — idempotent card filing, Jira-only.
+  `create --identity-label L` searches the project for label `L` first (0 hits create + read back by key, 1 return it with `existing`,
+  2+ error); `update --add-label` adds without replacing (`update.labels` add, never a `fields.labels` write). `file-cards` ties each manifest
+  item to its card by a `fu-<id>` label, dry run by default, validates the whole manifest first (exit 2, no call), reads every card back
+  (exit 1 on a mismatch), moves status forward only, never reopens a Done card. Tools: `create_issue(identity_label)`, `update_issue(labels_add)`,
+  `file_cards`. JQL lags a write by seconds, so read-back is a GET by key and `--write-keys` lets later runs adopt by key. Code: `file_cards.py`.
+
 - **`start <KEY>`** / **`pr <KEY>`** / **`land <KEY>`** / **`check-commit`** / **`changelog-draft X.Y.Z`** / **`release X.Y.Z`** / **`release-backfill`** (plan 0009, ADLC-336) — the git half of a ticket. Jira links a branch, its commits and its PR to a card from the key in the **branch name**, so `start` makes `{KEY}-{slug}` and a worktree from a fresh `origin/main` (card In Progress); `pr` puts the key in the PR title and body (In Review); `land` reads GitHub (state and merge commit), checks the merge is on `origin/main`, fast-forwards `main`, deletes the remote branch, the worktree and the local branch (never forced; a dirty worktree is kept) and moves the card Done with a roll-up; `release` runs `scripts/release.sh`, pushes the tag and creates the GitHub Release from the CHANGELOG. Commit subjects are `type(scope): subject (KEY)`; the plugin's `commit-key-check.py` hook enforces it only on a branch that starts with a ticket key. Optional Jira settings: `docs/JIRA_GIT_SETUP.md`. Code: `ship.py`, `releasing.py`. **Tools vs commands (ADLC-393)**: `check_commit_subject` and `changelog_draft` are read-only `call` tools (local, no Jira credentials, path scoped, git through `safepath.run_git` via `ship.hardened_run`); `start`, `pr`, `land`, `release` and `release-backfill` stay CLI-only on purpose: they change git, GitHub and the tracker, `call` has no confirmation or dry run and can be driven unattended by any agent, so Claude Code's per-command permission prompt stays the safety layer. A card already in the target status (a Jira automation may have closed it on merge) is left alone and `land` still rolls up.
 
 See `docs/plans/0001-symphony-poc/spec.md`'s "CLI control plane" section for design detail.
@@ -203,6 +210,7 @@ src/symphony_workflow/
   orchestrator.py # execute_plan/execute_implement — shared by api.py AND poller.py
   rollup.py       # Subtask -> Story -> Epic roll-up: all children Done -> parent Done (forward-only)
   jira_project.py # create-project / create_project tool: key check, payload, read-back warnings
+  file_cards.py   # file-cards: manifest validation, fu-<id> identity label, read-back, forward-only status (plan 0010)
   decompose.py    # Epic -> Stories/Tasks, read-only, reuses run_plan()'s output_format wiring
   sync_decomposition.py # decomposition.json -> real Jira Story/Subtask issues
   drift.py        # diff-decomposition + sync --update: ids, sd-id markers, content drift vs Jira

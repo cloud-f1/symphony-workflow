@@ -55,7 +55,7 @@ class LinearError(TrackerError):
 
 
 def _split_identifier(key: str) -> tuple[str, int]:
-    """"GAI-123" -> ("GAI", 123). Raises LinearError on anything that doesn't
+    """ "GAI-123" -> ("GAI", 123). Raises LinearError on anything that doesn't
     match — a bare int-less key is almost always a copy-paste of a Jira key
     into a Linear-backed instance by mistake, so the error says so.
     """
@@ -233,14 +233,11 @@ class LinearClient:
     def transition_issue(self, key: str, state_name: str) -> None:
         issue_id, team_id = self._resolve_issue_ids(key)
         states = self._workflow_states(team_id)
-        match = next(
-            (s for s in states if s.get("name", "").lower() == state_name.lower()), None
-        )
+        match = next((s for s in states if s.get("name", "").lower() == state_name.lower()), None)
         if match is None:
             available = ", ".join(s["name"] for s in states) or "none"
             raise LinearError(
-                f"No workflow state named {state_name!r} for {key}'s team. "
-                f"Available: {available}"
+                f"No workflow state named {state_name!r} for {key}'s team. Available: {available}"
             )
         data = self._execute(
             """

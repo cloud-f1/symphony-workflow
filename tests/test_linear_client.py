@@ -312,8 +312,9 @@ def test_graphql_errors_array_raises_linear_error(linear_config: LinearConfig) -
     respx.post(f"{LINEAR_API_URL}/").mock(
         return_value=httpx.Response(200, json={"errors": [{"message": "Authentication required"}]})
     )
-    with LinearClient(linear_config) as client, pytest.raises(
-        LinearError, match="Authentication required"
+    with (
+        LinearClient(linear_config) as client,
+        pytest.raises(LinearError, match="Authentication required"),
     ):
         client.get_myself()
 

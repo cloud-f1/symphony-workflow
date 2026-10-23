@@ -246,8 +246,12 @@ async def plan_run(
     max_budget_usd = body.max_budget_usd if body is not None else None
     try:
         return await execute_plan(
-            run, runs=runs, client=client, workspaces=workspaces,
-            max_turns=max_turns, max_budget_usd=max_budget_usd,
+            run,
+            runs=runs,
+            client=client,
+            workspaces=workspaces,
+            max_turns=max_turns,
+            max_budget_usd=max_budget_usd,
         )
     except RunTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

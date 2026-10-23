@@ -30,6 +30,7 @@ def test_tools_registry_has_expected_names() -> None:
         "check_commit_subject",
         "changelog_draft",
         "create_project",
+        "file_cards",
     }
 
 
@@ -258,3 +259,49 @@ def test_local_tools_are_marked_so_the_cli_skips_the_credential_check() -> None:
         "check_commit_subject",
         "changelog_draft",
     }
+
+
+def test_call_tool_create_issue_passes_identity_label_only_when_given() -> None:
+    client = MagicMock()
+    client.create_issue.return_value = IssueCreateResult(
+        key="ADLC-3", id="3", url="https://x/browse/ADLC-3", existing=True
+    )
+    result = call_tool(
+        client,
+        "create_issue",
+        {"project_key": "ADLC", "summary": "A card", "identity_label": "fu-x"},
+    )
+    assert client.create_issue.call_args.kwargs["identity_label"] == "fu-x"
+    assert result["existing"] is True
+
+
+def test_call_tool_update_issue_passes_labels_add_only_when_given() -> None:
+    client = MagicMock()
+    call_tool(client, "update_issue", {"key": "ADLC-3", "summary": "New"})
+    assert "labels_add" not in client.update_issue.call_args.kwargs
+    call_tool(client, "update_issue", {"key": "ADLC-3", "labels_add": ["fu-x"]})
+    assert client.update_issue.call_args.kwargs["labels_add"] == ["fu-x"]
+
+
+def test_call_tool_file_cards_defaults_to_a_dry_run(monkeypatch) -> None:
+    client = MagicMock()
+    client.find_by_label.return_value = []
+    manifest = {
+        "project": "ADLC",
+        "items": [{"id": "one", "summary": "S", "description": "d"}],
+    }
+    result = call_tool(client, "file_cards", {"manifest": manifest})
+    assert result["applied"] is False and result["ok"] is True
+    assert result["items"][0]["action"] == "create"
+    client.create_issue.assert_not_called()
+
+
+def test_call_tool_file_cards_rejects_a_bad_manifest_before_any_call() -> None:
+    import pytest
+
+    from symphony_workflow.client import JiraError
+
+    client = MagicMock()
+    with pytest.raises(JiraError, match="Invalid manifest"):
+        call_tool(client, "file_cards", {"manifest": {"project": "ADLC", "items": []}})
+    assert client.mock_calls == []

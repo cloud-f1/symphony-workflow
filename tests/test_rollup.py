@@ -81,9 +81,7 @@ def _tree(**overrides: str) -> list[HierarchyIssue]:
 
 
 def test_full_chain_subtask_to_story_to_epic() -> None:
-    client = FakeClient(
-        _tree(**{"SUB-2": "Done", "SUB-3": "Done", "STORY-2": "Done"})
-    )
+    client = FakeClient(_tree(**{"SUB-2": "Done", "SUB-3": "Done", "STORY-2": "Done"}))
     result = rollup(client, "SUB-1")
     assert [(t.key, t.from_status, t.to) for t in result.transitions] == [
         ("SUB-1", "To Do", "Done"),
@@ -162,8 +160,9 @@ def test_dry_run_makes_no_transition_calls_but_reports_the_chain() -> None:
 def test_search_lag_does_not_hide_the_subtask_we_just_completed() -> None:
     # Jira's search can still report SUB-1 as To Do right after we transition it; the
     # roll-up must remember it just completed it rather than stop at "1 not done".
-    client = FakeClient(_tree(**{"SUB-2": "Done", "SUB-3": "Done", "STORY-2": "Done"}),
-                        stale={"SUB-1"})
+    client = FakeClient(
+        _tree(**{"SUB-2": "Done", "SUB-3": "Done", "STORY-2": "Done"}), stale={"SUB-1"}
+    )
     result = rollup(client, "SUB-1")
     assert [t.key for t in result.transitions] == ["SUB-1", "STORY-1", "EPIC-1"]
 

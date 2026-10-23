@@ -1654,3 +1654,114 @@ def test_sync_status_to_jira_pulls_a_change_made_in_jira(monkeypatch, tmp_path: 
     assert result.exit_code == 0 and "pull" in result.output and "E1.d1" in result.output
     state = json.loads((root / "docs/context/sync-state.json").read_text())
     assert state["status"]["E1.d1"] == "done" and state["keys"] == keys  # the map is kept
+
+
+@respx.mock
+def test_create_with_identity_label_reports_an_existing_card(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "total": 1,
+                "issues": [
+                    {
+                        "key": "ADLC-3",
+                        "id": "3",
+                        "fields": {"summary": "A card", "status": {"name": "To Do"}},
+                    }
+                ],
+            },
+        )
+    )
+    create = respx.post(f"{BASE_URL}/rest/api/2/issue")
+    result = runner.invoke(app, ["create", "ADLC", "A card", "--identity-label", "fu-x"])
+    assert result.exit_code == 0, result.output
+    assert "ADLC-3 already exists" in result.output
+    assert not create.called
+
+
+@respx.mock
+def test_create_with_two_cards_on_one_label_exits_nonzero(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    issue = {"id": "3", "fields": {"summary": "A card", "status": {"name": "To Do"}}}
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200,
+            json={"total": 2, "issues": [{"key": "ADLC-3", **issue}, {"key": "ADLC-4", **issue}]},
+        )
+    )
+    result = runner.invoke(app, ["create", "ADLC", "A card", "--identity-label", "fu-x"])
+    assert result.exit_code == 1
+    assert "more than one card" in result.output
+
+
+@respx.mock
+def test_update_adds_a_label_without_replacing(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    route = respx.put(f"{BASE_URL}/rest/api/2/issue/ADLC-3").mock(return_value=httpx.Response(204))
+    result = runner.invoke(app, ["update", "ADLC-3", "--add-label", "fu-x"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(route.calls.last.request.content)["update"] == {"labels": [{"add": "fu-x"}]}
+
+
+def test_update_with_nothing_to_change_exits_2(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    result = runner.invoke(app, ["update", "ADLC-3"])
+    assert result.exit_code == 2
+    assert "Nothing to change" in result.output
+
+
+def _manifest(tmp_path: Path, items: list[dict]) -> Path:
+    path = tmp_path / "cards.json"
+    path.write_text(json.dumps({"project": "ADLC", "items": items}))
+    return path
+
+
+@respx.mock
+def test_file_cards_dry_run_by_default_writes_nothing(monkeypatch, tmp_path: Path) -> None:
+    _set_jira_env(monkeypatch)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"total": 0, "issues": []})
+    )
+    create = respx.post(f"{BASE_URL}/rest/api/2/issue")
+    path = _manifest(tmp_path, [{"id": "one", "summary": "S", "description": "d"}])
+    result = runner.invoke(app, ["file-cards", str(path)])
+    assert result.exit_code == 0, result.output
+    assert "Dry run" in result.output and "one: create" in result.output
+    assert not create.called
+
+
+def test_file_cards_bad_manifest_exits_2_with_no_jira_call(monkeypatch, tmp_path: Path) -> None:
+    _set_jira_env(monkeypatch)
+    with respx.mock:  # any HTTP call would raise: nothing is mocked
+        path = _manifest(tmp_path, [{"id": "Bad Id"}])
+        result = runner.invoke(app, ["file-cards", str(path), "--apply"])
+    assert result.exit_code == 2
+    assert "id must match" in result.output
+
+
+def test_file_cards_unreadable_manifest_exits_2(monkeypatch, tmp_path: Path) -> None:
+    _set_jira_env(monkeypatch)
+    result = runner.invoke(app, ["file-cards", str(tmp_path / "missing.json")])
+    assert result.exit_code == 2 and "cannot read" in result.output
+
+
+def test_file_cards_write_keys_without_apply_exits_2(tmp_path: Path) -> None:
+    path = _manifest(tmp_path, [{"id": "one", "summary": "S", "description": "d"}])
+    result = runner.invoke(app, ["file-cards", str(path), "--write-keys"])
+    assert result.exit_code == 2 and "--apply" in result.output
+
+
+@respx.mock
+def test_file_cards_apply_failure_exits_1(monkeypatch, tmp_path: Path) -> None:
+    _set_jira_env(monkeypatch)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(200, json={"total": 0, "issues": []})
+    )
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(400, json={"errorMessages": ["nope"]})
+    )
+    path = _manifest(tmp_path, [{"id": "one", "summary": "S", "description": "d"}])
+    result = runner.invoke(app, ["file-cards", str(path), "--apply"])
+    assert result.exit_code == 1 and "nope" in result.output

@@ -79,9 +79,7 @@ def _mock_transitions(status_name: str = "Done") -> None:
     issue key -- a regex route since the key varies per created issue.
     """
     respx.get(url__regex=rf"{BASE_URL}/rest/api/2/issue/[^/]+/transitions$").mock(
-        return_value=httpx.Response(
-            200, json={"transitions": [{"id": "31", "name": status_name}]}
-        )
+        return_value=httpx.Response(200, json={"transitions": [{"id": "31", "name": status_name}]})
     )
     respx.post(url__regex=rf"{BASE_URL}/rest/api/2/issue/[^/]+/transitions$").mock(
         return_value=httpx.Response(204)

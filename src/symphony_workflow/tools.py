@@ -52,6 +52,10 @@ class CreateIssueArgs(BaseModel):
     sprint_id: int | None = None
     story_points: float | None = None
     assignee_account_id: str | None = None
+    # Idempotent create (plan 0010): search the project for this label first; none -> create with
+    # the label and read it back, one -> create nothing and return it with existing=true, two or
+    # more -> error. Without it, create_issue behaves as before.
+    identity_label: str | None = None
 
 
 class UpdateIssueArgs(BaseModel):
@@ -59,6 +63,15 @@ class UpdateIssueArgs(BaseModel):
     summary: str | None = None
     description: str | None = None
     parent: str | None = None
+    # Labels to add; existing labels are kept (plan 0010). No whitespace in a label.
+    labels_add: list[str] | None = None
+
+
+class FileCardsArgs(BaseModel):
+    # The manifest itself (see file_cards.py / docs/plans/0010-idempotent-create/spec.md), not a
+    # path: the tool reads no file. Default is a dry run; `apply` writes to Jira.
+    manifest: dict[str, Any]
+    apply: bool = False
 
 
 class AddCommentArgs(BaseModel):
@@ -160,6 +173,9 @@ def _search_issues(client: JiraClient, args: SearchIssuesArgs) -> dict[str, Any]
 
 
 def _create_issue(client: JiraClient, args: CreateIssueArgs) -> dict[str, Any]:
+    extra: dict[str, Any] = {}
+    if args.identity_label is not None:  # only passed when asked, so default calls are unchanged
+        extra["identity_label"] = args.identity_label
     result = client.create_issue(
         args.project_key,
         args.summary,
@@ -171,15 +187,34 @@ def _create_issue(client: JiraClient, args: CreateIssueArgs) -> dict[str, Any]:
         sprint_id=args.sprint_id,
         story_points=args.story_points,
         assignee_account_id=args.assignee_account_id,
+        **extra,
     )
     return result.model_dump()
 
 
 def _update_issue(client: JiraClient, args: UpdateIssueArgs) -> dict[str, Any]:
+    extra: dict[str, Any] = {}
+    if args.labels_add:
+        extra["labels_add"] = args.labels_add
     client.update_issue(
-        args.key, summary=args.summary, description=args.description, parent=args.parent
+        args.key,
+        summary=args.summary,
+        description=args.description,
+        parent=args.parent,
+        **extra,
     )
     return {"ok": True, "key": args.key}
+
+
+def _file_cards(client: JiraClient, args: FileCardsArgs) -> dict[str, Any]:
+    from symphony_workflow.file_cards import ManifestError, file_cards, parse_manifest
+
+    try:
+        manifest = parse_manifest(args.manifest)
+    except ManifestError as exc:
+        raise JiraError(400, "Invalid manifest: " + "; ".join(exc.problems)) from exc
+    report = file_cards(manifest, client, apply=args.apply)
+    return {**report.model_dump(), "ok": not report.failed}
 
 
 def _add_comment(client: JiraClient, args: AddCommentArgs) -> dict[str, Any]:
@@ -317,9 +352,20 @@ TOOLS: dict[str, Tool] = {
         ),
         Tool(
             "update_issue",
-            "Update an existing Jira issue's summary, description and/or parent (re-parent).",
+            "Update an existing Jira issue's summary, description and/or parent (re-parent), "
+            "or add labels with `labels_add` (existing labels are kept).",
             UpdateIssueArgs,
             _update_issue,
+        ),
+        Tool(
+            "file_cards",
+            "File a batch of cards from a manifest, safely repeatable: each item is tied to its "
+            "card by a `fu-<id>` label so a rerun creates nothing new, every card is read back, "
+            "status only moves forward and a Done card is never reopened. Dry run unless "
+            "`apply` is true. Manifest: {project, default_parent?, items: [{id, summary, "
+            "description, type?, parent?, status?, key?}]}.",
+            FileCardsArgs,
+            _file_cards,
         ),
         Tool(
             "add_comment",
