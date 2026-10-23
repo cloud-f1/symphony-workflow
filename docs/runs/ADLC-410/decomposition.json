@@ -1,0 +1,71 @@
+{
+  "epic_key": "ADLC-410",
+  "stories": [
+    {
+      "id": "s1",
+      "title": "update_issue can add a label without replacing the others",
+      "user_story": "As someone adopting a hand-made card, I can give it an identity label so a rerun finds it instead of creating a second one.",
+      "acceptance_criteria": [
+        "labels_add sends {\"update\": {\"labels\": [{\"add\": ...}]}}, never a fields.labels PUT",
+        "A label with whitespace is rejected before any call",
+        "Reachable as a client argument, a tool argument and a CLI flag"
+      ],
+      "tasks": [
+        {"id": "s1.t1", "title": "client.update_issue labels_add with whitespace check and respx test", "description": "Add the argument, the update payload, the validation, and a test that asserts the request body and that existing labels are untouched."},
+        {"id": "s1.t2", "title": "labels_add in the update_issue tool and a CLI flag", "description": "Add the field to UpdateIssueArgs, pass it through the handler, add the CLI option, with a dispatch test and a CLI test."}
+      ]
+    },
+    {
+      "id": "s2",
+      "title": "create_issue with an identity label is idempotent and read back",
+      "user_story": "As someone filing a batch of cards, I can rerun the batch and get zero new cards, and a card that does not match what I asked for fails loudly.",
+      "acceptance_criteria": [
+        "0 hits creates with the label, 1 hit returns the existing card with existing: true, 2 or more is a hard error that creates nothing",
+        "After a create or adoption the card is read back by key and summary, parent and label are compared; a difference is a non-zero exit",
+        "Issue exposes labels so the read-back can compare them; the default create_issue behaviour is unchanged"
+      ],
+      "tasks": [
+        {"id": "s2.t1", "title": "Issue.labels and labels in the search fields", "description": "Parse labels from the API payload and request them in search_issues so identity lookup and read-back can use them."},
+        {"id": "s2.t2", "title": "identity_label lookup and create in client, tool and CLI", "description": "Search labels = X in the project, create/return/error on 0/1/many hits, expose identity_label as a tool argument and --identity-label."},
+        {"id": "s2.t3", "title": "Read-back by key with mismatch errors", "description": "GET the issue by key (never a search, JQL lags a few seconds) and compare summary, parent and label; raise on any difference. Fake-client switches make each test fail for exactly one reason."}
+      ]
+    },
+    {
+      "id": "s3",
+      "title": "file-cards manifest command, dry-run by default",
+      "user_story": "As someone filing many follow-up cards, I describe them once in a manifest and the tool creates, adopts and checks them without duplicates.",
+      "acceptance_criteria": [
+        "The whole manifest is validated first, every problem listed at once; a bad or unreadable manifest exits 2 with no Jira call",
+        "Dry-run by default, writing needs --apply; --write-keys stores created keys back into the manifest",
+        "Never reopens a Done card, status only moves forward through workflow transitions, summary drift is reported not overwritten",
+        "One failing item does not stop the others and the exit code is still non-zero; exit codes 0 ok, 1 Jira or read-back failure, 2 manifest or usage error"
+      ],
+      "tasks": [
+        {"id": "s3.t1", "title": "Manifest model and validator", "description": "Pydantic manifest, id pattern, type/parent/status rules, adopt-by-key fields, and a validator that returns every problem."},
+        {"id": "s3.t2", "title": "Plan and apply engine with a fake-client test suite", "description": "Per-item decisions (create, adopt, leave, report), forward-only status moves, read-back, per-item failure isolation, and the full list of tests from the spec."},
+        {"id": "s3.t3", "title": "file-cards CLI command and tool registration", "description": "Typer command with --apply and --write-keys and exit codes, a call-able tool, and CLI tests."}
+      ]
+    },
+    {
+      "id": "s4",
+      "title": "Quick start docs for the plugin in any project, then release",
+      "user_story": "As a user of the plugin, I can follow a short guide in the README, skills and workflow to start using it in my own project, and get the new behaviour in a released version.",
+      "acceptance_criteria": [
+        "README (both languages) opens with a short install-and-first-command guide for a project, the CLI list and the skills list are current",
+        "jira-ticket-ops, symphony-workflow-ops and docs/WORKFLOW.md describe the new commands and the idempotent filing rule",
+        "Versions bumped together, CHANGELOG entry, plan INDEX row, implement.md build log; released only through scripts/release.sh after the merge"
+      ],
+      "tasks": [
+        {"id": "s4.t1", "title": "README and README.zh-TW quick start and CLI list", "description": "Add a short project quick start, document the new commands, keep the headings and snapshots in step so test_readme passes."},
+        {"id": "s4.t2", "title": "Skills and workflow docs", "description": "Update jira-ticket-ops and symphony-workflow-ops (both copies), docs/WORKFLOW.md, CLAUDE.md command list."},
+        {"id": "s4.t3", "title": "Version bump, CHANGELOG, validate and release", "description": "Bump the four version places, add the CHANGELOG entry, run pytest, ruff and plugin validate, merge, then symphony-workflow release."}
+      ]
+    }
+  ],
+  "definition_of_done": [
+    "Unit tests added for all new or changed code, HTTP mocked with respx.",
+    "Each guard removed once makes a test fail (mutation check), then restored.",
+    "`uv run ruff check .` and `uv run pytest` pass; `symphony-workflow audit ADLC --open` is clean before and after.",
+    "No client or personal names, local paths or credentials in code, docs or docs/runs."
+  ]
+}
