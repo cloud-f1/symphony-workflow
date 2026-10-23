@@ -153,3 +153,24 @@ def test_merge_block_appends_then_replaces() -> None:
     assert first.endswith("<!-- sd:end x -->\n") and first.startswith("# T")
     second = merge_block(first, "x", "<!-- sd:begin x -->\ntwo\n<!-- sd:end x -->")
     assert "two" in second and "one" not in second and second.count("sd:begin x") == 1
+
+
+def test_an_existing_checkbox_list_is_tagged_in_place_not_duplicated(tmp_path: Path) -> None:
+    write_markdown(_plan(), tmp_path)
+    path = task_path(_plan().categories[0].tasks[0], tmp_path)
+    todos = _plan().categories[0].tasks[0].todos
+    path.write_text("# T\n\n" + "\n".join(f"- [ ] {t.title}" for t in todos) + "\n")
+    write_markdown(_plan(), tmp_path)
+    text = path.read_text()
+    assert "sd:begin todo" not in text
+    assert text.count("sd-id:") == len(todos) and all(t.title in text for t in todos)
+    write_markdown(_plan(), tmp_path)
+    assert path.read_text() == text
+
+
+def test_no_index_is_created_when_every_task_file_already_exists(tmp_path: Path) -> None:
+    write_markdown(_plan(), tmp_path)
+    (tmp_path / "docs/epics/EPIC_INDEX.md").unlink()
+    changes = write_markdown(_plan(), tmp_path)
+    assert not (tmp_path / "docs/epics/EPIC_INDEX.md").exists()
+    assert all(c.path != "docs/epics/EPIC_INDEX.md" for c in changes)
