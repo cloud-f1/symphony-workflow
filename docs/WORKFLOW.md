@@ -23,6 +23,13 @@ own config lives in `.env`, not here). Rendered by `src/symphony_workflow/prompt
 - Output: file changes + tests. Explicitly told **not** to open a PR or push —
   a human reviews the diff next (this POC stops there; see `plan.md` Phase 4).
 
+## Filing follow-up cards
+
+When either phase turns up work that needs its own cards, the agent does not loop `create_issue`: it writes a manifest and
+runs `symphony-workflow file-cards` (or the `file_cards` tool). A dry run is the default; `--apply` writes. Each item is
+tied to its card by a `fu-<id>` label, so repeating the batch creates nothing new, every card is read back, status only
+moves forward and a Done card is never reopened. Design: `docs/plans/0010-idempotent-create/`.
+
 ## Exact prompt text
 
 See `src/symphony_workflow/prompts.py` — `PLAN_PROMPT_TEMPLATE` /

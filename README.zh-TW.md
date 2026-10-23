@@ -34,6 +34,33 @@
 | Jira API token 或 Linear API key | **只有**要推到看板時才需要；預覽和 Markdown 不需要帳號 | Atlassian 帳號設定、Security、API tokens；Linear 設定裡的個人 API key |
 | `git` 與 `gh` | git 流程（`start`、`pr`、`land`、`release`） | 先執行一次 `gh auth login` |
 
+## 在你的專案裡快速開始
+
+十分鐘從零到第一個結果。這裡的步驟都不會寫入看板；只有最後一步需要帳號。
+
+1. **安裝 CLI 和 plugin**（在你的電腦上做一次）：
+
+   ```bash
+   uv tool install git+https://github.com/cloud-f1/symphony-workflow
+   ```
+
+   ```text
+   /plugin marketplace add cloud-f1/symphony-workflow
+   /plugin install symphony-workflow-ops --marketplace cloud-f1/symphony-workflow
+   ```
+
+2. **進到你的專案，讓工具讀一遍。** 它只讀不寫，最後會列出接著要執行的指令：
+
+   ```bash
+   cd path/to/your/project
+   symphony-workflow profile --path .
+   ```
+
+3. **用白話跟你的 agent 說。** 在專案裡開 Claude Code，說其中一句：「把我的計畫顯示成看板，什麼都不要改」、「開始處理 KEY-12」、「把這些後續工作開成卡片，先試跑」。
+4. **只有想要看板時才做：** `symphony-workflow init-env` 會建立專案的 `.env`，key 由你自己填，再用 `symphony-workflow check-env --verify` 檢查缺什麼，它不會印出值。
+
+agent 遵守和你一樣的安全規則：寫入前先試跑、絕不刪除、憑證絕不進對話。見 [agent 遵守的規則](#agent-遵守的規則)。
+
 ## 適合誰
 
 - **你把計畫寫成 Markdown**（每個 epic 一個 `docs/epics/e1-...md`，像 Athena 風格的工作流程），想放到看板上，又不想重打一遍，
@@ -165,6 +192,7 @@ uv tool install git+https://github.com/cloud-f1/symphony-workflow
 | 「開始處理 KEY-12」 | 建立名為 `KEY-12-...` 的分支，以及從最新 `main` 分出的 worktree；卡片移到 In Progress | 本機分支、卡片 |
 | 「幫 KEY-12 開 PR」 | 推送分支、開 PR 並在標題放票號；卡片移到 In Review | PR、卡片 |
 | 「KEY-12 合併了，幫我收尾」 | 先到 GitHub 確認已合併，再移除分支和 worktree；卡片變成 Done | 本機與遠端分支、卡片 |
+| 「把這些後續工作開成卡片」 | 對 manifest 執行 `file-cards`：先試跑，再真正執行；重跑不會多出新卡片 | 你同意後才寫 Jira |
 | 「發版 0.4.0」 | 發版檢查、打 tag，並建立以 changelog 為內容的 GitHub Release | 一個 tag、一個 Release |
 
 ### 一次真實的對話
@@ -579,6 +607,7 @@ Jira 會把分支、commit 和 pull request 掛到卡片上，是因為分支名
 - **絕不印出憑證。** 欄位放在專案的 `.env`；檢查只會說缺什麼，不會印出值。
 - **絕不碰不是它建立的東西。** 指向別人的票的 `sync-state.json` 會被忽略；Linear 專案裡手動建立的 issue 不會被認領；git 執行時會關掉由儲存庫提供的命令。
 - **改動要真實驗證。** 拋棄式看板、只刪該次執行建立的東西的清理，然後回報。
+- **批次開卡只做一次。** 批次建立的卡片帶有識別 label（`file-cards`，或 `create --identity-label`），重跑時會找到它們而不是重複建立，而且每張都會讀回確認。
 - **只有你啟動時才開始 Implement。** 背景 poller 只做規劃，由人核准。
 
 ## 給其他 agent：工具呼叫
@@ -650,6 +679,8 @@ symphony-workflow call get_issue '{"key": "PROJ-1"}'          # 碰到 Jira 之�
 | | `release-backfill` | 替每個沒有 Release 的 tag 建立 GitHub Release |
 | 票 | `get`、`search`、`comment`、`transition` | 讀取、搜尋、留言與移動一張票 |
 | | `audit`、`add-subtasks`、`rollup` | 檢查 Epic、Story、Subtask 結構、補齊，並在子項完成時關閉父項 |
+| | `create`、`update` | 建立一張卡片（`--identity-label` 讓重跑安全）與修改一張（`--add-label` 保留其他 label） |
+| | `file-cards` | 依 manifest 批次開卡：預設試跑、每張卡一個 `fu-<id>` label、讀回確認、狀態只往前走 |
 | | `create-project` | 替新 repo 建立 Jira 專案（預設 team-managed）；可重複執行，有 `--dry-run` |
 | Plan 與 Implement | `plan`、`implement` | 一張票的 Plan 階段，核准後才進 Implement |
 | | `decompose`、`sync-decomposition`、`diff-decomposition` | 把 Jira Epic 拆成 Story、建立它們、回報與規格的差異 |

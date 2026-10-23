@@ -3,7 +3,8 @@
 A linear walkthrough from zero to driving a real Jira ticket through this repo's Plan/Implement
 loop. This is a narrative, not a reference — for day-to-day operation once you're set up, use
 `.claude/skills/symphony-workflow-ops/SKILL.md`; for design/why, see `docs/plans/0001-symphony-poc/`;
-for the full command surface, `CLAUDE.md`.
+for the full command surface, `CLAUDE.md`. Using the plugin in your own project rather than driving
+this repo's loop? The README's "Quick start in your project" is the short path.
 
 ## 1. Install and configure
 
@@ -149,3 +150,16 @@ non-negotiables" before adding anything new.
 | Why this exists, the original design | `docs/plans/0001-symphony-poc/{intent,spec,implement}.md` |
 | Using this against a *different* repo/Jira project | `docs/PORTABILITY.md` |
 | A specific past planning cycle's design | `docs/plans/INDEX.md` |
+
+## Filing a batch of follow-up cards
+
+When one piece of work leaves many cards to file, write a manifest and let `file-cards` do it, so a rerun cannot
+duplicate and each card is checked:
+
+```bash
+uv run --env-file .env symphony-workflow file-cards cards.json            # dry run, writes nothing
+uv run --env-file .env symphony-workflow file-cards cards.json --apply --write-keys
+```
+
+The manifest format and the guarantees are in the README's "Filing a batch of cards safely" and in
+`docs/plans/0010-idempotent-create/spec.md`.

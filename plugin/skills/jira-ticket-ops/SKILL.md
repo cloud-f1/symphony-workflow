@@ -37,6 +37,8 @@ Every ticket belongs to the project of the repo you are working on. Take the key
 | Need | Command |
 |---|---|
 | Create the Jira project for a new repo | `create-project KEY --name "Name" --dry-run`, then without it (team-managed by default; idempotent: "already exists" if you lead it; warns if there is no `Subtask` type) |
+| File a batch of follow-up cards | `file-cards cards.json` (dry run), then `--apply` (add `--write-keys`); `fu-<id>` label per item, read back, never reopens; exit 2 = bad manifest |
+| Create or change one card | `create KEY "Summary" --type Story --parent KEY-10 --identity-label fu-x` (a rerun returns the existing card), `update KEY-12 --add-label fu-x` |
 | Read one ticket | `get KEY-12` |
 | List or audit by JQL | `search 'project = KEY ORDER BY key ASC'` |
 | Check the hierarchy | `audit KEY --open` (read-only; add `--assignee-me` to require an owner) |
@@ -52,6 +54,8 @@ Every ticket belongs to the project of the repo you are working on. Take the key
 
 ## Rules
 
+- Never create cards in a loop. A batch goes through `file-cards` (or `create --identity-label`) so a rerun cannot duplicate,
+  and each card is checked after it is written. Adopt a hand-made card with its `key`; never reopen a Done one.
 - Hierarchy is Epic -> Story -> Sub-task. Never build directly under an Epic; decompose first. Full rules: `docs/JIRA_HIERARCHY.md`.
 - Create the Sub-tasks when you create the Story, and make the last one the tests.
 - Branch, worktree and commit carry the Story key (`KEY-12-short-slug`) so Jira links them.

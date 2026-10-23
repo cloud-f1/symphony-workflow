@@ -124,6 +124,13 @@ A new repo gets its own Jira project (`docs/PORTABILITY.md`): `symphony-workflow
 one someone else leads is refused (exit 1). It reads the project back and warns when there is no `Subtask` issue type
 (company-managed calls it `Sub-task`; pass that as `subtask_type` to the Jira sink). Never raw REST for this any more.
 
+**Filing many cards at once** (follow-ups from a review, findings from a run): never loop `create_issue`. Write a manifest
+and run `symphony-workflow file-cards cards.json` (a dry run; `--apply` writes, `--write-keys` stores the new keys). Each
+item is tied to its card by a `fu-<id>` label, so a rerun creates nothing new and two cards on one label is an error; an item
+with `key` adopts a hand-made card (label added, nothing created); every card is read back by key and a mismatch exits 1;
+status only moves forward and a Done card is never reopened; a bad manifest exits 2 before any call. One card at a time:
+`create PROJECT "Summary" --identity-label fu-x` and `update KEY --add-label fu-x` (labels are added, never replaced). Jira-only.
+
 If a bulk `sync-decomposition` pass is retroactively documenting already-*shipped* work (not real
 forward-looking planning), pass `--status <name>` (`ADLC-121`) — otherwise the newly-created
 Stories sit in Jira's default "To Do" and the poller races your own status fix-up with a real

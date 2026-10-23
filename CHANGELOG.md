@@ -7,6 +7,16 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.14.0 — 2026-10-24
+
+**Idempotent card filing** (ADLC-410, plan 0010): a rerun of the same batch creates no new card, and every card the tool writes is read back.
+
+- `update_issue` takes `labels_add`: labels are added through `update.labels`, never a `fields.labels` write, so the existing ones stay. A label with whitespace (or a quote) is rejected before any call. New `update KEY --add-label L` command.
+- `create_issue` takes `identity_label` (new `create` command: `--identity-label`): the project is searched for the label first; no hit creates the card with the label and reads it back by key, one hit returns that card with `existing: true`, two or more is an error and creates nothing. Without it nothing changes. `Issue` now carries `labels`, and `search` asks for them.
+- `file-cards MANIFEST [--apply] [--write-keys]` and the `file_cards` tool. Dry run by default. Each item is tied to its card by a `fu-<id>` label; an item with `key` adopts a hand-made card. The whole manifest is validated first and every problem is listed (exit 2, no Jira call); each card is read back (exit 1 on a mismatch); status only moves forward through workflow transitions and a Done card is never reopened; a changed summary or parent is reported, not overwritten; one failing item does not stop the others.
+- Checked against a real project: a rerun straight after a create found the cards, and the throwaway cards were deleted afterwards. The search index can still lag a write, so the read-back is a GET by key and `--write-keys` lets later runs adopt by key.
+- README (both languages) opens with a "Quick start in your project", lists the new commands and rules; the operations and jira-ticket-ops skills, `docs/WORKFLOW.md`, `docs/QUICKSTART.md` and `CLAUDE.md` describe the filing rules.
+
 ## 0.13.1 — 2026-10-23
 
 **Fixed** (ADLC-409, GitHub #66 and #67): `sync-plan --to markdown` no longer appends a second,

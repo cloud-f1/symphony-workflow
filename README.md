@@ -35,6 +35,33 @@ It never deletes anything, never writes to a tracker until you say so, and every
 | A Jira API token or a Linear API key | **only** to push to a board; previews and Markdown need no account | Atlassian account settings, Security, API tokens; a personal API key in your Linear settings |
 | `git` and `gh` | the git loop (`start`, `pr`, `land`, `release`) | `gh auth login` once |
 
+## Quick start in your project
+
+Ten minutes from nothing to a first result. Nothing here writes to a board; the last step is the only one that needs an account.
+
+1. **Install the CLI and the plugin** (once, on your machine):
+
+   ```bash
+   uv tool install git+https://github.com/cloud-f1/symphony-workflow
+   ```
+
+   ```text
+   /plugin marketplace add cloud-f1/symphony-workflow
+   /plugin install symphony-workflow-ops --marketplace cloud-f1/symphony-workflow
+   ```
+
+2. **Go to your project and let the tool read it.** It only reads, and ends with the commands to run next:
+
+   ```bash
+   cd path/to/your/project
+   symphony-workflow profile --path .
+   ```
+
+3. **Ask your agent in plain words.** Open Claude Code in the project and say one of: "show my plan as a board, change nothing", "start working on KEY-12", "file these follow-ups as cards, dry run first".
+4. **Only when you want a board:** `symphony-workflow init-env` creates the project's `.env`, you fill in the keys yourself, and `symphony-workflow check-env --verify` says what is missing without printing a value.
+
+The agent follows the same safety rules you do: a dry run before any write, never a delete, never a credential in the chat. See [Rules the agent follows](#rules-the-agent-follows).
+
 ## Who it is for
 
 - **You keep your plan as Markdown** (a `docs/epics/e1-...md` file per epic, the way an Athena-style workflow does) and
@@ -171,6 +198,7 @@ uv tool install git+https://github.com/cloud-f1/symphony-workflow
 | "Start working on KEY-12" | a branch named `KEY-12-...` and a worktree from a fresh `main`; the card moves to In Progress | a local branch, the card |
 | "Open a PR for KEY-12" | pushes the branch, opens the PR with the key in its title; the card moves to In Review | the PR, the card |
 | "KEY-12 is merged, clean up" | checks on GitHub that it merged, then removes the branch and worktree; the card goes Done | local and remote branches, the card |
+| "File these follow-ups as cards" | `file-cards` on a manifest: a dry run, then the real run; a rerun creates nothing new | Jira, when you say so |
 | "Release 0.4.0" | the release checks, the tag, and a GitHub Release with the changelog as its note | a tag, a Release |
 
 ### A real session
@@ -592,6 +620,7 @@ These are in the skills, so the agent follows them without being told:
 - **Never touch what it did not create.** A `sync-state.json` that names someone else's ticket is ignored; a Linear
   project's hand-made issues are not adopted; git runs with repository-supplied commands switched off.
 - **Prove a change for real.** A throwaway board, a cleanup that deletes only what the run created, then a report.
+- **File a batch once.** Cards created in bulk carry an identity label (`file-cards`, or `create --identity-label`), so a rerun finds them instead of duplicating them, and each one is read back.
 - **Start Implement only when you do.** The background poller plans; a person approves.
 
 ## For other agents: tool calls
@@ -664,6 +693,8 @@ needs none.
 | | `release-backfill` | creates a GitHub Release for every tag that has none |
 | Tickets | `get`, `search`, `comment`, `transition` | read, search, comment on and move a ticket |
 | | `audit`, `add-subtasks`, `rollup` | check the Epic, Story, Subtask structure, fill it in, close parents when children finish |
+| | `create`, `update` | create one card (`--identity-label` makes a rerun safe) and change one (`--add-label` keeps the other labels) |
+| | `file-cards` | files a batch of cards from a manifest: dry run by default, one card per `fu-<id>` label, read back, status only moves forward |
 | | `create-project` | creates the Jira project for a new repo (team-managed by default); idempotent, `--dry-run` |
 | Plan and implement | `plan`, `implement` | the Plan phase of a ticket, then Implement after you approve |
 | | `decompose`, `sync-decomposition`, `diff-decomposition` | break a Jira Epic into Stories, create them, report drift from the spec |
@@ -756,6 +787,34 @@ symphony-workflow add-subtasks plan.json --dry-run    # {"ADLC-12": ["Add X", "T
 ```
 
 Also the `audit_hierarchy` and `add_subtasks` tools. Read-only `audit`; `add-subtasks` writes and has `--dry-run`.
+
+### Filing a batch of cards safely: `file-cards`
+
+One piece of work often leaves many follow-up cards. Filing them one call at a time went wrong three ways: a duplicate, a card in the wrong state, and fixes with no card at all. `file-cards` keeps the three guarantees in the tool.
+
+```bash
+symphony-workflow file-cards cards.json            # dry run: reads Jira, writes nothing
+symphony-workflow file-cards cards.json --apply    # create, adopt, move; add --write-keys to store the new keys
+```
+
+```json
+{
+  "project": "KEY",
+  "default_parent": "KEY-10",
+  "items": [
+    {"id": "fix-login-redirect", "type": "Story", "summary": "Fix the login redirect",
+     "description": "Why and what done looks like", "status": "To Do"},
+    {"id": "old-card", "key": "KEY-42"}
+  ]
+}
+```
+
+- **Identity** is the label `fu-<id>`, never the summary (summaries get edited). A rerun finds the card by its label and creates nothing; two cards with one label is an error for that item. An item with `key` adopts an existing card: the label is added, nothing is created.
+- **Read back**: every card created or adopted is read again by key and compared with the manifest; a difference is an error and exit 1, not a log line.
+- **Forward only**: `status` moves To Do, In Progress, Done through the workflow transitions. A card already further along is left alone, and a Done card is never reopened. A summary or parent that differs from the manifest is reported, not overwritten.
+- **Checked before any call**: the whole manifest is validated first and every problem is listed at once; a bad manifest exits 2 and touches nothing. One failing item does not stop the others.
+
+The same pieces are available one at a time: `create --identity-label fu-x` (a card with that label in the project is returned, not duplicated), `update KEY --add-label fu-x`, and the `create_issue` / `update_issue` / `file_cards` tools. Jira's search index lags a write by a few seconds; the read-back uses the card's key, and `--write-keys` lets later runs adopt by key.
 
 ### A Jira project for a new repo: `create-project`
 
