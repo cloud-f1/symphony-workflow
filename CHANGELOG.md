@@ -7,6 +7,8 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.13.1 — 2026-10-23
+
 **Fixed** (ADLC-409, GitHub #66 and #67): `sync-plan --to markdown` no longer appends a second,
 managed To-Do block to an epic file that already lists its tasks as checkboxes; it tags those lines
 with their `sd-id` marker in place, so two-way sync still works. It also stops creating
