@@ -32,6 +32,7 @@ class FakeClient:
         self.no_transition = False
         self.fail_create_for: set[str] = set()
         self.no_direct_done = False
+        self.drop_label_on_update = False
 
     def add(self, key: str, summary: str = "S", status: str = "To Do", labels=None, parent=None):
         self.cards[key] = Issue(
@@ -69,7 +70,8 @@ class FakeClient:
 
     def update_issue(self, key, *, labels_add=None):
         self.writes.append("update")
-        self.cards[key].labels.extend(labels_add or [])
+        if not self.drop_label_on_update:
+            self.cards[key].labels.extend(labels_add or [])
 
     def transition_issue(self, key, transition_name):
         self.writes.append(f"transition:{transition_name}")
@@ -140,6 +142,14 @@ def test_adopt_by_key_adds_the_label_and_never_creates() -> None:
     assert "create" not in client.writes
 
 
+def test_adopt_read_back_catches_a_label_that_did_not_stick() -> None:
+    client = FakeClient()
+    client.drop_label_on_update = True
+    client.add("ADLC-5", "Hand made")
+    report = run(manifest(item(key="ADLC-5")), client)
+    assert report.failed and "label 'fu-one' is missing" in (report.items[0].error or "")
+
+
 def test_adopting_a_key_that_does_not_exist_is_an_error_and_creates_nothing() -> None:
     client = FakeClient()
     report = run(manifest(item(key="ADLC-77")), client)
@@ -167,10 +177,10 @@ def test_adopting_when_the_label_is_on_another_card_is_an_error() -> None:
 
 def test_never_reopens_a_done_card() -> None:
     client = FakeClient()
-    client.add("ADLC-5", status="Done", labels=["fu-one"])
+    client.add("ADLC-5", "Card one", status="Done", labels=["fu-one"], parent="ADLC-1")
     report = run(manifest(item(status="To Do")), client)
     assert client.cards["ADLC-5"].status == "Done" and client.writes == []
-    assert "left as is" in " ".join(report.items[0].notes)
+    assert report.items[0].notes == ["already Done, manifest says To Do; left as is"]
 
 
 def test_summary_drift_is_reported_not_overwritten() -> None:
