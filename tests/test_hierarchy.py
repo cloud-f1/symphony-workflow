@@ -32,8 +32,15 @@ def _issue(
     level = {"Epic": 1, "Subtask": -1, "Sub-task": -1}.get(kind, 0)
     category = {"Done": "done", "In Progress": "indeterminate"}.get(status, "new")
     return HierarchyIssue(
-        key=key, summary=summary or key, status=status, status_category=category, issue_type=kind,
-        hierarchy_level=level, parent_key=parent, assignee=assignee, subtask_count=subtasks,
+        key=key,
+        summary=summary or key,
+        status=status,
+        status_category=category,
+        issue_type=kind,
+        hierarchy_level=level,
+        parent_key=parent,
+        assignee=assignee,
+        subtask_count=subtasks,
     )
 
 
@@ -64,8 +71,17 @@ class FakeClient:
             raise JiraError(404, "Issue does not exist")
         return self.issues[key]
 
-    def create_issue(self, project, summary, description=None, issue_type="Task", *, parent=None,
-                     assignee_account_id=None, **_kw):  # noqa: ANN001, ANN003
+    def create_issue(
+        self,
+        project,
+        summary,
+        description=None,
+        issue_type="Task",
+        *,
+        parent=None,
+        assignee_account_id=None,
+        **_kw,
+    ):  # noqa: ANN001, ANN003
         if summary == self.fail_on_summary:
             raise JiraError(500, "boom")
         if issue_type == self.reject_type:

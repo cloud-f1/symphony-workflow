@@ -60,6 +60,23 @@ class JiraError(TrackerError):
         super().__init__(f"Jira API error {status_code}: {message}")
 
 
+class ReadBackError(JiraError):
+    """A card Jira accepted does not read back as asked (wrong summary, parent or label), or an
+    identity label matches more than one card. Status code 0: no HTTP response is at fault."""
+
+    def __init__(self, message: str) -> None:
+        self.status_code = 0
+        TrackerError.__init__(self, message)
+
+
+def check_label(label: str) -> str:
+    """A Jira label cannot hold whitespace; reject it (and a quote, which would break the JQL
+    that looks the label up) before any call is made. Raises `JiraError` 400, like Jira would."""
+    if not label or any(ch.isspace() or ch in '"\\' for ch in label):
+        raise JiraError(400, f"Invalid label {label!r}: no whitespace, quotes or backslashes")
+    return label
+
+
 class JiraClient:
     """Thin, testable wrapper around the Jira Cloud REST API v2."""
 
@@ -179,15 +196,11 @@ class JiraClient:
         project = os.environ.get(JIRA_PROJECT_ENV, "ADLC")
         included = os.environ.get(READY_ISSUETYPES_ENV, "").strip()
         if included:
-            names = ", ".join(
-                f'"{name.strip()}"' for name in included.split(",") if name.strip())
+            names = ", ".join(f'"{name.strip()}"' for name in included.split(",") if name.strip())
             type_clause = f"issuetype in ({names})"
         else:
             type_clause = "issuetype not in (Epic, Subtask)"
-        jql = (
-            f'project = {project} AND status = "To Do" '
-            f"AND {type_clause} ORDER BY created ASC"
-        )
+        jql = f'project = {project} AND status = "To Do" AND {type_clause} ORDER BY created ASC'
         return self.search_issues(jql, max_results=max_results)
 
     def search_issues(self, jql: str, max_results: int = 50) -> SearchResult:
@@ -201,7 +214,15 @@ class JiraClient:
                 "maxResults": max_results,
                 # issuetype / parent / subtasks feed the board fields (ADLC-388): one search gives a
                 # Story's Epic and its subtask count, so a board needs no query per Story.
-                "fields": ["summary", "status", "assignee", "issuetype", "parent", "subtasks"],
+                "fields": [
+                    "summary",
+                    "status",
+                    "assignee",
+                    "issuetype",
+                    "parent",
+                    "subtasks",
+                    "labels",
+                ],
             },
         )
         self._raise_for_status(response)
@@ -222,6 +243,7 @@ class JiraClient:
         sprint_id: int | None = None,
         story_points: float | None = None,
         assignee_account_id: str | None = None,
+        identity_label: str | None = None,
     ) -> IssueCreateResult:
         """`epic` and `parent` are two different linking mechanisms, not
         interchangeable spellings of the same thing — Jira project type
@@ -234,7 +256,34 @@ class JiraClient:
         is not on the appropriate screen") *and* what every project type uses
         for Subtask->Story linking. Callers must pick the one that matches
         the target project/issue type.
+
+        `identity_label` makes the create idempotent (plan 0010): the project is searched for
+        that label first. No hit: the card is created with the label added, then read back by
+        key (never searched for, a JQL index lags a write by a few seconds) and compared with
+        what was asked for. One hit: nothing is created and that card comes back with
+        `existing=True`. Two or more: `ReadBackError`, nothing created. Without it, behaviour is
+        unchanged.
         """
+        if identity_label is not None:
+            check_label(identity_label)
+            hits = self.search_issues(
+                f'project = {project_key} AND labels = "{identity_label}"', max_results=2
+            ).issues
+            if len(hits) > 1:
+                keys = ", ".join(issue.key for issue in hits)
+                raise ReadBackError(
+                    f"Label {identity_label!r} is on more than one card ({keys}): "
+                    "refusing to create another"
+                )
+            if hits:
+                found = hits[0]
+                return IssueCreateResult(
+                    key=found.key,
+                    id=found.id,
+                    url=f"{self._config.base_url}/browse/{found.key}",
+                    existing=True,
+                )
+            labels = [*(labels or []), identity_label]
         fields: dict[str, Any] = {
             "project": {"key": project_key},
             "summary": summary,
@@ -258,11 +307,37 @@ class JiraClient:
         response = self._client.post("/rest/api/2/issue", json={"fields": fields})
         self._raise_for_status(response)
         payload = response.json()
-        return IssueCreateResult(
+        result = IssueCreateResult(
             key=payload["key"],
             id=payload["id"],
             url=f"{self._config.base_url}/browse/{payload['key']}",
         )
+        if identity_label is not None:
+            self.verify_card(result.key, summary=summary, parent=parent, label=identity_label)
+        return result
+
+    def verify_card(
+        self,
+        key: str,
+        *,
+        summary: str | None = None,
+        parent: str | None = None,
+        label: str | None = None,
+    ) -> Issue:
+        """Read `key` back (a GET by key, not a search) and raise `ReadBackError` listing every
+        difference from what was asked for: summary, parent key, label. Returns the issue read.
+        """
+        issue = self.get_issue(key)
+        problems: list[str] = []
+        if summary is not None and issue.summary != summary:
+            problems.append(f"summary is {issue.summary!r}, expected {summary!r}")
+        if parent is not None and issue.parent != parent:
+            problems.append(f"parent is {issue.parent!r}, expected {parent!r}")
+        if label is not None and label not in issue.labels:
+            problems.append(f"label {label!r} is missing (has {issue.labels})")
+        if problems:
+            raise ReadBackError(f"{key} did not read back as asked: " + "; ".join(problems))
+        return issue
 
     def update_issue(
         self,
@@ -271,10 +346,15 @@ class JiraClient:
         summary: str | None = None,
         description: str | None = None,
         parent: str | None = None,
+        labels_add: list[str] | None = None,
     ) -> None:
         """PUT /issue/{key} with only the fields given — Jira's update endpoint
         only touches fields present in the payload, so omitted ones are left
-        alone. At least one of summary/description/parent must be given.
+        alone. At least one of summary/description/parent/labels_add must be given.
+
+        `labels_add` adds labels without replacing the existing ones (plan 0010): it goes in
+        `update.labels` as `{"add": ...}` operations, because a `fields.labels` write would
+        overwrite the whole list. A label with whitespace is rejected before any call.
 
         `parent` re-parents the issue (e.g. moves a Subtask to another Story after
         splitting an oversized one; ADLC-146). Confirmed to work on team-managed projects
@@ -288,7 +368,10 @@ class JiraClient:
             fields["description"] = description
         if parent is not None:
             fields["parent"] = {"key": parent}
-        response = self._client.put(f"/rest/api/2/issue/{key}", json={"fields": fields})
+        body: dict[str, Any] = {"fields": fields}
+        if labels_add:
+            body["update"] = {"labels": [{"add": check_label(label)} for label in labels_add]}
+        response = self._client.put(f"/rest/api/2/issue/{key}", json=body)
         self._raise_for_status(response)
 
     def add_comment(self, key: str, body: str) -> None:

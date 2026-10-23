@@ -8,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from symphony_workflow.client import JiraClient, JiraError
+from symphony_workflow.client import JiraClient, JiraError, ReadBackError
 from symphony_workflow.config import JiraConfig
 from symphony_workflow.models import HierarchyIssue
 
@@ -170,7 +170,15 @@ def test_search_issues_asks_for_the_board_fields(config: JiraConfig) -> None:
     with JiraClient(config) as client:
         client.search_issues("project = CF1")
     sent = json.loads(route.calls.last.request.content)
-    assert sent["fields"] == ["summary", "status", "assignee", "issuetype", "parent", "subtasks"]
+    assert sent["fields"] == [
+        "summary",
+        "status",
+        "assignee",
+        "issuetype",
+        "parent",
+        "subtasks",
+        "labels",
+    ]
 
 
 @respx.mock
@@ -613,3 +621,167 @@ def test_search_hierarchy_raises_on_http_error(config: JiraConfig) -> None:
     respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=httpx.Response(400, json={}))
     with JiraClient(config) as client, pytest.raises(JiraError):
         client.search_hierarchy("bad jql")
+
+
+# --- plan 0010: labels_add, identity_label, read-back ---------------------------------------
+
+
+def _issue_payload(
+    key: str = "ADLC-9",
+    summary: str = "A card",
+    parent: str | None = None,
+    labels: list[str] | None = None,
+) -> dict:
+    fields: dict = {"summary": summary, "status": {"name": "To Do"}, "labels": labels or []}
+    if parent:
+        fields["parent"] = {"key": parent}
+    return {"key": key, "id": "9", "fields": fields}
+
+
+def _search_hits(*keys: str) -> httpx.Response:
+    issues = [_issue_payload(key) for key in keys]
+    return httpx.Response(200, json={"total": len(issues), "issues": issues})
+
+
+@respx.mock
+def test_update_issue_labels_add_uses_update_block_not_fields(config: JiraConfig) -> None:
+    route = respx.put(f"{BASE_URL}/rest/api/2/issue/ADLC-5").mock(return_value=httpx.Response(204))
+    with JiraClient(config) as client:
+        client.update_issue("ADLC-5", labels_add=["fu-one", "fu-two"])
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {
+        "fields": {},
+        "update": {"labels": [{"add": "fu-one"}, {"add": "fu-two"}]},
+    }
+
+
+@respx.mock
+def test_update_issue_label_with_whitespace_is_rejected_before_any_call(
+    config: JiraConfig,
+) -> None:
+    route = respx.put(f"{BASE_URL}/rest/api/2/issue/ADLC-5").mock(return_value=httpx.Response(204))
+    with JiraClient(config) as client, pytest.raises(JiraError, match="Invalid label"):
+        client.update_issue("ADLC-5", labels_add=["two words"])
+    assert not route.called
+
+
+@respx.mock
+def test_create_issue_without_identity_label_does_not_search(config: JiraConfig) -> None:
+    search = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_hits())
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(201, json={"id": "9", "key": "ADLC-9"})
+    )
+    with JiraClient(config) as client:
+        result = client.create_issue("ADLC", "A card")
+    assert not search.called
+    assert result.existing is False
+
+
+@respx.mock
+def test_create_issue_identity_label_no_hit_creates_with_label_and_reads_back(
+    config: JiraConfig,
+) -> None:
+    search = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_hits())
+    create = respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(201, json={"id": "9", "key": "ADLC-9"})
+    )
+    get = respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-9").mock(
+        return_value=httpx.Response(
+            200, json=_issue_payload(parent="ADLC-1", labels=["other", "fu-x"])
+        )
+    )
+    with JiraClient(config) as client:
+        result = client.create_issue(
+            "ADLC", "A card", labels=["other"], parent="ADLC-1", identity_label="fu-x"
+        )
+    assert json.loads(search.calls.last.request.content)["jql"] == (
+        'project = ADLC AND labels = "fu-x"'
+    )
+    assert json.loads(create.calls.last.request.content)["fields"]["labels"] == ["other", "fu-x"]
+    assert get.called  # read back by key
+    assert (result.key, result.existing) == ("ADLC-9", False)
+
+
+@respx.mock
+def test_create_issue_identity_label_one_hit_creates_nothing(config: JiraConfig) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_hits("ADLC-3"))
+    create = respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(201, json={"id": "9", "key": "ADLC-9"})
+    )
+    with JiraClient(config) as client:
+        result = client.create_issue("ADLC", "A card", identity_label="fu-x")
+    assert not create.called
+    assert (result.key, result.existing) == ("ADLC-3", True)
+
+
+@respx.mock
+def test_create_issue_identity_label_two_hits_is_a_hard_error(config: JiraConfig) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=_search_hits("ADLC-3", "ADLC-4")
+    )
+    create = respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(201, json={"id": "9", "key": "ADLC-9"})
+    )
+    with JiraClient(config) as client, pytest.raises(ReadBackError, match="ADLC-3, ADLC-4"):
+        client.create_issue("ADLC", "A card", identity_label="fu-x")
+    assert not create.called
+
+
+@respx.mock
+def test_create_issue_identity_label_readback_catches_a_missing_label(
+    config: JiraConfig,
+) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_hits())
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(201, json={"id": "9", "key": "ADLC-9"})
+    )
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-9").mock(
+        return_value=httpx.Response(200, json=_issue_payload(labels=[]))
+    )
+    with JiraClient(config) as client, pytest.raises(ReadBackError, match="label 'fu-x'"):
+        client.create_issue("ADLC", "A card", identity_label="fu-x")
+
+
+@respx.mock
+def test_create_issue_identity_label_readback_catches_a_wrong_parent(config: JiraConfig) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_hits())
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(201, json={"id": "9", "key": "ADLC-9"})
+    )
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-9").mock(
+        return_value=httpx.Response(200, json=_issue_payload(parent="ADLC-7", labels=["fu-x"]))
+    )
+    with JiraClient(config) as client, pytest.raises(ReadBackError, match="parent is 'ADLC-7'"):
+        client.create_issue("ADLC", "A card", parent="ADLC-1", identity_label="fu-x")
+
+
+@respx.mock
+def test_create_issue_identity_label_readback_catches_a_wrong_summary(
+    config: JiraConfig,
+) -> None:
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_hits())
+    respx.post(f"{BASE_URL}/rest/api/2/issue").mock(
+        return_value=httpx.Response(201, json={"id": "9", "key": "ADLC-9"})
+    )
+    respx.get(f"{BASE_URL}/rest/api/2/issue/ADLC-9").mock(
+        return_value=httpx.Response(200, json=_issue_payload(summary="Other", labels=["fu-x"]))
+    )
+    with JiraClient(config) as client, pytest.raises(ReadBackError, match="summary is 'Other'"):
+        client.create_issue("ADLC", "A card", identity_label="fu-x")
+
+
+@respx.mock
+def test_create_issue_identity_label_with_quote_is_rejected_before_any_call(
+    config: JiraConfig,
+) -> None:
+    search = respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(return_value=_search_hits())
+    with JiraClient(config) as client, pytest.raises(JiraError, match="Invalid label"):
+        client.create_issue("ADLC", "A card", identity_label='x" OR project = Y')
+    assert not search.called
+
+
+def test_issue_labels_parse_and_default_to_empty() -> None:
+    from symphony_workflow.models import Issue
+
+    assert Issue.from_api(_issue_payload(labels=["a", "b"])).labels == ["a", "b"]
+    assert Issue.from_api({"key": "K-1", "id": "1", "fields": {}}).labels == []

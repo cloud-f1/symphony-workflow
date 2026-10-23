@@ -416,6 +416,79 @@ def transition_issue(key: str, transition_name: str) -> None:
     typer.echo(f"{key} -> {transition_name}")
 
 
+_LABEL_OPTION = typer.Option([], "--label", help="Label to set; repeat for several")
+_ADD_LABEL_OPTION = typer.Option(
+    [], "--add-label", help="Add a label, keeping the others; repeat for several"
+)
+
+
+@app.command("create", rich_help_panel="Tickets")
+def create_command(
+    project: str = typer.Argument(..., help="Project key, e.g. ADLC"),
+    summary: str = typer.Argument(..., help="Card title"),
+    issue_type: str = typer.Option("Task", "--type", help="Issue type, e.g. Story, Subtask"),
+    description: str | None = typer.Option(None, "--description"),
+    parent: str | None = typer.Option(None, "--parent", help="Epic (for a Story) or Story key"),
+    label: list[str] = _LABEL_OPTION,
+    identity_label: str | None = typer.Option(
+        None,
+        "--identity-label",
+        help=(
+            "Make a rerun safe (plan 0010): a card in the project that already has this label is "
+            "returned, not duplicated; two such cards is an error. The new card is read back."
+        ),
+    ),
+) -> None:
+    """Create one card. Jira-only. Exit 0 ok (including 'already there'), 1 on a Jira error or a
+    card that did not read back as asked."""
+    with _jira_client() as client:
+        try:
+            result = client.create_issue(
+                project,
+                summary,
+                description,
+                issue_type,
+                labels=label or None,
+                parent=parent,
+                identity_label=identity_label,
+            )
+        except JiraError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+    state = "already exists" if result.existing else "created"
+    typer.echo(f"{result.key} {state}\n{result.url}")
+
+
+@app.command("update", rich_help_panel="Tickets")
+def update_command(
+    key: str,
+    summary: str | None = typer.Option(None, "--summary"),
+    description: str | None = typer.Option(None, "--description"),
+    parent: str | None = typer.Option(None, "--parent", help="Move the card under this key"),
+    add_label: list[str] = _ADD_LABEL_OPTION,
+) -> None:
+    """Change a card's summary, description, parent or labels (labels are added, never
+    replaced). Jira-only. Exit 0 ok, 1 Jira error, 2 nothing to change."""
+    if summary is None and description is None and parent is None and not add_label:
+        typer.echo(
+            "Nothing to change: give --summary, --description, --parent or --add-label.", err=True
+        )
+        raise typer.Exit(code=2)
+    with _jira_client() as client:
+        try:
+            client.update_issue(
+                key,
+                summary=summary,
+                description=description,
+                parent=parent,
+                labels_add=add_label or None,
+            )
+        except JiraError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+    typer.echo(f"{key} updated")
+
+
 @app.command("create-project", rich_help_panel="Tickets")
 def create_project_command(
     key: str = typer.Argument(..., help="New project key, e.g. WEB (A-Z then A-Z/0-9, 2-10 long)"),
@@ -1333,8 +1406,12 @@ def start_command(
     with _client() as client:
         try:
             result = start(
-                key, repo=repo, tracker=client, base=base,
-                transition=not no_transition, fetch=not no_fetch,
+                key,
+                repo=repo,
+                tracker=client,
+                base=base,
+                transition=not no_transition,
+                fetch=not no_fetch,
             )
         except ShipError as exc:
             raise _ship_fail(exc) from exc
@@ -1362,8 +1439,14 @@ def pr_command(
         issue_url = f"{client.base_url}/browse/{key}" if isinstance(client, JiraClient) else None
         try:
             result = open_pr(
-                key, cwd=Path.cwd(), tracker=client, title=title, body=body,
-                issue_url=issue_url, draft=draft, transition=not no_transition,
+                key,
+                cwd=Path.cwd(),
+                tracker=client,
+                title=title,
+                body=body,
+                issue_url=issue_url,
+                draft=draft,
+                transition=not no_transition,
             )
         except ShipError as exc:
             raise _ship_fail(exc) from exc
@@ -1391,8 +1474,13 @@ def land_command(
     with _client() as client:
         try:
             result = land(
-                key, repo=repo, tracker=client, branch=branch, pr_number=pr_number,
-                keep_remote=keep_remote, transition=not no_transition,
+                key,
+                repo=repo,
+                tracker=client,
+                branch=branch,
+                pr_number=pr_number,
+                keep_remote=keep_remote,
+                transition=not no_transition,
                 rollup_fn=_rollup_for(client),
             )
         except ShipError as exc:

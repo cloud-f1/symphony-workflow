@@ -258,3 +258,25 @@ def test_local_tools_are_marked_so_the_cli_skips_the_credential_check() -> None:
         "check_commit_subject",
         "changelog_draft",
     }
+
+
+def test_call_tool_create_issue_passes_identity_label_only_when_given() -> None:
+    client = MagicMock()
+    client.create_issue.return_value = IssueCreateResult(
+        key="ADLC-3", id="3", url="https://x/browse/ADLC-3", existing=True
+    )
+    result = call_tool(
+        client,
+        "create_issue",
+        {"project_key": "ADLC", "summary": "A card", "identity_label": "fu-x"},
+    )
+    assert client.create_issue.call_args.kwargs["identity_label"] == "fu-x"
+    assert result["existing"] is True
+
+
+def test_call_tool_update_issue_passes_labels_add_only_when_given() -> None:
+    client = MagicMock()
+    call_tool(client, "update_issue", {"key": "ADLC-3", "summary": "New"})
+    assert "labels_add" not in client.update_issue.call_args.kwargs
+    call_tool(client, "update_issue", {"key": "ADLC-3", "labels_add": ["fu-x"]})
+    assert client.update_issue.call_args.kwargs["labels_add"] == ["fu-x"]

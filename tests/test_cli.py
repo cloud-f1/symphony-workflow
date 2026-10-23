@@ -1654,3 +1654,59 @@ def test_sync_status_to_jira_pulls_a_change_made_in_jira(monkeypatch, tmp_path: 
     assert result.exit_code == 0 and "pull" in result.output and "E1.d1" in result.output
     state = json.loads((root / "docs/context/sync-state.json").read_text())
     assert state["status"]["E1.d1"] == "done" and state["keys"] == keys  # the map is kept
+
+
+@respx.mock
+def test_create_with_identity_label_reports_an_existing_card(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "total": 1,
+                "issues": [
+                    {
+                        "key": "ADLC-3",
+                        "id": "3",
+                        "fields": {"summary": "A card", "status": {"name": "To Do"}},
+                    }
+                ],
+            },
+        )
+    )
+    create = respx.post(f"{BASE_URL}/rest/api/2/issue")
+    result = runner.invoke(app, ["create", "ADLC", "A card", "--identity-label", "fu-x"])
+    assert result.exit_code == 0, result.output
+    assert "ADLC-3 already exists" in result.output
+    assert not create.called
+
+
+@respx.mock
+def test_create_with_two_cards_on_one_label_exits_nonzero(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    issue = {"id": "3", "fields": {"summary": "A card", "status": {"name": "To Do"}}}
+    respx.post(f"{BASE_URL}/rest/api/3/search/jql").mock(
+        return_value=httpx.Response(
+            200,
+            json={"total": 2, "issues": [{"key": "ADLC-3", **issue}, {"key": "ADLC-4", **issue}]},
+        )
+    )
+    result = runner.invoke(app, ["create", "ADLC", "A card", "--identity-label", "fu-x"])
+    assert result.exit_code == 1
+    assert "more than one card" in result.output
+
+
+@respx.mock
+def test_update_adds_a_label_without_replacing(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    route = respx.put(f"{BASE_URL}/rest/api/2/issue/ADLC-3").mock(return_value=httpx.Response(204))
+    result = runner.invoke(app, ["update", "ADLC-3", "--add-label", "fu-x"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(route.calls.last.request.content)["update"] == {"labels": [{"add": "fu-x"}]}
+
+
+def test_update_with_nothing_to_change_exits_2(monkeypatch) -> None:
+    _set_jira_env(monkeypatch)
+    result = runner.invoke(app, ["update", "ADLC-3"])
+    assert result.exit_code == 2
+    assert "Nothing to change" in result.output

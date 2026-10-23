@@ -131,7 +131,9 @@ def audit(
         count = story.subtask_count if story.subtask_count is not None else 0
         if count == 0:
             add(
-                story, "no_subtasks", "error",
+                story,
+                "no_subtasks",
+                "error",
                 "every Story needs Subtasks; the last one is the tests",
             )
         elif count < MIN_SUBTASKS:
@@ -310,7 +312,10 @@ def _create_subtask(
     for name in names:
         try:
             created = client.create_issue(
-                project, summary, issue_type=name, parent=parent,
+                project,
+                summary,
+                issue_type=name,
+                parent=parent,
                 assignee_account_id=assignee_account_id,
             )
             return created.key, name
