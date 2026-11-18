@@ -19,14 +19,62 @@ SKIP = ("Merge ", "Revert ", "fixup! ", "squash! ")
 BRANCH_KEY = re.compile(r"^([A-Z][A-Z0-9]+-\d+)(?:-|$)")
 
 
+HEREDOC_OPEN = re.compile(r"<<(-?)\s*['\"]?(\w+)['\"]?")
+# A real `git commit` starts a command: line start, after ; & | ( or $( , optionally behind
+# VAR=value assignments and `git -C dir` / `git -c k=v`. Text inside quotes or a heredoc body never
+# matches, so a Python string or a note that merely mentions "git commit" is left alone.
+GIT_COMMIT = re.compile(r"(?:^|[;&|(\n]|\$\()\s*(?:\w+=\S*\s+)*git(?:\s+-[Cc]\s+\S+)*\s+commit\b")
+# The -m flag must sit in the same command segment; its quoted value may span lines.
+MESSAGE = re.compile(r"""[^;&|\n]*?(?:-m|--message)[ =]+(?:"((?:[^"\\]|\\.)*)"|'([^']*)')""")
+FILE_STDIN = re.compile(r"[^;&|\n]*?(?:-F|--file)[ =]+-(?:\s|$)[^;&|\n]*?__HEREDOC_(\d+)__")
+PLACEHOLDER = re.compile(r"__HEREDOC_(\d+)__")
+
+
+def strip_heredocs(command):
+    """Replace every heredoc body (and its end line) with a placeholder; return (text, bodies)."""
+    bodies, out, pos = [], [], 0
+    while True:
+        m = HEREDOC_OPEN.search(command, pos)
+        line_end = command.find("\n", m.end()) if m else -1
+        if not m or line_end == -1:
+            out.append(command[pos:])
+            return "".join(out), bodies
+        dash, tag = m.group(1), m.group(2)
+        body, cursor = [], line_end + 1
+        while cursor <= len(command):
+            nl = command.find("\n", cursor)
+            ln = command[cursor:] if nl == -1 else command[cursor:nl]
+            cursor = len(command) + 1 if nl == -1 else nl + 1
+            if (ln.strip() if dash else ln) == tag:
+                break
+            body.append(ln)
+        out.append(
+            command[pos : m.start()] + f"__HEREDOC_{len(bodies)}__" + command[m.end() : line_end]
+        )
+        bodies.append("\n".join(body))
+        pos = min(cursor - 1, len(command))  # keep the newline after the end tag as a separator
+
+
+def first_line(text):
+    text = text.strip()
+    return text.splitlines()[0].strip() if text else ""
+
+
 def subject_of(command):
-    heredoc = re.search(r"<<-?\s*['\"]?(\w+)['\"]?\n(.*?)\n", command, re.S)
-    if heredoc:
-        return heredoc.group(2).strip()
-    quoted = re.search(r"""(?:-m|--message)[ =]+(?:"((?:[^"\\]|\\.)*)"|'([^']*)')""", command)
+    """Subject of the real `git commit` in the command, or None when it cannot be read."""
+    text, bodies = strip_heredocs(command)
+    commit = GIT_COMMIT.search(text)
+    if not commit:
+        return None
+    after = text[commit.end() :]
+    quoted = MESSAGE.match(after)
     if quoted:
-        text = quoted.group(1) if quoted.group(1) is not None else quoted.group(2)
-        return text.strip().splitlines()[0] if text.strip() else ""
+        value = quoted.group(1) if quoted.group(1) is not None else quoted.group(2)
+        hd = PLACEHOLDER.search(value)  # -m "$(cat <<'EOF' ... EOF)"
+        return first_line(bodies[int(hd.group(1))]) if hd else first_line(value)
+    stdin = FILE_STDIN.match(after)  # git commit -F - <<'EOF' ... EOF
+    if stdin:
+        return first_line(bodies[int(stdin.group(1))])
     return None
 
 
@@ -36,8 +84,6 @@ def main():
     except ValueError:
         return 0
     command = (event.get("tool_input") or {}).get("command", "")
-    if not re.search(r"\bgit\b[^|;&]*\bcommit\b", command):
-        return 0
     subject = subject_of(command)
     if not subject or subject.startswith(SKIP):
         return 0
@@ -45,7 +91,10 @@ def main():
     try:
         branch = subprocess.run(
             ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=10, check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return 0

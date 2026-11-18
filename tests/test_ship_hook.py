@@ -46,6 +46,33 @@ def test_reads_a_heredoc_message(repos) -> None:  # noqa: F811
     assert run_hook(ok, cwd).returncode == 0
 
 
+def test_silent_when_git_commit_is_only_text_inside_a_heredoc(repos) -> None:  # noqa: F811
+    cwd = on_branch(repos, "ADLC-9-add-thing")
+    cmd = "cat > notes.md <<'EOF'\nhello, then run git commit here\nEOF"
+    assert run_hook(cmd, cwd).returncode == 0
+    cmd = "python3 - <<'PY'\nprint('git commit -m bad')\nPY"
+    assert run_hook(cmd, cwd).returncode == 0
+
+
+def test_silent_when_git_commit_is_only_text_inside_a_string(repos) -> None:  # noqa: F811
+    cwd = on_branch(repos, "ADLC-9-add-thing")
+    assert run_hook("python3 -c \"print('git commit -m bad')\"", cwd).returncode == 0
+    assert run_hook("echo 'git commit -m \"feat: no key\"'", cwd).returncode == 0
+
+
+def test_an_unrelated_heredoc_does_not_hide_the_real_subject(repos) -> None:  # noqa: F811
+    cwd = on_branch(repos, "ADLC-9-add-thing")
+    cmd = "cat > x <<'EOF'\nfeat(x): ok (ADLC-9)\nEOF\ngit add x && git commit -m \"feat: no key\""
+    assert run_hook(cmd, cwd).returncode == 2
+
+
+def test_still_checks_real_commits_after_other_commands(repos) -> None:  # noqa: F811
+    cwd = on_branch(repos, "ADLC-9-add-thing")
+    assert run_hook('cd sub && git add -A && git commit -q -m "feat: no key"', cwd).returncode == 2
+    assert run_hook('git -C sub commit -m "feat: no key"', cwd).returncode == 2
+    assert run_hook('git -C sub commit -m "feat(x): ok (ADLC-9)"', cwd).returncode == 0
+
+
 def test_silent_on_a_branch_that_is_not_a_ticket(repos) -> None:  # noqa: F811
     assert run_hook('git commit -m "whatever"', repos.work).returncode == 0  # main
 
