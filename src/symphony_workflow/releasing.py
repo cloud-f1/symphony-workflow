@@ -88,9 +88,15 @@ def draft_changelog(
 
 
 def extract_notes(changelog: str, version: str) -> str:
-    """The body of the `## version` section (heading excluded), or '' when there is none."""
+    """The body of the `## version` section (heading excluded), or '' when there is none.
+
+    Two heading forms match: `## 0.2.0` (this repo's own, with the version followed by whitespace or
+    the end of the line) and the Keep a Changelog form `## [0.2.0]`, with or without ` - date`.
+    The closing `]` is what stops `0.2.1` from matching `[0.2.10]`.
+    """
     lines = changelog.splitlines()
-    heading = re.compile(rf"^## {re.escape(version)}(?=\s|$)")
+    v = re.escape(version)
+    heading = re.compile(rf"^## (?:{v}(?=\s|$)|\[{v}\])")
     start = next((i for i, ln in enumerate(lines) if heading.match(ln)), None)
     if start is None:
         return ""

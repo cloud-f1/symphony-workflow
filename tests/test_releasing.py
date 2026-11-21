@@ -91,6 +91,125 @@ def test_extract_notes_takes_one_section() -> None:
     assert extract_notes(CHANGELOG, "0.2") == ""  # a prefix is not a match
 
 
+# A synthetic Keep a Changelog file, the shape a consumer repo uses (no real project content).
+KEEP_A_CHANGELOG = """\
+# Changelog
+
+All notable changes to this project are documented here.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+### Added
+
+- something not released yet
+
+## [0.2.0] - 2026-11-10
+
+### Added
+
+- first widget, with a longer explanation
+  that wraps onto a second line
+- second widget
+
+### Fixed
+
+- a crash on empty input
+
+## [0.1.0] - 2026-10-01
+
+### Added
+
+- the very first thing
+
+[Unreleased]: https://example.invalid/compare/v0.2.0...HEAD
+[0.2.0]: https://example.invalid/compare/v0.1.0...v0.2.0
+"""
+
+
+def test_extract_notes_keep_a_changelog_bracket_heading() -> None:
+    assert extract_notes("## [0.2.0]\n\nbody\n", "0.2.0") == "body"
+
+
+@pytest.mark.parametrize("sep", [" - ", " \u2014 "])
+def test_extract_notes_bracket_heading_with_a_date(sep: str) -> None:
+    text = f"## [0.2.0]{sep}2026-11-10\n\nbody\n\n## [0.1.0]{sep}2026-10-01\n\nold\n"
+    assert extract_notes(text, "0.2.0") == "body"
+    assert extract_notes(text, "0.1.0") == "old"
+
+
+def test_extract_notes_unreleased_is_not_a_version() -> None:
+    assert (
+        extract_notes(KEEP_A_CHANGELOG, "Unreleased") == "### Added\n\n- something not released yet"
+    )
+    # the real version request never lands on it, and a version that is absent stays ''
+    assert "not released yet" not in extract_notes(KEEP_A_CHANGELOG, "0.2.0")
+    assert extract_notes(KEEP_A_CHANGELOG, "0.3.0") == ""
+
+
+def test_extract_notes_versions_that_share_a_prefix_do_not_cross_match() -> None:
+    plain = "## 0.2.10\n\nten\n\n## 0.2.1-rc1\n\nrc\n\n## 0.2.1\n\none\n"
+    assert extract_notes(plain, "0.2.1") == "one"
+    assert extract_notes(plain, "0.2.10") == "ten"
+    assert extract_notes(plain, "0.2.1-rc1") == "rc"
+    assert extract_notes(plain, "0.2") == ""
+    bracket = (
+        "## [0.2.10] - 2026-11-10\n\nten\n\n## [0.2.1-rc1]\n\nrc\n\n"
+        "## [0.2.1] - 2026-11-01\n\none\n"
+    )
+    assert extract_notes(bracket, "0.2.1") == "one"
+    assert extract_notes(bracket, "0.2.10") == "ten"
+    assert extract_notes(bracket, "0.2.1-rc1") == "rc"
+    only_long = "## [0.2.10] - 2026-11-10\n\nten\n\n## [0.2.1-rc1]\n\nrc\n"
+    assert extract_notes(only_long, "0.2.1") == ""
+    assert extract_notes(only_long, "0.2") == ""
+
+
+def test_extract_notes_the_version_is_literal_not_a_pattern() -> None:
+    assert extract_notes("## [0x2x0]\n\nbody\n", "0.2.0") == ""
+    assert extract_notes("## 0x2x0\n\nbody\n", "0.2.0") == ""
+
+
+def test_extract_notes_empty_section_is_empty() -> None:
+    assert (
+        extract_notes("## [0.2.0] - 2026-11-10\n\n## [0.1.0] - 2026-10-01\n\nold\n", "0.2.0") == ""
+    )
+    assert extract_notes("## [0.2.0] - 2026-11-10\n", "0.2.0") == ""
+    assert extract_notes("## 0.2.0\n\n## 0.1.0\n\nold\n", "0.2.0") == ""
+
+
+def test_extract_notes_section_ends_at_the_next_level_two_heading_only() -> None:
+    text = (
+        "## [0.2.0] - 2026-11-10\n\n### Added\n\n- a\n\n#### deeper\n\n- b\n\n## [0.1.0]\n\nold\n"
+    )
+    assert extract_notes(text, "0.2.0") == "### Added\n\n- a\n\n#### deeper\n\n- b"
+
+
+def test_extract_notes_handles_crlf() -> None:
+    text = (
+        "# Changelog\r\n\r\n## [0.2.0] - 2026-11-10\r\n\r\n### Added\r\n\r\n- a\r\n\r\n"
+        "## [0.1.0]\r\n\r\nold\r\n"
+    )
+    assert extract_notes(text, "0.2.0") == "### Added\n\n- a"
+    plain = "## 0.2.0\r\n\r\nbody\r\n\r\n## 0.1.0\r\n\r\nold\r\n"
+    assert extract_notes(plain, "0.2.0") == "body"
+
+
+def test_extract_notes_realistic_keep_a_changelog_file() -> None:
+    assert extract_notes(KEEP_A_CHANGELOG, "0.2.0") == (
+        "### Added\n\n"
+        "- first widget, with a longer explanation\n"
+        "  that wraps onto a second line\n"
+        "- second widget\n\n"
+        "### Fixed\n\n"
+        "- a crash on empty input"
+    )
+    # the last section runs to the end of the file, link references included, as today
+    assert extract_notes(KEEP_A_CHANGELOG, "0.1.0").startswith(
+        "### Added\n\n- the very first thing"
+    )
+
+
 def _release_repo(repos, gate: str) -> Path:  # noqa: F811
     (repos.work / "CHANGELOG.md").write_text(CHANGELOG)
     script = repos.work / "gate.sh"

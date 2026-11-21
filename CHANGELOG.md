@@ -7,6 +7,15 @@ Jira board (`cloud-f1.atlassian.net`) for full history.
 
 ## Unreleased
 
+## 0.14.1 — 2026-11-21
+
+**Fixed** (ADLC-428): `release-backfill` and `release` read the GitHub Release note through
+`extract_notes`, which only matched a `## 0.2.0` heading. A repo whose CHANGELOG follows Keep a Changelog
+(`## [0.2.0] - 2026-11-10`) got an empty body and the stub note "See CHANGELOG.md for v0.2.0". The bracket form
+now matches too, with or without ` - date` or ` — date`; the closing `]` keeps `0.2.1` from matching
+`[0.2.10]`. The plain `## 0.2.0` form, `changelog-draft` output and `scripts/release.sh` are unchanged
+(the gate still greps for `## <version>`, so a bracket-style repo cannot use it as is).
+
 ## 0.14.0 — 2026-10-24
 
 **Idempotent card filing** (ADLC-410, plan 0010): a rerun of the same batch creates no new card, and every card the tool writes is read back.
